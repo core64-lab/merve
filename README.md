@@ -1,6 +1,13 @@
-# mlserver-fastapi-wrapper
+# Merve
 
-Wrap any Python predictor class into a production-ready FastAPI inference API using a simple YAML configuration file.
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Tests](https://img.shields.io/badge/tests-860%20passing-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-63%25-yellow.svg)](#testing)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+> **M**odel s**erve**r - Wrap any Python predictor class into a production-ready FastAPI inference API using a simple YAML configuration file.
 
 ## What This Does
 
@@ -311,6 +318,24 @@ See `examples/` directory for complete working examples:
 - Multi-classifier repository
 - Custom preprocessing
 - Model ensembles
+
+## Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run with coverage
+pytest tests/ --cov=mlserver --cov-report=term-missing
+
+# Run specific test categories
+pytest tests/unit/           # Unit tests
+pytest tests/integration/    # Integration tests
+```
+
+Current status: **860 tests passing**, **63% coverage**
 
 ## Troubleshooting
 
