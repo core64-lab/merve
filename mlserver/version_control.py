@@ -7,10 +7,7 @@ from typing import Optional, Tuple, Literal, Dict, Any
 from pathlib import Path
 import semver
 
-
-class VersionControlError(Exception):
-    """Version control related errors."""
-    pass
+from .errors import VersionControlError
 
 
 def get_mlserver_commit_hash() -> Optional[str]:
@@ -422,16 +419,18 @@ class GitVersionManager:
         # Check working directory is clean
         is_clean, error_msg = self.check_working_directory_clean()
         if not is_clean:
-            raise VersionControlError(f"Cannot tag version: {error_msg}")
+            raise VersionControlError(
+                message=f"Cannot tag version: {error_msg}",
+                suggestion="Commit or stash your changes first: git add . && git commit -m 'your message'"
+            )
 
         # Get mlserver commit hash
         mlserver_commit = get_mlserver_commit_hash()
         if not mlserver_commit:
             if not allow_missing_mlserver:
                 raise VersionControlError(
-                    "Could not determine mlserver commit hash. "
-                    "Ensure mlserver-fastapi-wrapper is installed from a git repository. "
-                    "For development/testing, use --allow-missing-mlserver flag."
+                    message="Could not determine mlserver commit hash",
+                    suggestion="Ensure mlserver-fastapi-wrapper is installed from git, or use --allow-missing-mlserver flag for development"
                 )
             else:
                 # Use placeholder for development
@@ -478,7 +477,10 @@ class GitVersionManager:
             }
 
         except subprocess.CalledProcessError as e:
-            raise VersionControlError(f"Failed to create tag: {e}")
+            raise VersionControlError(
+                message=f"Failed to create git tag: {e}",
+                suggestion="Ensure you have write access to the repository and the tag doesn't already exist"
+            )
 
     def check_registry_tag_exists(
         self,
@@ -640,9 +642,15 @@ def get_version_for_push(
         version = git_mgr.get_current_version(classifier_name)
         if not version:
             if classifier_name:
-                raise VersionControlError(f"No git tags found for classifier '{classifier_name}'. Please tag your release first.")
+                raise VersionControlError(
+                    message=f"No git tags found for classifier '{classifier_name}'",
+                    suggestion=f"Create a release tag first: mlserver tag --classifier {classifier_name}"
+                )
             else:
-                raise VersionControlError("No git tags found. Please tag your release first.")
+                raise VersionControlError(
+                    message="No git tags found",
+                    suggestion="Create a release tag first: mlserver tag"
+                )
         return version, f"git-tag ({classifier_name})" if classifier_name else "git-tag"
 
     elif version_source == "config":

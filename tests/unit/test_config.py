@@ -118,7 +118,7 @@ class TestApiConfig:
         assert config.adapter == "records"
         assert config.feature_order is None
         assert config.endpoints["predict"] is True
-        assert config.endpoints["batch_predict"] is True
+        # Note: batch_predict was removed - /predict handles both single and batch
         assert config.endpoints["predict_proba"] is True
         assert config.thread_safe_predict is False
 
@@ -130,7 +130,7 @@ class TestApiConfig:
             feature_order=feature_order,
             endpoints={
                 "predict": True,
-                "batch_predict": False,
+                # Note: batch_predict was removed - /predict handles both single and batch
                 "predict_proba": False
             },
             thread_safe_predict=True
@@ -139,7 +139,6 @@ class TestApiConfig:
         assert config.adapter == "ndarray"
         assert config.feature_order == feature_order
         assert config.endpoints["predict"] is True
-        assert config.endpoints["batch_predict"] is False
         assert config.endpoints["predict_proba"] is False
         assert config.thread_safe_predict is True
 
@@ -226,14 +225,18 @@ class TestAppConfig:
         with pytest.raises(ValidationError):
             AppConfig()
 
-    def test_missing_classifier(self):
-        with pytest.raises(ValidationError):
-            AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                )
+    def test_classifier_defaults_when_missing(self):
+        """Test that classifier gets smart defaults when not provided."""
+        config = AppConfig(
+            predictor=PredictorConfig(
+                module="test",
+                class_name="Test"
             )
+        )
+        # Should auto-generate classifier metadata
+        assert config.classifier is not None
+        assert "name" in config.classifier
+        assert "version" in config.classifier
 
     def test_valid_adapters(self):
         for adapter in ["records", "ndarray", "auto"]:
@@ -269,7 +272,7 @@ class TestConfigFromDict:
                 "adapter": "records",
                 "endpoints": {
                     "predict": True,
-                    "batch_predict": False,
+                    # Note: batch_predict was removed - /predict handles both single and batch
                     "predict_proba": True
                 }
             },
@@ -284,7 +287,7 @@ class TestConfigFromDict:
         assert config.server.port == 8080
         assert config.predictor.module == "my_predictor"
         assert config.api.adapter == "records"
-        assert config.api.endpoints["batch_predict"] is False
+        assert config.api.endpoints["predict_proba"] is True
         assert config.observability.metrics is True
         assert config.observability.structured_logging is False
 

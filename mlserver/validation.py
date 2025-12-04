@@ -3,9 +3,14 @@ Modular validation system for MLServer projects.
 
 This module provides pluggable validators that can be used at different
 stages of the MLServer workflow (init, tag, build, etc.).
+
+Includes:
+- Project structure validators (files, git, config)
+- Feature schema validators (input validation from feature_order)
+- Validation suites for common workflows
 """
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set, Tuple
 from pathlib import Path
 
 
@@ -22,6 +27,173 @@ class ValidationResult:
             self.warnings = []
         if self.details is None:
             self.details = {}
+
+
+@dataclass
+class FeatureValidationResult:
+    """Result of feature validation for a single record or batch."""
+    valid: bool
+    missing_features: List[str] = field(default_factory=list)
+    extra_features: List[str] = field(default_factory=list)
+    type_errors: List[Dict[str, Any]] = field(default_factory=list)
+    record_index: Optional[int] = None
+
+    def to_error_message(self) -> str:
+        """Generate human-readable error message."""
+        parts = []
+
+        if self.missing_features:
+            features_str = ", ".join(f"'{f}'" for f in self.missing_features[:5])
+            if len(self.missing_features) > 5:
+                features_str += f" ... and {len(self.missing_features) - 5} more"
+            parts.append(f"Missing features: {features_str}")
+
+        if self.extra_features:
+            features_str = ", ".join(f"'{f}'" for f in self.extra_features[:5])
+            if len(self.extra_features) > 5:
+                features_str += f" ... and {len(self.extra_features) - 5} more"
+            parts.append(f"Unexpected features: {features_str}")
+
+        if self.type_errors:
+            type_errs = [f"{e['feature']}: expected {e['expected']}, got {e['actual']}"
+                        for e in self.type_errors[:3]]
+            parts.append(f"Type errors: {'; '.join(type_errs)}")
+
+        prefix = f"Record {self.record_index}: " if self.record_index is not None else ""
+        return prefix + " | ".join(parts) if parts else "Valid"
+
+
+class FeatureSchemaValidator:
+    """Validate input features match expected schema from feature_order.
+
+    This validator catches feature mismatches at request time rather than
+    during model prediction, providing better error messages.
+
+    Usage:
+        validator = FeatureSchemaValidator(["feature1", "feature2", "feature3"])
+        result = validator.validate_record({"feature1": 1.0, "feature2": 2.0})
+        if not result.valid:
+            print(result.to_error_message())
+    """
+
+    def __init__(
+        self,
+        feature_order: List[str],
+        strict: bool = False,
+        allow_extra_features: bool = True
+    ):
+        """
+        Initialize feature schema validator.
+
+        Args:
+            feature_order: List of expected feature names in order
+            strict: If True, fail on any mismatch. If False, allow extra features.
+            allow_extra_features: If True, extra features in input are warnings, not errors.
+        """
+        self.feature_order = feature_order
+        self.feature_set: Set[str] = set(feature_order)
+        self.strict = strict
+        self.allow_extra_features = allow_extra_features
+
+    def validate_record(self, record: Dict[str, Any]) -> FeatureValidationResult:
+        """
+        Validate a single record against the expected schema.
+
+        Args:
+            record: Dictionary of feature name -> value
+
+        Returns:
+            FeatureValidationResult with validation details
+        """
+        record_features = set(record.keys())
+
+        missing = list(self.feature_set - record_features)
+        extra = list(record_features - self.feature_set)
+
+        # Determine validity based on mode
+        if self.strict:
+            valid = len(missing) == 0 and len(extra) == 0
+        else:
+            # Only missing features cause failure; extra features are allowed
+            valid = len(missing) == 0
+
+        return FeatureValidationResult(
+            valid=valid,
+            missing_features=sorted(missing),
+            extra_features=sorted(extra) if not self.allow_extra_features else []
+        )
+
+    def validate_records(self, records: List[Dict[str, Any]]) -> Tuple[bool, List[FeatureValidationResult]]:
+        """
+        Validate multiple records against the expected schema.
+
+        Args:
+            records: List of dictionaries to validate
+
+        Returns:
+            Tuple of (all_valid, list of results)
+        """
+        results = []
+        all_valid = True
+
+        for i, record in enumerate(records):
+            result = self.validate_record(record)
+            result.record_index = i
+            results.append(result)
+            if not result.valid:
+                all_valid = False
+
+        return all_valid, results
+
+    def get_validation_summary(self, results: List[FeatureValidationResult]) -> str:
+        """
+        Generate a summary of validation results.
+
+        Args:
+            results: List of validation results
+
+        Returns:
+            Human-readable summary string
+        """
+        invalid_count = sum(1 for r in results if not r.valid)
+        if invalid_count == 0:
+            return f"All {len(results)} records valid"
+
+        # Aggregate missing features across all records
+        all_missing = set()
+        for r in results:
+            all_missing.update(r.missing_features)
+
+        summary_parts = [f"{invalid_count}/{len(results)} records invalid"]
+
+        if all_missing:
+            missing_str = ", ".join(f"'{f}'" for f in sorted(all_missing)[:5])
+            if len(all_missing) > 5:
+                missing_str += f" ... and {len(all_missing) - 5} more"
+            summary_parts.append(f"Missing features: {missing_str}")
+
+        return " | ".join(summary_parts)
+
+    @classmethod
+    def from_config(cls, config: "AppConfig") -> Optional["FeatureSchemaValidator"]:
+        """
+        Create a validator from AppConfig if feature_order is configured.
+
+        Args:
+            config: Application configuration
+
+        Returns:
+            FeatureSchemaValidator or None if no feature_order configured
+        """
+        try:
+            base_path = Path(config.project_path) if config.project_path else None
+            feature_order = config.api.get_resolved_feature_order(base_path=base_path)
+
+            if feature_order:
+                return cls(feature_order)
+            return None
+        except Exception:
+            return None
 
 
 class Validator:

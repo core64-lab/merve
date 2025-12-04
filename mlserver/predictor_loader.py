@@ -6,6 +6,8 @@ import sys
 import logging
 from pathlib import Path
 
+from .errors import PredictorError
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,10 +26,9 @@ def _validate_model_files(init_kwargs: dict) -> None:
                 size_mb = size_bytes / (1024 * 1024)
 
                 if size_mb > file_size_limit_mb:
-                    raise ValueError(
-                        f"Model file {file_path} is too large: {size_mb:.1f}MB "
-                        f"(limit: {file_size_limit_mb}MB). Consider using a smaller model "
-                        f"or increase system resources."
+                    raise PredictorError(
+                        message=f"Model file {file_path} is too large: {size_mb:.1f}MB (limit: {file_size_limit_mb}MB)",
+                        suggestion="Consider using a smaller model, compressing the model file, or increase system resources",
                     )
                 elif size_mb > 100:  # Warn for files > 100MB
                     logger.warning(f"Loading large model file: {file_path} ({size_mb:.1f}MB)")
@@ -128,26 +129,27 @@ def load_predictor(module: str, class_name: str, init_kwargs: dict, config_dir: 
     try:
         mod = import_module(resolved_module)
     except ImportError as e:
-        # Provide helpful error message
-        error_msg = f"Failed to import module '{resolved_module}' (original: '{module}')"
-        if config_dir:
-            error_msg += f" from config directory '{config_dir}'"
-
-        suggestions = []
+        # Provide helpful error message with suggestion
+        suggestion_parts = []
         if '.' not in module:
-            suggestions.append(f"Try using just the filename: '{module}.py'")
-            suggestions.append(f"Or specify the full module path")
+            suggestion_parts.append(f"Try using just the filename: '{module}.py'")
+            suggestion_parts.append("Or specify the full module path (e.g., 'mypackage.predictor')")
+        if config_dir:
+            suggestion_parts.append(f"Ensure the predictor file exists in: {config_dir}")
 
-        if suggestions:
-            error_msg += "\n" + "\n".join(suggestions)
-
-        raise ImportError(error_msg) from e
+        raise PredictorError(
+            message=f"Failed to import module '{resolved_module}' (original: '{module}')",
+            suggestion=" | ".join(suggestion_parts) if suggestion_parts else None,
+        ) from e
 
     # Get the class from the module
     try:
         cls = getattr(mod, class_name)
     except AttributeError as e:
-        raise ImportError(f"Class {class_name!r} not found in module {resolved_module!r}") from e
+        raise PredictorError(
+            message=f"Class '{class_name}' not found in module '{resolved_module}'",
+            suggestion=f"Check that the class name in mlserver.yaml matches the class defined in your predictor file",
+        ) from e
 
     # Instantiate the predictor
     return cls(**(init_kwargs or {}))

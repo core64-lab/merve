@@ -85,6 +85,7 @@ class PredictResponse(BaseModel):
     """Response from prediction endpoints."""
     predictions: List[Any] = Field(description="Model predictions for each input record")
     time_ms: float = Field(description="Time taken for prediction in milliseconds")
+    predictor_class: Optional[str] = Field(None, description="Name of the predictor class used")
     metadata: Optional[ClassifierMetadataResponse] = Field(None, description="Comprehensive classifier metadata")
 
     model_config = ConfigDict(
@@ -144,6 +145,7 @@ class CustomPredictResponse(BaseModel):
         description="Optional extracted predictions for compatibility"
     )
     time_ms: float = Field(description="Time taken for prediction in milliseconds")
+    predictor_class: Optional[str] = Field(None, description="Name of the predictor class used")
     metadata: Optional[ClassifierMetadataResponse] = Field(
         None,
         description="Classifier version and metadata"

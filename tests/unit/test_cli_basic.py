@@ -8,7 +8,6 @@ from mlserver.cli import (
     resolve_relative_paths,
     _is_likely_file_path,
     _resolve_path,
-    main
 )
 
 
@@ -68,32 +67,48 @@ class TestPathResolution:
         assert resolved["name"] == "test_model"
 
 
-class TestMainFunction:
-    """Test main CLI function."""
+class TestTyperCLI:
+    """Test the Typer-based CLI (modern interface)."""
 
-    @patch('sys.argv')
-    @patch('mlserver.cli.cmd_serve')
-    def test_main_with_serve_command(self, mock_cmd_serve, mock_argv):
-        """Test main function with serve command."""
-        mock_argv.__getitem__ = lambda self, index: ['ml_server', 'serve', 'config.yaml'][index]
-        mock_argv.__len__ = lambda self: 3
+    def _get_command_names(self):
+        """Helper to get all registered command names."""
+        from mlserver.cli import app
+        # Typer commands: name can be None, fall back to callback.__name__
+        return [cmd.name or cmd.callback.__name__ for cmd in app.registered_commands]
 
-        # Mock the argument parsing
-        with patch('mlserver.cli._create_argument_parser') as mock_parser:
-            mock_args = MagicMock()
-            mock_args.command = 'serve'
-            mock_parser.return_value.parse_args.return_value = mock_args
+    def test_cli_app_exists(self):
+        """Test that the Typer app is properly defined."""
+        from mlserver.cli import app
+        assert app is not None
 
-            main()
+    def test_cli_has_serve_command(self):
+        """Test that serve command is registered."""
+        assert "serve" in self._get_command_names()
 
-            mock_cmd_serve.assert_called_once_with(mock_args)
+    def test_cli_has_validate_command(self):
+        """Test that validate command is registered."""
+        assert "validate" in self._get_command_names()
 
-    @patch('sys.argv', ['ml_server'])  # Mock sys.argv properly
-    def test_main_exception_propagates(self):
-        """Test main function allows exceptions to propagate."""
-        with patch('mlserver.cli._create_argument_parser') as mock_parser:
-            mock_parser.side_effect = Exception("Test error")
+    def test_cli_has_doctor_command(self):
+        """Test that doctor command is registered."""
+        assert "doctor" in self._get_command_names()
 
-            # The main function doesn't catch exceptions, so they should propagate
-            with pytest.raises(Exception, match="Test error"):
-                main()
+    def test_cli_has_build_command(self):
+        """Test that build command is registered."""
+        assert "build" in self._get_command_names()
+
+    def test_cli_has_version_command(self):
+        """Test that version command is registered."""
+        assert "version" in self._get_command_names()
+
+    def test_cli_has_test_command(self):
+        """Test that test command is registered (Phase 4)."""
+        assert "test" in self._get_command_names()
+
+    def test_cli_has_tag_command(self):
+        """Test that tag command is registered."""
+        assert "tag" in self._get_command_names()
+
+    def test_cli_has_push_command(self):
+        """Test that push command is registered."""
+        assert "push" in self._get_command_names()

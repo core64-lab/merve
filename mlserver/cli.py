@@ -309,14 +309,16 @@ def serve(
 @app.command()
 def version(
     path: str = typer.Option(".", "--path", "-p", help="Path to classifier project"),
+    classifier: Optional[str] = typer.Option(None, "--classifier", "-c", help="Classifier name (for multi-classifier configs)"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     detailed: bool = typer.Option(False, "--detailed", help="Show detailed MLServer tool information"),
 ):
     """📦 Display version information for the classifier project.
 
     Use --detailed to show MLServer tool version, commit, and installation source.
+    For multi-classifier configs, use --classifier to specify which one.
     """
-    version_info = get_version_info(path)
+    version_info = get_version_info(path, classifier_name=classifier)
 
     # If no classifier project found, show only MLServer tool version
     if "error" in version_info:
@@ -372,6 +374,28 @@ def version(
             console.print(f"[red]✗[/red] Error: {version_info['error']}", style="bold red")
             raise typer.Exit(1)
 
+    # Handle multi-classifier summary output
+    if version_info.get("multi_classifier"):
+        if json_output:
+            print(json.dumps(version_info, indent=2))
+        else:
+            table = Table(title="Multi-Classifier Project", show_header=True, title_style="bold cyan")
+            table.add_column("Classifier", style="yellow")
+            table.add_column("Version", style="cyan")
+            table.add_column("Description", style="dim")
+
+            for clf in version_info["classifiers"]:
+                table.add_row(clf["name"], clf["version"], clf.get("description", ""))
+
+            console.print(table)
+
+            git = version_info.get("git")
+            if git:
+                console.print(f"\n[dim]Git: {git['commit'][:7]} ({git['branch']})[/dim]")
+
+            console.print(f"\n[dim]Use --classifier <name> to see details for a specific classifier[/dim]")
+        return
+
     if json_output:
         # Add mlserver tool info to JSON output if detailed
         if detailed:
@@ -386,18 +410,18 @@ def version(
         print(json.dumps(version_info, indent=2))
     else:
         # Create a nice table for version info
-        table = Table(title="📦 Version Information", show_header=False, title_style="bold cyan")
+        table = Table(title="Version Information", show_header=False, title_style="bold cyan")
         table.add_column("Property", style="yellow")
         table.add_column("Value", style="cyan")
 
-        classifier = version_info["classifier"]
+        classifier_info = version_info["classifier"]
         model = version_info["model"]
         api = version_info["api"]
         git = version_info.get("git")
         issues = version_info.get("validation_issues", {})
 
-        table.add_row("Classifier", f"{classifier['name']} v{classifier['version']}")
-        table.add_row("Description", classifier['description'])
+        table.add_row("Classifier", f"{classifier_info['name']} v{classifier_info['version']}")
+        table.add_row("Description", classifier_info.get('description', ''))
         table.add_row("Model Version", model['version'])
         table.add_row("API Version", api['version'])
 
@@ -710,9 +734,17 @@ def images(
         "--path",
         help="Path to classifier project"
     ),
+    classifier: Optional[str] = typer.Option(
+        None,
+        "--classifier", "-c",
+        help="Classifier name (for multi-classifier configs)"
+    ),
 ):
-    """📋 List Docker images for the classifier project."""
-    image_list = list_images(str(path))
+    """📋 List Docker images for the classifier project.
+
+    For multi-classifier configs, use --classifier to filter images.
+    """
+    image_list = list_images(str(path), classifier_name=classifier)
 
     if not image_list:
         console.print("[yellow]No images found for this classifier project[/yellow]")
@@ -1424,6 +1456,349 @@ def init_github(
         console.print("[dim]The workflow will automatically build and publish your container to GHCR![/dim]")
     else:
         console.print(f"[red]✗[/red] {message}", style="bold red")
+        raise typer.Exit(1)
+
+
+@app.command()
+def validate(
+    config: Optional[Path] = typer.Argument(None, help="Path to config file (default: auto-detect)"),
+    strict: bool = typer.Option(False, "--strict", "-s", help="Fail on warnings"),
+    check_imports: bool = typer.Option(True, "--check-imports/--no-check-imports", help="Check predictor imports"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
+):
+    """Validate configuration without starting the server.
+
+    Checks:
+    - YAML syntax validity
+    - Required fields present
+    - Predictor module importable
+    - Model files exist
+    - Feature order file exists (if configured)
+
+    Examples:
+        mlserver validate
+        mlserver validate --strict
+        mlserver validate mlserver.yaml --no-check-imports
+    """
+    from .doctor import run_validation_checks, CheckStatus
+
+    try:
+        config_file = detect_config_file(config)
+        project_path = str(config_file.parent)
+    except typer.BadParameter as e:
+        console.print(f"[red]✗[/red] {e}")
+        raise typer.Exit(1)
+
+    console.print(f"\n[bold]Validating[/bold] {config_file.name}...\n")
+
+    report = run_validation_checks(project_path, check_imports=check_imports)
+
+    has_errors = False
+    has_warnings = False
+
+    for check in report.checks:
+        if check.status == CheckStatus.PASSED:
+            console.print(f"  [green]✓[/green] {check.name}")
+            if verbose and check.message:
+                console.print(f"    [dim]{check.message}[/dim]")
+        elif check.status == CheckStatus.WARNING:
+            has_warnings = True
+            console.print(f"  [yellow]⚠[/yellow] {check.name}: {check.message}")
+            if check.suggestion:
+                console.print(f"    [dim]→ {check.suggestion}[/dim]")
+        elif check.status == CheckStatus.FAILED:
+            has_errors = True
+            console.print(f"  [red]✗[/red] {check.name}: {check.message}")
+            if check.suggestion:
+                console.print(f"    [dim]→ {check.suggestion}[/dim]")
+        elif check.status == CheckStatus.SKIPPED:
+            if verbose:
+                console.print(f"  [dim]○[/dim] {check.name}: {check.message}")
+
+    console.print()
+
+    if has_errors:
+        console.print("[red]Configuration has errors. Fix them before serving.[/red]")
+        raise typer.Exit(1)
+    elif has_warnings and strict:
+        console.print("[yellow]Configuration has warnings (--strict mode).[/yellow]")
+        raise typer.Exit(1)
+    elif has_warnings:
+        console.print("[green]Configuration valid[/green] [dim](with warnings)[/dim]")
+    else:
+        console.print("[green]✓ Configuration valid! Ready to serve.[/green]")
+
+
+@app.command()
+def doctor(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed diagnostics"),
+    project_path: Path = typer.Option(".", "--path", "-p", help="Project path to diagnose"),
+):
+    """Diagnose common issues and environment problems.
+
+    Checks system requirements, project configuration, dependencies,
+    and provides recommendations for fixing issues.
+
+    Examples:
+        mlserver doctor
+        mlserver doctor --verbose
+        mlserver doctor --path ./my-project
+    """
+    from .doctor import run_all_checks, CheckStatus
+
+    console.print("\n[bold]MLServer Doctor[/bold] - Diagnosing your environment...\n")
+
+    report = run_all_checks(str(project_path), verbose=verbose)
+
+    # Group checks by category
+    system_checks = []
+    project_checks = []
+
+    for check in report.checks:
+        if check.name in ("Python version", "Docker", "Git"):
+            system_checks.append(check)
+        else:
+            project_checks.append(check)
+
+    # Display system checks
+    console.print("[bold]System Checks:[/bold]")
+    for check in system_checks:
+        _display_check_result(check, verbose)
+
+    # Display project checks
+    console.print("\n[bold]Project Checks:[/bold]")
+    for check in project_checks:
+        _display_check_result(check, verbose)
+
+    # Display recommendations
+    if report.recommendations:
+        console.print("\n[bold]Recommendations:[/bold]")
+        for i, rec in enumerate(report.recommendations[:5], 1):
+            console.print(f"  {i}. {rec}")
+
+    console.print()
+
+    if report.has_errors:
+        console.print("[red]Some checks failed. Review the issues above.[/red]")
+        raise typer.Exit(1)
+    elif report.has_warnings:
+        console.print("[yellow]All critical checks passed, but there are warnings.[/yellow]")
+    else:
+        console.print("[green]✓ All checks passed! Environment looks good.[/green]")
+
+
+def _display_check_result(check, verbose: bool = False):
+    """Helper to display a check result with consistent formatting."""
+    from .doctor import CheckStatus
+
+    if check.status == CheckStatus.PASSED:
+        console.print(f"  [green]✓[/green] {check.name}" + (f": {check.message}" if check.message and verbose else ""))
+    elif check.status == CheckStatus.WARNING:
+        console.print(f"  [yellow]⚠[/yellow] {check.name}: {check.message}")
+        if check.suggestion:
+            console.print(f"    [dim]→ {check.suggestion}[/dim]")
+    elif check.status == CheckStatus.FAILED:
+        console.print(f"  [red]✗[/red] {check.name}: {check.message}")
+        if check.suggestion:
+            console.print(f"    [dim]→ {check.suggestion}[/dim]")
+    elif check.status == CheckStatus.SKIPPED and verbose:
+        console.print(f"  [dim]○[/dim] {check.name}: {check.message}")
+
+
+@app.command()
+def test(
+    data: Optional[str] = typer.Option(None, "--data", "-d", help="JSON data for prediction"),
+    file: Optional[Path] = typer.Option(None, "--file", "-f", help="JSON file with request data"),
+    url: str = typer.Option("http://localhost:8000", "--url", "-u", help="Server URL"),
+    endpoint: str = typer.Option("/predict", "--endpoint", "-e", help="Prediction endpoint"),
+    pretty: bool = typer.Option(True, "--pretty/--raw", help="Pretty-print response"),
+):
+    """Test prediction against a running server.
+
+    Send a test request to verify the server is working correctly.
+
+    Examples:
+        mlserver test --data '{"feature1": 1.5, "feature2": 2.0}'
+        mlserver test --file sample_request.json
+        mlserver test --url http://localhost:8080 --endpoint /predict
+    """
+    import json
+    import time
+
+    try:
+        import httpx
+    except ImportError:
+        console.print("[red]✗[/red] httpx not installed. Run: pip install httpx")
+        raise typer.Exit(1)
+
+    # Prepare request data
+    if data:
+        try:
+            payload_data = json.loads(data)
+        except json.JSONDecodeError as e:
+            console.print(f"[red]✗[/red] Invalid JSON data: {e}")
+            raise typer.Exit(1)
+    elif file:
+        if not file.exists():
+            console.print(f"[red]✗[/red] File not found: {file}")
+            raise typer.Exit(1)
+        try:
+            with open(file, 'r') as f:
+                payload_data = json.load(f)
+        except json.JSONDecodeError as e:
+            console.print(f"[red]✗[/red] Invalid JSON in file: {e}")
+            raise typer.Exit(1)
+    else:
+        console.print("[red]✗[/red] Either --data or --file is required")
+        console.print("\n[dim]Examples:")
+        console.print("  mlserver test --data '{\"feature1\": 1.5}'")
+        console.print("  mlserver test --file request.json[/dim]")
+        raise typer.Exit(1)
+
+    # Wrap in payload format if needed
+    if "payload" not in payload_data and "instances" not in payload_data:
+        # Auto-wrap as records
+        if isinstance(payload_data, dict) and not any(k in payload_data for k in ["records", "ndarray"]):
+            payload_data = {"payload": {"records": [payload_data]}}
+        elif isinstance(payload_data, list):
+            payload_data = {"payload": {"records": payload_data}}
+
+    # Build URL
+    full_url = f"{url.rstrip('/')}{endpoint}"
+
+    console.print(f"\n[bold]Testing prediction...[/bold]")
+    console.print(f"  Server: [cyan]{url}[/cyan]")
+    console.print(f"  Endpoint: [cyan]{endpoint}[/cyan]")
+    console.print()
+
+    # Send request
+    try:
+        start_time = time.perf_counter()
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(full_url, json=payload_data)
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+        status_color = "green" if response.status_code == 200 else "red"
+        console.print(f"[bold]Response[/bold] ([{status_color}]{response.status_code} {response.reason_phrase}[/{status_color}], {elapsed_ms:.0f}ms):")
+
+        try:
+            response_data = response.json()
+            if pretty:
+                console.print_json(json.dumps(response_data, indent=2, default=str))
+            else:
+                console.print(json.dumps(response_data, default=str))
+        except json.JSONDecodeError:
+            console.print(response.text)
+
+        if response.status_code != 200:
+            raise typer.Exit(1)
+
+    except httpx.ConnectError:
+        console.print(f"[red]✗[/red] Cannot connect to {url}")
+        console.print(f"  [dim]→ Is the server running? Try: mlserver serve[/dim]")
+        raise typer.Exit(1)
+    except httpx.TimeoutException:
+        console.print(f"[red]✗[/red] Request timed out")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]✗[/red] Request failed: {e}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def schema(
+    output: Optional[Path] = typer.Option(
+        None, "--output", "-o",
+        help="Output path for schema file (default: stdout)"
+    ),
+    config_type: str = typer.Option(
+        "auto", "--type", "-t",
+        help="Config type: 'single', 'multi', or 'auto' (supports both)"
+    ),
+    setup: bool = typer.Option(
+        False, "--setup", "-s",
+        help="Show IDE setup instructions after generating schema"
+    ),
+    vscode: bool = typer.Option(
+        False, "--vscode",
+        help="Generate .vscode/settings.json for automatic schema association"
+    ),
+):
+    """Generate JSON schema for mlserver.yaml configuration.
+
+    Creates a JSON schema that enables IDE autocompletion and validation
+    for your mlserver.yaml configuration files.
+
+    Examples:
+        # Print schema to stdout
+        mlserver schema
+
+        # Save to default location with setup instructions
+        mlserver schema -o .mlserver/schema.json --setup
+
+        # Generate for multi-classifier configs only
+        mlserver schema --type multi -o schema.json
+
+        # Full VSCode setup
+        mlserver schema -o .mlserver/schema.json --vscode --setup
+    """
+    import json
+    from .schema_generator import (
+        get_schema_for_config_type,
+        save_schema,
+        get_vscode_settings_snippet,
+        print_schema_setup_instructions,
+    )
+
+    # Validate config_type
+    if config_type not in ("single", "multi", "auto"):
+        console.print(f"[red]✗[/red] Invalid config type: {config_type}")
+        console.print("  [dim]→ Use 'single', 'multi', or 'auto'[/dim]")
+        raise typer.Exit(1)
+
+    try:
+        # Generate schema
+        schema = get_schema_for_config_type(config_type)
+
+        if output:
+            # Save to file
+            save_schema(schema, str(output))
+            console.print(f"[green]✓[/green] Schema saved to: {output}")
+
+            # Optionally generate VSCode settings
+            if vscode:
+                vscode_dir = Path.cwd() / ".vscode"
+                vscode_dir.mkdir(exist_ok=True)
+                settings_path = vscode_dir / "settings.json"
+
+                # Load existing settings or create new
+                existing_settings = {}
+                if settings_path.exists():
+                    try:
+                        with open(settings_path) as f:
+                            existing_settings = json.load(f)
+                    except json.JSONDecodeError:
+                        pass
+
+                # Add yaml.schemas
+                vscode_settings = get_vscode_settings_snippet(str(output))
+                existing_settings.update(vscode_settings)
+
+                with open(settings_path, 'w') as f:
+                    json.dump(existing_settings, f, indent=2)
+
+                console.print(f"[green]✓[/green] VSCode settings updated: {settings_path}")
+
+            # Show setup instructions
+            if setup:
+                console.print(print_schema_setup_instructions(str(output)))
+
+        else:
+            # Print to stdout
+            console.print_json(json.dumps(schema, indent=2))
+
+    except Exception as e:
+        console.print(f"[red]✗[/red] Failed to generate schema: {e}")
         raise typer.Exit(1)
 
 

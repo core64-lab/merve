@@ -400,7 +400,7 @@ jobs:
 
           echo "### 📄 Container mlserver.yaml" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Note**: For multi-classifier repos, this shows the extracted single-classifier config for \\\`${{{{ steps.parse.outputs.classifier }}}}\\\`" >> $GITHUB_STEP_SUMMARY
+          echo "> **Note**: For multi-classifier repos, this shows the extracted single-classifier config for \\\\`${{{{ steps.parse.outputs.classifier }}}}\\\\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo '```yaml' >> $GITHUB_STEP_SUMMARY
 
@@ -559,12 +559,12 @@ jobs:
           echo "**Classifier:** ${{{{ steps.parse.outputs.classifier }}}}" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** ${{{{ steps.parse.outputs.version }}}}" >> $GITHUB_STEP_SUMMARY
           echo "**Tag:** ${{{{ steps.parse.outputs.full_tag }}}}" >> $GITHUB_STEP_SUMMARY
-          echo "**Registry:** ${{{{ steps.push.outputs.registry_type }}}} (\\`${{{{ steps.push.outputs.registry_url }}}}\\`)" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** ${{{{ steps.push.outputs.registry_type }}}} (\\\\`${{{{ steps.push.outputs.registry_url }}}}\\\\`)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Published Images:**" >> $GITHUB_STEP_SUMMARY
-          echo "- \\`${{{{ steps.push.outputs.image_latest }}}}\\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \\`${{{{ steps.push.outputs.image_version }}}}\\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \\`${{{{ steps.push.outputs.image_fulltag }}}}\\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \\\\`${{{{ steps.push.outputs.image_latest }}}}\\\\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \\\\`${{{{ steps.push.outputs.image_version }}}}\\\\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \\\\`${{{{ steps.push.outputs.image_fulltag }}}}\\\\`" >> $GITHUB_STEP_SUMMARY
 """
 
     return template

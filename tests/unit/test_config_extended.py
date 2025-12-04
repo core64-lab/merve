@@ -120,7 +120,11 @@ class TestAppConfigValidation:
         assert config.get_api_title() == "Test Classifier API v1.0.0"
 
     def test_get_base_path(self):
-        """Test get_base_path method."""
+        """Test get_base_path method.
+
+        Note: get_base_path now returns empty string - unified interface
+        where each deployment gets its own unique base URL anyway.
+        """
         config = AppConfig(
             predictor=PredictorConfig(
                 module="test.module",
@@ -129,7 +133,8 @@ class TestAppConfigValidation:
             classifier={"name": "test-classifier", "version": "1.0.0"},
             api=ApiConfig(version="v2")
         )
-        assert config.get_base_path() == "/v2/test-classifier"
+        # Unified interface - no version/classifier in URL path
+        assert config.get_base_path() == ""
 
     def test_is_endpoint_enabled(self):
         """Test is_endpoint_enabled method."""
@@ -340,30 +345,32 @@ class TestConfigValidationEdgeCases:
         assert config.init_kwargs["float_param"] == 3.14159
 
     def test_app_config_required_fields(self):
-        """Test AppConfig validation with missing required fields."""
-        # Missing predictor
+        """Test AppConfig validation - only predictor is required."""
+        # Missing predictor - should raise
         with pytest.raises(ValidationError):
             AppConfig(
                 classifier={"name": "test", "version": "1.0.0"},
                 api=ApiConfig()
             )
 
-        # Missing classifier
-        with pytest.raises(ValidationError):
-            AppConfig(
-                predictor=PredictorConfig(
-                    module="test.module",
-                    class_name="TestPredictor"
-                ),
-                api=ApiConfig()
-            )
+        # Missing classifier - should work with defaults (Phase 2: Config Simplification)
+        config = AppConfig(
+            predictor=PredictorConfig(
+                module="test.module",
+                class_name="TestPredictor"
+            ),
+            api=ApiConfig()
+        )
+        assert config.classifier is not None
+        assert "name" in config.classifier
 
-        # Missing api
-        with pytest.raises(ValidationError):
-            AppConfig(
-                predictor=PredictorConfig(
-                    module="test.module",
-                    class_name="TestPredictor"
-                ),
-                classifier={"name": "test", "version": "1.0.0"}
-            )
+        # Missing api - should work with defaults (Phase 2: Config Simplification)
+        config = AppConfig(
+            predictor=PredictorConfig(
+                module="test.module",
+                class_name="TestPredictor"
+            ),
+            classifier={"name": "test", "version": "1.0.0"}
+        )
+        assert config.api is not None
+        assert config.api.adapter == "records"  # Default

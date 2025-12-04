@@ -1,4 +1,5 @@
 from __future__ import annotations
+import threading
 import time
 from typing import Optional
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
@@ -101,17 +102,40 @@ class MetricsCollector:
         return CONTENT_TYPE_LATEST
 
 
-# Global metrics collector instance
+# Global metrics collector instance with thread safety
 _metrics_collector: Optional[MetricsCollector] = None
+_metrics_lock = threading.Lock()
 
 
 def init_metrics(model_name: Optional[str] = None) -> MetricsCollector:
-    """Initialize global metrics collector"""
+    """Initialize global metrics collector (thread-safe singleton).
+
+    Uses double-checked locking pattern to ensure thread safety while
+    minimizing lock contention after initialization.
+    """
     global _metrics_collector
-    _metrics_collector = MetricsCollector(model_name)
-    return _metrics_collector
+    # Fast path: already initialized
+    if _metrics_collector is not None:
+        return _metrics_collector
+
+    with _metrics_lock:
+        # Double-check inside lock to prevent race condition
+        if _metrics_collector is None:
+            _metrics_collector = MetricsCollector(model_name)
+        return _metrics_collector
 
 
 def get_metrics() -> Optional[MetricsCollector]:
-    """Get global metrics collector instance"""
+    """Get global metrics collector instance (thread-safe)."""
+    # Reading a reference is atomic in Python, no lock needed for get
     return _metrics_collector
+
+
+def reset_metrics() -> None:
+    """Reset global metrics collector (for testing purposes).
+
+    Thread-safe reset of the singleton instance.
+    """
+    global _metrics_collector
+    with _metrics_lock:
+        _metrics_collector = None

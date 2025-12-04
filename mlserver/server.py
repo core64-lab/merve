@@ -132,7 +132,11 @@ class PredictorWrapper:
 
 
 def _prepare_input_data(req: PredictRequest, config: AppConfig):
-    """Parse and prepare input data for prediction."""
+    """Parse and prepare input data for prediction.
+
+    Includes optional feature schema validation when feature_order is configured,
+    providing clearer error messages for missing/extra features.
+    """
     import logging
     logger = logging.getLogger(__name__)
 
@@ -145,15 +149,22 @@ def _prepare_input_data(req: PredictRequest, config: AppConfig):
 
     try:
         # Resolve feature_order from file if needed
-        feature_order = config.api.get_resolved_feature_order(
-            base_path=Path(config.project_path_internal) if config.project_path_internal else Path.cwd()
-        )
+        base_path = Path(config.project_path_internal) if config.project_path_internal else Path.cwd()
+        feature_order = config.api.get_resolved_feature_order(base_path=base_path)
+
+        # Optional: Validate features before parsing (provides better error messages)
+        # Only applies to records adapter with configured feature_order
+        if feature_order and config.api.adapter in ("records", "auto"):
+            _validate_input_features(req.payload, feature_order, logger)
 
         return to_ndarray(
             req.payload,
             adapter=config.api.adapter,
             feature_order=feature_order,
         )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
         # Log full traceback in DEBUG mode
         if logger.isEnabledFor(logging.DEBUG):
@@ -169,6 +180,60 @@ def _prepare_input_data(req: PredictRequest, config: AppConfig):
             )
         else:
             raise HTTPException(status_code=400, detail="Input parsing failed. Please check your input format.")
+
+
+def _validate_input_features(payload: dict, feature_order: list, logger) -> None:
+    """Validate input features match expected schema.
+
+    Provides clear error messages when features are missing or unexpected.
+    """
+    from .validation import FeatureSchemaValidator
+
+    # Extract records from various payload formats
+    records = None
+    if isinstance(payload, dict):
+        records = payload.get("records") or payload.get("instances")
+        if records is None and "features" in payload:
+            # Single record via 'features' key
+            records = [payload["features"]]
+        elif records is None and not any(k in payload for k in ["ndarray", "inputs"]):
+            # Treat as single record if no known keys
+            records = [payload]
+
+    if not records or not isinstance(records, list):
+        # Not a records format, skip validation
+        return
+
+    # Validate records
+    validator = FeatureSchemaValidator(feature_order)
+    all_valid, results = validator.validate_records(records)
+
+    if not all_valid:
+        # Build helpful error message
+        invalid_results = [r for r in results if not r.valid]
+
+        # Collect all missing features across records
+        all_missing = set()
+        for r in invalid_results:
+            all_missing.update(r.missing_features)
+
+        if len(invalid_results) == 1:
+            error_msg = invalid_results[0].to_error_message()
+        else:
+            error_msg = validator.get_validation_summary(results)
+
+        # Log details
+        logger.warning(f"Feature validation failed: {error_msg}")
+
+        # Provide suggestion
+        suggestion = f"Expected features: {', '.join(feature_order[:5])}"
+        if len(feature_order) > 5:
+            suggestion += f" ... and {len(feature_order) - 5} more"
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Feature validation failed: {error_msg}. {suggestion}"
+        )
 
 
 def _track_prediction_metrics(endpoint_path: str, duration_seconds: float,
@@ -487,6 +552,9 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         nonlocal predictor_wrapper
+        import logging
+        startup_logger = logging.getLogger(__name__)
+
         # Load predictor once at startup
         # Pass config_dir for intelligent module resolution
         config_dir = config.project_path if config.project_path else None
@@ -511,6 +579,24 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
         # Initialize metrics if enabled
         if config.observability.metrics:
             init_metrics(predictor_wrapper.name)
+
+        # Model warmup: run a dummy prediction to initialize model internals
+        # This reduces latency on the first real prediction request
+        if config.api.warmup_on_start:
+            startup_logger.info("Warming up model...")
+            try:
+                warmup_start = time.perf_counter()
+                warmup_data = _create_warmup_data(config)
+                if warmup_data is not None:
+                    # Run warmup prediction (result is discarded)
+                    _ = predictor_wrapper.predict(warmup_data)
+                    warmup_duration = time.perf_counter() - warmup_start
+                    startup_logger.info(f"Model warmup complete in {warmup_duration:.3f}s")
+                else:
+                    startup_logger.info("Model warmup skipped (no feature_order configured)")
+            except Exception as e:
+                # Warmup failure is non-fatal - log and continue
+                startup_logger.warning(f"Model warmup failed (non-fatal): {e}")
 
         yield
         # Shutdown
@@ -621,6 +707,39 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _create_warmup_data(config: AppConfig) -> Optional[np.ndarray]:
+    """Create minimal warmup data for model initialization.
+
+    Generates a single row of zeros based on feature_order configuration.
+    This triggers model initialization (e.g., loading weights, JIT compilation)
+    without affecting actual predictions.
+
+    Args:
+        config: Application configuration with feature_order
+
+    Returns:
+        numpy array with shape (1, n_features) or None if no feature_order
+    """
+    try:
+        from pathlib import Path
+
+        # Try to get feature order from config
+        base_path = Path(config.project_path) if config.project_path else None
+        feature_order = config.api.get_resolved_feature_order(base_path=base_path)
+
+        if feature_order:
+            # Create single row of zeros with correct number of features
+            return np.zeros((1, len(feature_order)))
+
+        # If no feature_order, try to infer from predictor if it has n_features attribute
+        # This is a best-effort approach for models without explicit feature_order
+        return None
+
+    except Exception:
+        # If anything fails, return None (warmup will be skipped)
+        return None
+
+
 def _to_jsonable(x, _depth=0):
     """Convert any Python object to JSON-serializable format.
 
@@ -637,12 +756,15 @@ def _to_jsonable(x, _depth=0):
     Raises:
         RecursionError: If recursion depth exceeds maximum limit
     """
+    import logging
+    _logger = logging.getLogger(__name__)
+
     # Maximum recursion depth to prevent stack overflow
     _MAX_RECURSION_DEPTH = 50
 
     # Recursion depth check
     if _depth > _MAX_RECURSION_DEPTH:
-        logger.warning(f"Max recursion depth {_MAX_RECURSION_DEPTH} exceeded in _to_jsonable")
+        _logger.warning(f"Max recursion depth {_MAX_RECURSION_DEPTH} exceeded in _to_jsonable")
         raise RecursionError(f"Maximum recursion depth exceeded: {_MAX_RECURSION_DEPTH}")
 
     # Fast path: None

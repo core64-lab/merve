@@ -12,6 +12,8 @@ from datetime import datetime
 import yaml
 from pydantic import BaseModel, Field, validator
 
+from .errors import ConfigurationError
+
 
 @dataclass
 class GitInfo:
@@ -151,14 +153,26 @@ def load_classifier_metadata(project_path: str) -> ClassifierMetadata:
     mlserver_file = Path(project_path) / "mlserver.yaml"
 
     if not mlserver_file.exists():
-        raise FileNotFoundError(f"mlserver.yaml not found in {project_path}")
+        raise ConfigurationError(
+            message=f"mlserver.yaml not found in {project_path}",
+            suggestion="Run 'mlserver init' to create a new project, or check you're in the correct directory"
+        )
 
-    with open(mlserver_file, 'r') as f:
-        full_config = yaml.safe_load(f)
+    try:
+        with open(mlserver_file, 'r') as f:
+            full_config = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        raise ConfigurationError(
+            message=f"Invalid YAML syntax in mlserver.yaml: {e}",
+            suggestion="Check your mlserver.yaml for syntax errors (indentation, colons, quotes)"
+        )
 
     # Extract classifier metadata from unified config
     if 'classifier' not in full_config:
-        raise ValueError(f"mlserver.yaml in {project_path} missing required 'classifier' section")
+        raise ConfigurationError(
+            message="mlserver.yaml missing required 'classifier' section",
+            suggestion="Add a 'classifier:' section with 'name:' and 'version:' fields"
+        )
 
     metadata_dict = {
         'classifier': full_config.get('classifier', {}),
@@ -244,8 +258,14 @@ def validate_version_consistency(metadata: ClassifierMetadata, project_path: str
     return issues
 
 
-def get_version_info(project_path: str = ".") -> Dict[str, Any]:
-    """Get comprehensive version information for a classifier project."""
+def get_version_info(project_path: str = ".", classifier_name: Optional[str] = None) -> Dict[str, Any]:
+    """Get comprehensive version information for a classifier project.
+
+    Args:
+        project_path: Path to the project directory
+        classifier_name: For multi-classifier configs, specify which classifier to get info for.
+                        If None and multi-classifier, returns info about all classifiers.
+    """
     try:
         mlserver_config_path = os.path.join(project_path, "mlserver.yaml")
 
@@ -253,12 +273,48 @@ def get_version_info(project_path: str = ".") -> Dict[str, Any]:
             return {"error": f"mlserver.yaml not found in {project_path}"}
 
         from .config import AppConfig
-        import yaml
 
         with open(mlserver_config_path, 'r') as f:
             raw_config = yaml.safe_load(f)
 
-        config = AppConfig.model_validate(raw_config)
+        # Check if this is a multi-classifier config
+        is_multi_classifier = "classifiers" in raw_config
+
+        if is_multi_classifier:
+            from .multi_classifier import load_multi_classifier_config, extract_single_classifier_config
+
+            multi_config = load_multi_classifier_config(mlserver_config_path)
+            available_classifiers = list(multi_config.classifiers.keys())
+
+            if classifier_name:
+                # Get info for specific classifier
+                if classifier_name not in multi_config.classifiers:
+                    return {"error": f"Classifier '{classifier_name}' not found. Available: {available_classifiers}"}
+
+                config = extract_single_classifier_config(multi_config, classifier_name)
+            else:
+                # Return summary of all classifiers
+                git_info = get_git_info(project_path)
+                classifiers_info = []
+                for name in available_classifiers:
+                    clf_config = multi_config.classifiers[name]
+                    clf_meta = clf_config.get("classifier", clf_config.get("metadata", {}))
+                    classifiers_info.append({
+                        "name": name,
+                        "version": clf_meta.get("version", "unknown"),
+                        "description": clf_meta.get("description", "")
+                    })
+
+                return {
+                    "multi_classifier": True,
+                    "classifiers": classifiers_info,
+                    "default_classifier": multi_config.default_classifier or (available_classifiers[0] if available_classifiers else None),
+                    "git": git_info.__dict__ if git_info else None,
+                    "timestamp": datetime.now().isoformat(),
+                    "config_source": "mlserver.yaml"
+                }
+        else:
+            config = AppConfig.model_validate(raw_config)
 
         if not config.classifier:
             return {"error": "mlserver.yaml missing required 'classifier' section"}

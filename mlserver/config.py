@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .version import ClassifierMetadata, load_classifier_metadata
 from .settings import get_settings
+from .errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -109,15 +110,24 @@ class ApiConfig(BaseModel):
         default=False,
         description="For dict responses, extract values into predictions list"
     )
+    # Warmup configuration
+    warmup_on_start: bool = Field(
+        default=True,
+        description="Run a warmup prediction at startup to initialize model internals and reduce first-request latency"
+    )
 
     def get_resolved_feature_order(self, base_path: Optional[Path] = None) -> Optional[List[str]]:
         """Resolve feature_order, loading from file if it's a path.
 
         Args:
-            base_path: Base directory to resolve relative paths from
+            base_path: Base directory to resolve relative paths from.
+                       File paths must resolve within this directory (security).
 
         Returns:
             List of feature names or None
+
+        Raises:
+            ValueError: If file path resolves outside base_path (path traversal attempt)
         """
         # Return cached value if already resolved
         if self._resolved_feature_order is not None:
@@ -136,13 +146,29 @@ class ApiConfig(BaseModel):
             try:
                 # Resolve path relative to base_path if provided
                 if base_path:
-                    file_path = base_path / self.feature_order
+                    # Resolve to absolute path
+                    resolved_base = base_path.resolve()
+                    file_path = (base_path / self.feature_order).resolve()
+
+                    # Security: Prevent path traversal attacks
+                    # Ensure resolved path is within the base directory
+                    try:
+                        file_path.relative_to(resolved_base)
+                    except ValueError:
+                        raise ConfigurationError(
+                            message=f"Security error: feature_order path '{self.feature_order}' "
+                            f"resolves to '{file_path}' which is outside the project directory.",
+                            suggestion="Use a relative path within your project directory, like 'features.json' or 'config/features.json'",
+                        )
                 else:
-                    file_path = Path(self.feature_order)
+                    file_path = Path(self.feature_order).resolve()
 
                 # Check if file exists
                 if not file_path.exists():
-                    logger.warning(f"Feature order file not found: {file_path}")
+                    logger.warning(
+                        f"Feature order file not found: {file_path}. "
+                        f"Paths are relative to the config file directory."
+                    )
                     return None
 
                 # Load JSON file
@@ -153,6 +179,14 @@ class ApiConfig(BaseModel):
                 if not isinstance(features, list):
                     raise ValueError(f"Feature order file must contain a JSON array, got {type(features)}")
 
+                # Validate all items are strings
+                non_strings = [i for i, f in enumerate(features) if not isinstance(f, str)]
+                if non_strings:
+                    raise ValueError(
+                        f"Feature order must be a list of strings. "
+                        f"Found non-string values at indices: {non_strings[:5]}"
+                    )
+
                 logger.info(f"Loaded {len(features)} features from {file_path}")
                 self._resolved_feature_order = features
                 return features
@@ -160,6 +194,9 @@ class ApiConfig(BaseModel):
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse feature order file as JSON: {e}")
                 return None
+            except (ValueError, ConfigurationError):
+                # Re-raise ValueError and ConfigurationError (including our security error)
+                raise
             except Exception as e:
                 logger.error(f"Failed to load feature order from file: {e}")
                 return None
@@ -265,14 +302,20 @@ class DeploymentConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    server: ServerConfig = ServerConfig()
+    server: ServerConfig = Field(default_factory=ServerConfig)
     predictor: PredictorConfig
-    observability: ObservabilityConfig = ObservabilityConfig()
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
-    # Modern format (mlserver.yaml)
-    classifier: Dict[str, Any]  # Required classifier metadata
+    # Modern format (mlserver.yaml) - now optional with smart defaults
+    classifier: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Classifier metadata (name, version, description). Auto-generated if not provided."
+    )
     model: Optional[Dict[str, Any]] = Field(default=None)  # Model metadata dict
-    api: ApiConfig
+    api: Optional[ApiConfig] = Field(
+        default=None,
+        description="API configuration. Uses sensible defaults if not provided."
+    )
     build: Optional[BuildConfig] = Field(default=None)
     deployment: Optional[DeploymentConfig] = Field(default=None)  # Deployment configuration
 
@@ -282,6 +325,27 @@ class AppConfig(BaseModel):
 
     def model_post_init(self, __context) -> None:
         """Post-initialization processing for modern config format."""
+        # Apply smart defaults for classifier if not provided
+        if self.classifier is None:
+            # Auto-generate classifier metadata from predictor class name
+            class_name = self.predictor.class_name
+            # Convert CamelCase to kebab-case for name
+            import re
+            name = re.sub(r'(?<!^)(?=[A-Z])', '-', class_name).lower()
+            # Remove common suffixes like -predictor, -classifier
+            for suffix in ['-predictor', '-classifier', '-model']:
+                if name.endswith(suffix):
+                    name = name[:-len(suffix)]
+                    break
+            object.__setattr__(self, 'classifier', {
+                'name': name or 'classifier',
+                'version': '0.1.0'
+            })
+
+        # Apply smart defaults for api if not provided
+        if self.api is None:
+            object.__setattr__(self, 'api', ApiConfig())
+
         # Convert classifier dict to ClassifierMetadata format
         try:
             from .version import ClassifierMetadata

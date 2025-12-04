@@ -27,9 +27,8 @@ from .version_control import (
 from .settings import get_settings
 
 
-class ContainerError(Exception):
-    """Container build/push related error."""
-    pass
+# Import ContainerError from errors module for consistency
+from .errors import ContainerError
 
 
 def generate_container_labels(
@@ -1059,9 +1058,10 @@ def _prepare_container_metadata(config: 'AppConfig', project_path: str) -> 'Clas
             return config.classifier
 
     # If no classifier metadata found, return error
-    raise ValueError(
-        f"mlserver.yaml in {project_path} missing required 'classifier' section. "
-        "Run 'mlserver init' to create a proper configuration."
+    from .errors import ConfigurationError
+    raise ConfigurationError(
+        message=f"mlserver.yaml in {project_path} missing required 'classifier' section",
+        suggestion="Run 'mlserver init' to create a proper configuration, or add a 'classifier:' section with 'name:' and 'version:' fields"
     )
 
 
@@ -1361,7 +1361,10 @@ def build_container(
             print(f"Warning: Error during cleanup: {cleanup_error}")
 
         if process.returncode != 0:
-            raise ContainerError(f"Docker build failed with exit code {process.returncode}")
+            raise ContainerError(
+                message=f"Docker build failed with exit code {process.returncode}",
+                suggestion="Check the build output above for errors. Common issues: missing files, invalid Dockerfile syntax, or network issues pulling base image"
+            )
 
         return {
             "success": True,
@@ -1400,7 +1403,10 @@ def push_container(
     """
     try:
         if not registry:
-            raise ContainerError("Registry URL is required for push operation")
+            raise ContainerError(
+                message="Registry URL is required for push operation",
+                suggestion="Specify registry with --registry flag or configure it in mlserver.yaml under deployment.registry.url"
+            )
 
         # Load classifier metadata
         metadata = load_classifier_metadata(project_path)
@@ -1452,15 +1458,21 @@ def push_container(
         }
 
 
-def list_images(project_path: str = ".") -> List[Dict[str, Any]]:
-    """List Docker images for the classifier project."""
+def list_images(project_path: str = ".", classifier_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    """List Docker images for the classifier project.
+
+    Args:
+        project_path: Path to the project directory
+        classifier_name: For multi-classifier configs, filter to this classifier
+    """
     try:
-        metadata = load_classifier_metadata(project_path)
-        # Get repository name from metadata or auto-detect
-        if hasattr(metadata.classifier, 'repository') and metadata.classifier.repository:
-            repository = metadata.classifier.repository
-        else:
-            repository = get_repository_name(project_path)
+        # Get repository name - handles both single and multi-classifier configs
+        repository = get_repository_name(project_path)
+
+        # For multi-classifier, we may also want to filter by classifier name
+        classifier_filter = None
+        if classifier_name:
+            classifier_filter = f"{repository}/{classifier_name}"
 
         # Use simpler Docker format without table to avoid parsing issues
         # Format: REPOSITORY:TAG|IMAGE_ID|CREATED|SIZE
@@ -1484,8 +1496,16 @@ def list_images(project_path: str = ".") -> List[Dict[str, Any]]:
             parts = line.split('|')
             if len(parts) >= 4:
                 repo_tag = parts[0]
-                # Check if this image belongs to our repository
-                if repo_tag.startswith(repository):
+                # Check if this image belongs to our repository/classifier
+                # For classifier filter: match exact prefix like "repo/classifier"
+                # For repository only: match "repo" or "repo/"
+                match = False
+                if classifier_filter and repo_tag.startswith(classifier_filter):
+                    match = True
+                elif not classifier_filter and (repo_tag.startswith(repository + "/") or repo_tag.startswith(repository + ":")):
+                    match = True
+
+                if match:
                     images.append({
                         "tag": repo_tag,
                         "image_id": parts[1],

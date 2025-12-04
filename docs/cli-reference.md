@@ -673,6 +673,181 @@ mlserver clean --keep-latest
 
 ---
 
+## Development & Diagnostic Commands
+
+### `validate` - Validate Configuration
+
+Validate mlserver.yaml configuration without starting the server.
+
+#### Syntax
+```bash
+mlserver validate [config] [options]
+```
+
+#### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `config` | Path to config file | Auto-detect |
+| `--strict`, `-s` | Fail on warnings | `false` |
+| `--check-imports/--no-check-imports` | Check predictor imports | `true` |
+| `--verbose`, `-v` | Show detailed output | `false` |
+
+#### Examples
+```bash
+# Validate auto-detected config
+mlserver validate
+
+# Validate specific config with verbose output
+mlserver validate mlserver.yaml -v
+
+# Strict mode - fail on any warning
+mlserver validate --strict
+```
+
+#### Output
+```
+Validating configuration...
+  ✓ Configuration file: Found mlserver.yaml
+  ✓ YAML syntax: Valid
+  ✓ Configuration schema: Valid
+  ✓ Predictor import: Module 'predictor' loadable
+
+✓ All validation checks passed!
+```
+
+---
+
+### `doctor` - Diagnose Environment
+
+Diagnose common issues and environment problems.
+
+#### Syntax
+```bash
+mlserver doctor [options]
+```
+
+#### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--verbose`, `-v` | Show detailed diagnostics | `false` |
+| `--path`, `-p` | Project path to diagnose | `.` |
+
+#### Examples
+```bash
+# Run all diagnostics
+mlserver doctor
+
+# Verbose output
+mlserver doctor -v
+
+# Check specific project
+mlserver doctor --path /path/to/project
+```
+
+#### Output
+```
+Running system checks...
+  ✓ Python version: 3.12.3 (>= 3.9 required)
+  ✓ Docker: Available (v24.0.0)
+  ✓ Git: Available (v2.40.0)
+
+Running project checks...
+  ✓ Configuration file: Found
+  ✓ Configuration schema: Valid
+  ⚠ Predictor import: NumPy version conflict
+    → Try: pip install numpy>=1.24
+
+Summary: 5 passed, 0 failed, 1 warning
+```
+
+---
+
+### `test` - Test Prediction
+
+Send a test request to a running server.
+
+#### Syntax
+```bash
+mlserver test [options]
+```
+
+#### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--data`, `-d` | JSON data for prediction | None |
+| `--file`, `-f` | JSON file with request data | None |
+| `--url`, `-u` | Server URL | `http://localhost:8000` |
+| `--endpoint`, `-e` | Prediction endpoint | `/predict` |
+| `--pretty/--raw` | Pretty-print response | `true` |
+
+#### Examples
+```bash
+# Test with inline JSON
+mlserver test --data '{"feature1": 1.5, "feature2": 2.0}'
+
+# Test with JSON file
+mlserver test --file sample_request.json
+
+# Test custom endpoint
+mlserver test --url http://localhost:8080 --endpoint /v1/model/predict
+```
+
+---
+
+### `schema` - Generate JSON Schema
+
+Generate JSON schema for IDE autocompletion and validation.
+
+#### Syntax
+```bash
+mlserver schema [options]
+```
+
+#### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--output`, `-o` | Output path for schema file | stdout |
+| `--type`, `-t` | Config type: 'single', 'multi', 'auto' | `auto` |
+| `--setup`, `-s` | Show IDE setup instructions | `false` |
+| `--vscode` | Generate .vscode/settings.json | `false` |
+
+#### Examples
+```bash
+# Print schema to stdout
+mlserver schema
+
+# Save schema with setup instructions
+mlserver schema -o .mlserver/schema.json --setup
+
+# Full VSCode setup
+mlserver schema -o .mlserver/schema.json --vscode --setup
+
+# Generate for multi-classifier only
+mlserver schema --type multi -o schema.json
+```
+
+#### VSCode Integration
+
+After generating the schema, add to your `mlserver.yaml`:
+```yaml
+# yaml-language-server: $schema=.mlserver/schema.json
+
+server:
+  port: 8000
+# ... IDE autocomplete now works!
+```
+
+Or add to `.vscode/settings.json`:
+```json
+{
+  "yaml.schemas": {
+    ".mlserver/schema.json": ["mlserver.yaml", "**/mlserver.yaml"]
+  }
+}
+```
+
+---
+
 ## Environment Variables
 
 Override CLI defaults using environment variables:

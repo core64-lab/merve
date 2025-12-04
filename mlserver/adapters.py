@@ -4,8 +4,17 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from .errors import AdapterError as BaseAdapterError
 
-class AdapterError(ValueError):
+
+# Re-export AdapterError from errors module for backward compatibility
+# Also inherit from ValueError to maintain isinstance checks
+class AdapterError(BaseAdapterError, ValueError):
+    """Error converting input/output data.
+
+    Inherits from both BaseAdapterError (for unified error handling)
+    and ValueError (for backward compatibility with existing code).
+    """
     pass
 
 
@@ -21,6 +30,13 @@ def _get_cached_feature_order(records: List[Dict], config_order: Optional[List[s
     """Get feature order with caching for performance optimization.
 
     Uses LRU cache with size limit to prevent memory issues while maintaining performance.
+
+    IMPORTANT: Cache key is computed from ALL unique features across ALL records,
+    not just the first record. This prevents cache collisions when records have
+    heterogeneous schemas (different records with different feature sets).
+
+    Feature order is computed using first-seen order (preserving insertion order)
+    rather than sorted order, which better matches typical data science workflows.
     """
     # Use explicit feature order if provided
     if config_order:
@@ -29,25 +45,36 @@ def _get_cached_feature_order(records: List[Dict], config_order: Optional[List[s
     if not records:
         return []
 
-    # Create cache key from feature set of first record
-    first_record_features = frozenset(records[0].keys())
+    # Create cache key from ALL unique features across ALL records
+    # This prevents cache collisions for heterogeneous record batches
+    all_features_set = set()
+    for record in records:
+        all_features_set.update(record.keys())
+
+    cache_key = frozenset(all_features_set)
 
     # Check if in cache and move to end (most recently used)
-    if first_record_features in _FEATURE_ORDER_CACHE:
-        _FEATURE_ORDER_CACHE.move_to_end(first_record_features)
-        return _FEATURE_ORDER_CACHE[first_record_features]
+    if cache_key in _FEATURE_ORDER_CACHE:
+        _FEATURE_ORDER_CACHE.move_to_end(cache_key)
+        return _FEATURE_ORDER_CACHE[cache_key]
 
-    # Compute union of all features across all records
-    all_features = {feature for record in records for feature in record.keys()}
-    feature_order = sorted(all_features)
+    # Compute feature order using first-seen order (preserves insertion order)
+    # This is more intuitive than sorted order for data science workflows
+    seen_features = []
+    seen_set = set()
+    for record in records:
+        for key in record.keys():
+            if key not in seen_set:
+                seen_features.append(key)
+                seen_set.add(key)
 
     # Add to cache with LRU eviction if needed
     if len(_FEATURE_ORDER_CACHE) >= _CACHE_MAX_SIZE:
         # Remove least recently used item (first item in OrderedDict)
         _FEATURE_ORDER_CACHE.popitem(last=False)
 
-    _FEATURE_ORDER_CACHE[first_record_features] = feature_order
-    return feature_order
+    _FEATURE_ORDER_CACHE[cache_key] = seen_features
+    return seen_features
 
 
 def clear_feature_cache() -> None:
@@ -86,16 +113,26 @@ def _records_to_numpy_fast(records: List[Dict], feature_order: List[str]) -> np.
     MAX_FEATURES = 1000
 
     if len(records) > MAX_RECORDS:
-        raise AdapterError(f"Too many records: {len(records)} exceeds limit of {MAX_RECORDS}")
+        raise AdapterError(
+            message=f"Too many records: {len(records)} exceeds limit of {MAX_RECORDS}",
+            suggestion="Split your batch into smaller chunks or increase MAX_RECORDS limit"
+        )
     if len(feature_order) > MAX_FEATURES:
-        raise AdapterError(f"Too many features: {len(feature_order)} exceeds limit of {MAX_FEATURES}")
+        raise AdapterError(
+            message=f"Too many features: {len(feature_order)} exceeds limit of {MAX_FEATURES}",
+            suggestion="Reduce feature count or increase MAX_FEATURES limit"
+        )
 
     # Validate that all records have all required features
     for i, record in enumerate(records):
         missing_features = [f for f in feature_order if f not in record]
         if missing_features:
+            missing_str = ", ".join(f"'{f}'" for f in missing_features[:5])
+            if len(missing_features) > 5:
+                missing_str += f" ... and {len(missing_features) - 5} more"
             raise AdapterError(
-                f"Record {i} is missing required features: {missing_features}"
+                message=f"Record {i} is missing required features: {missing_str}",
+                suggestion="Ensure all records contain the required features defined in feature_order"
             )
 
     # Vectorized approach: Extract all values at once for better performance
@@ -111,7 +148,10 @@ def _records_to_numpy_fast(records: List[Dict], feature_order: List[str]) -> np.
 def _infer_adapter_type(payload: dict) -> str:
     """Infer adapter type from payload structure using heuristics."""
     if payload is None:
-        raise AdapterError("Payload cannot be None")
+        raise AdapterError(
+            message="Payload cannot be None",
+            suggestion="Send a JSON payload with 'records', 'instances', or 'ndarray' key"
+        )
 
     # Check for records format indicators
     if "instances" in payload or "records" in payload:
@@ -140,18 +180,25 @@ def _extract_ndarray_data(payload: dict) -> np.ndarray:
 
     if array_data is None:
         raise AdapterError(
-            "Expected 'ndarray' or 'inputs' field in payload, or a direct list for ndarray adapter"
+            message="Expected 'ndarray' or 'inputs' field in payload for ndarray adapter",
+            suggestion="Use format: {\"ndarray\": [[val1, val2, ...], [val3, val4, ...]]} or {\"inputs\": [...]}"
         )
 
     # Check for empty arrays
     if not array_data:
-        raise AdapterError("Array data cannot be empty")
+        raise AdapterError(
+            message="Array data cannot be empty",
+            suggestion="Provide at least one row of data in the ndarray/inputs field"
+        )
 
     # Convert to numpy array and ensure 2D shape
     try:
         arr = np.asarray(array_data, dtype=object)
     except ValueError as e:
-        raise AdapterError(f"Invalid array data: {e}")
+        raise AdapterError(
+            message=f"Invalid array data: {e}",
+            suggestion="Ensure all rows have the same number of columns"
+        )
 
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
@@ -177,16 +224,16 @@ def _extract_records_data(payload: dict) -> List[Dict]:
         if has_list_values:
             # Looks like it should have proper keys but doesn't
             raise AdapterError(
-                "Expected 'records', 'instances', 'features' field in payload, "
-                "or a direct list/dict for records adapter"
+                message="Invalid payload structure for records adapter",
+                suggestion="Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} or {\"instances\": [...]}"
             )
         else:
             # Treat entire dict as single record
             records = [payload]
     else:
         raise AdapterError(
-            "Expected 'records', 'instances', 'features' field in payload, "
-            "or a direct list/dict for records adapter"
+            message="Invalid payload structure for records adapter",
+            suggestion="Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} or {\"instances\": [...]}"
         )
 
     return records
@@ -200,10 +247,16 @@ def _process_records_to_array(records: List[Dict], feature_order: Optional[List[
     For ndarray adapter: feature_order is required to map positions to names
     """
     if not isinstance(records, list):
-        raise AdapterError("Records must be a list")
+        raise AdapterError(
+            message="Records must be a list of dictionaries",
+            suggestion="Use format: [{\"feat1\": val1, ...}, {\"feat1\": val2, ...}]"
+        )
 
     if not records:
-        raise AdapterError("Records list cannot be empty")
+        raise AdapterError(
+            message="Records list cannot be empty",
+            suggestion="Provide at least one record with feature values"
+        )
 
     # Use cached feature ordering for performance
     resolved_feature_order = _get_cached_feature_order(records, feature_order)
@@ -256,10 +309,16 @@ def to_ndarray(
 
     # Validate payload is not None or empty
     if payload is None:
-        raise AdapterError("Payload cannot be None")
+        raise AdapterError(
+            message="Payload cannot be None",
+            suggestion="Send a JSON payload with 'records', 'instances', or 'ndarray' key"
+        )
 
     if not payload and not isinstance(payload, list):
-        raise AdapterError("Payload cannot be empty. Received: " + str(type(payload)))
+        raise AdapterError(
+            message=f"Payload cannot be empty (received {type(payload).__name__})",
+            suggestion="Provide input data in the payload field"
+        )
 
     if adapter == "auto":
         adapter = _infer_adapter_type(payload)
@@ -270,4 +329,7 @@ def to_ndarray(
         records = _extract_records_data(payload)
         return _process_records_to_array(records, feature_order, adapter_type=adapter)
     else:
-        raise AdapterError(f"Unknown adapter type: '{adapter}'. Use 'records', 'ndarray', or 'auto'.")
+        raise AdapterError(
+            message=f"Unknown adapter type: '{adapter}'",
+            suggestion="Use 'records', 'ndarray', or 'auto' in your mlserver.yaml api.adapter setting"
+        )
