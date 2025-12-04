@@ -905,19 +905,46 @@ def tag(
         if git_info:
             console.print(f"  [yellow]📦 Classifier commit:[/yellow] {git_info.commit}")
 
-        # Check if GitHub Actions is set up
-        from .github_actions import check_github_actions_setup
+        # Check if GitHub Actions is set up and validate workflow
+        from .github_actions import check_github_actions_setup, validate_workflow_comprehensive
         github_actions_configured = check_github_actions_setup(path)
 
-        console.print("\n[cyan]Next steps:[/cyan]")
+        # Validate workflow if it exists
+        workflow_valid = True
+        workflow_warnings = []
         if github_actions_configured:
+            workflow_valid, workflow_warnings, workflow_details = validate_workflow_comprehensive(path)
+
+            if not workflow_valid or workflow_warnings:
+                console.print()
+                console.print("[yellow]⚠️  GitHub Actions Workflow Issues Detected:[/yellow]")
+                for warning in workflow_warnings:
+                    console.print(f"  [yellow]•[/yellow] {warning}")
+                console.print()
+                console.print("[bold red]⚠️  IMPORTANT: Regenerate workflow before pushing tags![/bold red]")
+                console.print("  Run: [cyan]mlserver init-github --force[/cyan]")
+                console.print("  Then: [cyan]git add .github && git commit -m 'Update workflow' && git push[/cyan]")
+                console.print()
+
+        console.print("\n[cyan]Next steps:[/cyan]")
+        if github_actions_configured and workflow_valid:
             console.print("  1. Push tags to remote: [cyan]git push --tags[/cyan]")
             console.print("  2. GitHub Actions will automatically build and publish your container!")
             console.print()
             console.print("[dim]💡 Or build manually:[/dim]")
             console.print(f"  - Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
             console.print(f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]")
+        elif github_actions_configured and not workflow_valid:
+            # Workflow exists but is outdated/invalid
+            console.print("  [bold]1. Regenerate workflow:[/bold] [cyan]mlserver init-github --force[/cyan]")
+            console.print("  2. Commit and push: [cyan]git add .github && git commit -m 'Update workflow' && git push[/cyan]")
+            console.print("  3. Push tags: [cyan]git push --tags[/cyan]")
+            console.print()
+            console.print("[dim]💡 Or build manually:[/dim]")
+            console.print(f"  - Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
+            console.print(f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]")
         else:
+            # No workflow at all
             console.print("  [yellow]⚠[/yellow] [bold]GitHub Actions not configured![/bold]")
             console.print()
             console.print("  [dim]You need to set up CI/CD before pushing tags. Choose one option:[/dim]")

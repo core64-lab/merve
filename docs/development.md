@@ -12,8 +12,8 @@
 
 ```bash
 # Clone repository
-git clone https://github.com/alxhrzg/fastapi-mlserver-wrapper.git
-cd fastapi-mlserver-wrapper
+git clone https://github.com/core64-lab/merve.git
+cd merve
 
 # Create virtual environment
 python -m venv .venv
@@ -317,9 +317,9 @@ class TypedPredictor:
 
 1. **Fork and Clone**
 ```bash
-git clone https://github.com/yourusername/fastapi-mlserver-wrapper.git
-cd fastapi-mlserver-wrapper
-git remote add upstream https://github.com/alxhrzg/fastapi-mlserver-wrapper.git
+git clone https://github.com/yourusername/merve.git
+cd merve
+git remote add upstream https://github.com/core64-lab/merve.git
 ```
 
 2. **Create Feature Branch**

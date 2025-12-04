@@ -5,7 +5,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def get_git_remote_info(project_path: str = ".") -> Optional[Dict[str, str]]:
@@ -79,7 +79,7 @@ def get_mlserver_source_url(project_path: str = ".") -> str:
         pass
 
     # Default to the main repository
-    return "https://github.com/alxhrzg/merve.git"
+    return "https://github.com/core64-lab/merve.git"
 
 
 def generate_build_and_push_workflow(
@@ -174,13 +174,23 @@ def generate_build_and_push_workflow(
 #   - AWS Region: {ecr_aws_region} (from mlserver.yaml, set in env.AWS_REGION)
 #   - Registry ID: {ecr_registry_id} (from mlserver.yaml, baked into workflow)
 {role_arn_doc}
-#   - Repository Prefix: {ecr_repository_prefix} (from mlserver.yaml)
+#   - Repository: {ecr_repository_prefix} (single repo for all classifiers)
+#
+# Image naming (unified scheme):
+#   {{registry}}/{{prefix}}:{{repo}}-{{classifier}}-v{{version}}-mlserver-{{commit}}
+#   Example: {ecr_registry_id}.dkr.ecr.{ecr_aws_region}.amazonaws.com/{ecr_repository_prefix}:myrepo-sentiment-v1.0.0-mlserver-abc1234
+#
+# Note: The ECR repository '{ecr_repository_prefix}' must be pre-created.
 #
 # To update configuration: modify mlserver.yaml and regenerate with mlserver init-github --force"""
     else:
         config_info = """# Registry Configuration: GitHub Container Registry (GHCR)
 #   - Uses GITHUB_TOKEN for authentication
-#   - Pushes to ghcr.io"""
+#   - Repository: ghcr.io/{owner}/{repo}
+#
+# Image naming (unified scheme):
+#   ghcr.io/{owner}/{repo}:{classifier}-v{version}-mlserver-{commit}
+#   Example: ghcr.io/myorg/myrepo:sentiment-v1.0.0-mlserver-abc1234"""
 
     template = f"""# ============================================================================
 # ML Classifier Container Build & Publish Workflow
@@ -487,27 +497,36 @@ jobs:
 
           echo "Registry type: $REGISTRY_TYPE"
 
-          # Determine registry URL and image base based on registry type
+          # Unified naming scheme (Option C):
+          # - Repository: contains registry-specific prefix
+          # - Tag: {{repo}}-{{classifier}}-v{{version}}-mlserver-{{commit}}
+          #
+          # GHCR:  ghcr.io/{{owner}}/{{repo}}:{{classifier}}-v{{version}}-mlserver-{{commit}}
+          # ECR:   {{registry}}/{{prefix}}:{{repo}}-{{classifier}}-v{{version}}-mlserver-{{commit}}
+
           if [ "$REGISTRY_TYPE" = "ecr" ]; then
-            # ECR configuration (hard-coded from mlserver.yaml)
+            # ECR: Single repository, rich tags with repo name included
             REGISTRY_URL="{ecr_registry_url}"
-            REPOSITORY_PREFIX={ecr_repo_prefix_value}
-            IMAGE_BASE="${{REPOSITORY_PREFIX}}/${{CLASSIFIER}}"
-            echo "Using ECR registry: $REGISTRY_URL"
+            IMAGE_REPO={ecr_repo_prefix_value}
+            TAG_PREFIX="{repo_name}-${{CLASSIFIER}}"
+            echo "Using ECR registry: $REGISTRY_URL/$IMAGE_REPO"
           else
-            # GHCR configuration (default)
+            # GHCR: Repository per project, classifier in tag
             REGISTRY_URL="ghcr.io"
             OWNER_LOWER="$(echo "${{{{ github.repository_owner }}}}" | tr '[:upper:]' '[:lower:]')"
-            IMAGE_BASE="${{OWNER_LOWER}}/{repo_name}-${{CLASSIFIER}}"
-            echo "Using GHCR registry: $REGISTRY_URL"
+            IMAGE_REPO="${{OWNER_LOWER}}/{repo_name}"
+            TAG_PREFIX="${{CLASSIFIER}}"
+            echo "Using GHCR registry: $REGISTRY_URL/$IMAGE_REPO"
           fi
 
-          # Build image references
-          IMAGE_LATEST="${{REGISTRY_URL}}/${{IMAGE_BASE}}:latest"
-          IMAGE_VERSION="${{REGISTRY_URL}}/${{IMAGE_BASE}}:${{VERSION}}"
-          IMAGE_FULLTAG="${{REGISTRY_URL}}/${{IMAGE_BASE}}:${{VERSION}}-mlserver-${{MLSERVER}}"
+          # Build image references with unified tag format
+          # Tags: {{prefix}}-v{{version}}-mlserver-{{commit}}, {{prefix}}-v{{version}}, {{prefix}}-latest
+          IMAGE_LATEST="${{REGISTRY_URL}}/${{IMAGE_REPO}}:${{TAG_PREFIX}}-latest"
+          IMAGE_VERSION="${{REGISTRY_URL}}/${{IMAGE_REPO}}:${{TAG_PREFIX}}-v${{VERSION}}"
+          IMAGE_FULLTAG="${{REGISTRY_URL}}/${{IMAGE_REPO}}:${{TAG_PREFIX}}-v${{VERSION}}-mlserver-${{MLSERVER}}"
 
-          echo "Using image repository: ${{REGISTRY_URL}}/${{IMAGE_BASE}}"
+          echo "Using image repository: ${{REGISTRY_URL}}/${{IMAGE_REPO}}"
+          echo "Tag prefix: ${{TAG_PREFIX}}"
 
           # Tag local image to registry references
           docker tag "{repo_name}/${{CLASSIFIER}}:latest" "$IMAGE_LATEST"
@@ -687,7 +706,7 @@ No additional setup required. Uses `GITHUB_TOKEN` automatically.
 
 ```yaml
 deployment:
-  registry:
+egistry:
     type: "ghcr"
 ```
 
@@ -704,6 +723,12 @@ deployment:
       registry_id: "123456789012"         # AWS account ID (required)
       repository_prefix: "ml-classifiers" # Repository prefix (optional, default: "ml-classifiers")
 ```
+
+**Important**: All classifiers are pushed to a single ECR repository (`repository_prefix`).
+The classifier name and repo are encoded in the image tag:
+- Repository: `ml-classifiers` (must be pre-created in ECR)
+- Tag format: `{repo}-{classifier}-v{version}-mlserver-{commit}`
+- Example: `ml-classifiers:myrepo-sentiment-v1.0.0-mlserver-abc1234`
 
 **Step 2**: Configure GitHub variables (optional - customize variable name in mlserver.yaml):
 
@@ -888,3 +913,106 @@ def validate_workflow_compatibility(
 
     # Workflow version matches - compatible
     return True, None, details
+
+
+def check_workflow_mlserver_url(project_path: str = ".") -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract the MLServer URL from an existing workflow file.
+
+    Returns:
+        Tuple of (url_in_workflow, expected_url) or (None, None) if not found
+    """
+    workflow_file = Path(project_path) / ".github" / "workflows" / "ml-classifier-container-build.yml"
+
+    if not workflow_file.exists():
+        return None, None
+
+    try:
+        with open(workflow_file, 'r') as f:
+            content = f.read()
+
+        # Look for the pip install line with git URL
+        # Pattern: pip install "git+https://github.com/xxx/yyy.git@...
+        import re
+        match = re.search(r'pip install "git\+([^@]+)@', content)
+        url_in_workflow = match.group(1) if match else None
+
+        # Get expected URL
+        expected_url = get_mlserver_source_url(project_path)
+
+        return url_in_workflow, expected_url
+    except Exception:
+        return None, None
+
+
+def validate_workflow_comprehensive(
+    project_path: str = "."
+) -> Tuple[bool, List[str], Dict[str, any]]:
+    """
+    Comprehensive workflow validation checking version, URL, and configuration.
+
+    Returns:
+        Tuple of (is_valid, list_of_warnings, details_dict)
+    """
+    warnings = []
+    details = {}
+    is_valid = True
+
+    workflow_file = Path(project_path) / ".github" / "workflows" / "ml-classifier-container-build.yml"
+
+    if not workflow_file.exists():
+        return False, ["Workflow file does not exist"], {"exists": False}
+
+    details["exists"] = True
+
+    # Check 1: Version compatibility
+    version_valid, version_warning, version_details = validate_workflow_compatibility(project_path)
+    details.update(version_details)
+    if not version_valid:
+        is_valid = False
+        if version_warning:
+            warnings.append(version_warning)
+
+    # Check 2: MLServer URL
+    url_in_workflow, expected_url = check_workflow_mlserver_url(project_path)
+    details["url_in_workflow"] = url_in_workflow
+    details["expected_url"] = expected_url
+
+    if url_in_workflow and expected_url:
+        # Normalize URLs for comparison (remove .git suffix if present)
+        url_workflow_normalized = url_in_workflow.rstrip('.git').rstrip('/')
+        url_expected_normalized = expected_url.rstrip('.git').rstrip('/')
+
+        if url_workflow_normalized != url_expected_normalized:
+            is_valid = False
+            warnings.append(
+                f"MLServer URL mismatch! Workflow uses '{url_in_workflow}' "
+                f"but current MLServer is from '{expected_url}'. "
+                "Regenerate with: mlserver init-github --force"
+            )
+
+    # Check 3: Look for known outdated patterns
+    try:
+        with open(workflow_file, 'r') as f:
+            content = f.read()
+
+        # Check for old alxhrzg URL
+        if 'alxhrzg' in content:
+            is_valid = False
+            warnings.append(
+                "Workflow contains outdated repository URL (alxhrzg/merve). "
+                "Regenerate with: mlserver init-github --force"
+            )
+
+        # Check for old naming scheme (IMAGE_BASE with /)
+        if 'IMAGE_BASE="${REPOSITORY_PREFIX}/${CLASSIFIER}"' in content:
+            is_valid = False
+            warnings.append(
+                "Workflow uses old ECR naming scheme (prefix/classifier). "
+                "Regenerate with: mlserver init-github --force"
+            )
+
+    except Exception:
+        pass
+
+    return is_valid, warnings, details

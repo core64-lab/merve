@@ -388,7 +388,7 @@ LABEL com.classifier.git_branch="main"
 # MLServer tool information
 LABEL com.mlserver.version="0.3.2"
 LABEL com.mlserver.commit="b5dff2a"
-LABEL com.mlserver.git_url="https://github.com/org/mlserver"
+LABEL com.mlserver.git_url="https://github.com/core64-lab/merve"
 
 # OCI standard labels
 LABEL org.opencontainers.image.version="1.0.3"
