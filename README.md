@@ -17,13 +17,13 @@ Configure everything in `mlserver.yaml` - no code changes required.
 ## Installation
 
 ```bash
-pip install git+https://github.com/alxhrzg/merve.git
+pip install git+https://github.com/core64-lab/merve.git
 ```
 
 Or for development:
 
 ```bash
-git clone https://github.com/alxhrzg/merve.git
+git clone https://github.com/core64-lab/merve.git
 cd merve
 pip install -e ".[test]"
 ```
@@ -502,7 +502,7 @@ class ValidatingPredictor:
 
 ```bash
 # Clone repository
-git clone https://github.com/alxhrzg/merve.git
+git clone https://github.com/core64-lab/merve.git
 cd merve
 
 # Install in development mode
@@ -574,7 +574,7 @@ Check logs for validation errors and data format issues.
 This tool is actively maintained and used in production. Features are stable but the API may evolve. Pin your version:
 
 ```bash
-pip install git+https://github.com/alxhrzg/merve.git@v0.3.1
+pip install git+https://github.com/core64-lab/merve.git@v0.3.1
 ```
 
 ## License
@@ -593,9 +593,13 @@ Contributions welcome. Please:
 
 ## Support
 
-- Issues: https://github.com/alxhrzg/merve/issues
+- Issues: https://github.com/core64-lab/merve/issues
 - Examples: See `examples/` directory
 - Configuration: See `mlserver.yaml` examples
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Alternatives
 
