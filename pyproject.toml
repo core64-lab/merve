@@ -25,10 +25,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
-[project.urls]
-Homepage = "https://github.com/core64-lab/merve"
-Repository = "https://github.com/core64-lab/merve"
-Issues = "https://github.com/core64-lab/merve/issues"
 dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.23",
@@ -45,6 +41,11 @@ dependencies = [
   "rich>=13.8.1",
   "semver>=3.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/core64-lab/merve"
+Repository = "https://github.com/core64-lab/merve"
+Issues = "https://github.com/core64-lab/merve/issues"
 
 [project.optional-dependencies]
 test = [
