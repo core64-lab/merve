@@ -293,8 +293,9 @@ class IntentPredictor(TestPredictor):
 
     def run_cli_command(self, *args) -> subprocess.CompletedProcess:
         """Run a CLI command in the repository context."""
-        # Build full command
-        cmd = ["python", "-m", "mlserver.cli"] + list(args)
+        import sys
+        # Build full command using current Python interpreter
+        cmd = [sys.executable, "-m", "mlserver.cli"] + list(args)
 
         # Run command with repo as working directory
         result = subprocess.run(
@@ -316,7 +317,7 @@ class IntentPredictor(TestPredictor):
         if port != 8000:
             args.extend(["--port", str(port)])
 
-        cmd = ["python", "-m", "mlserver.cli"] + args
+        cmd = [sys.executable, "-m", "mlserver.cli"] + args
 
         # Start server process
         process = subprocess.Popen(

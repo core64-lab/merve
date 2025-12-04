@@ -50,7 +50,7 @@ files:
   server_pid_file: "server.pid"
   global_config_file: "global_config.yaml"
   venv_path: ".venv"
-  ml_server_path: "mlserver"
+  ml_server_path: ".venv/bin/mlserver"
 
 development:
   # Development and testing settings

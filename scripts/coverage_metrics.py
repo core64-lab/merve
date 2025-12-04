@@ -147,7 +147,11 @@ class CoverageAnalyzer:
                 continue
 
             # Clean up file path for display
-            display_path = file_path.replace('', '')
+            # Clean up paths - remove common prefixes
+            display_path = file_path
+            for prefix in ['mlserver/', 'tests/', './']:
+                if display_path.startswith(prefix):
+                    break
 
             # Coverage status emoji
             if coverage >= 90:

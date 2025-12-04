@@ -88,7 +88,6 @@ There is an old version of the cli (in cli.py) which is obsolete - only use cli_
 
 ## Dependencies
 The project uses FastAPI, Uvicorn, Pydantic, prometheus-client, and ML libraries like scikit-learn and catboost. Test dependencies include pytest, locust, and httpx.
-Always use the python virtual environment at .venv
 
 ## Configuration
 
