@@ -19,7 +19,18 @@ if project_root not in sys.path:
 
 from mlserver.config import AppConfig, ServerConfig, PredictorConfig, ApiConfig, ObservabilityConfig
 from mlserver.server import create_app
+from mlserver.metrics import reset_metrics
 from httpx import AsyncClient, ASGITransport
+
+
+@pytest.fixture(autouse=True)
+def cleanup_metrics():
+    """Clean up Prometheus metrics before and after each test to avoid registry conflicts."""
+    # Reset before test
+    reset_metrics()
+    yield
+    # Reset after test
+    reset_metrics()
 
 
 # Mock predictor for testing

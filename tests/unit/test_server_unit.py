@@ -408,9 +408,11 @@ class TestHelperFunctions:
             mock_metrics = Mock()
             mock_get_metrics.return_value = mock_metrics
 
-            _track_prediction_metrics("/predict", 0.5, 10, "TestModel", mock_config)
+            _track_prediction_metrics("/predict", 0.5, 10, 10, "TestModel", mock_config)
 
-            mock_metrics.track_prediction.assert_called_once_with("/predict", 0.5, 10)
+            mock_metrics.track_prediction.assert_called_once_with(
+                "/predict", 0.5, input_samples=10, output_samples=10
+            )
             mock_log_prediction.assert_called_once()
 
     def test_track_prediction_metrics_without_metrics(self, mock_config_minimal):
@@ -420,7 +422,7 @@ class TestHelperFunctions:
 
             mock_get_metrics.return_value = None
 
-            _track_prediction_metrics("/predict", 0.5, 10, "TestModel", mock_config_minimal)
+            _track_prediction_metrics("/predict", 0.5, 10, 10, "TestModel", mock_config_minimal)
 
             # Should not call any logging since mock_config_minimal has structured_logging=False
             mock_log_prediction.assert_not_called()

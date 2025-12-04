@@ -28,7 +28,7 @@ from .schemas import (
     CustomPredictResponse,
     SinglePredictRequest,
 )
-from .metrics import init_metrics, get_metrics
+from .metrics import init_metrics, get_metrics, count_samples
 from .concurrency_limiter import PredictionSemaphore, PredictionLimiter
 from .logging_conf import (
     set_correlation_id,
@@ -237,20 +237,36 @@ def _validate_input_features(payload: dict, feature_order: list, logger) -> None
 
 
 def _track_prediction_metrics(endpoint_path: str, duration_seconds: float,
-                             sample_count: int, model_name: str, config: AppConfig) -> None:
-    """Track prediction metrics and logging."""
+                             input_samples: int, output_samples: int,
+                             model_name: str, config: AppConfig) -> None:
+    """Track prediction metrics and logging.
+
+    Args:
+        endpoint_path: API endpoint path
+        duration_seconds: Prediction duration in seconds
+        input_samples: Number of input samples (batch size)
+        output_samples: Number of output samples (predictions)
+        model_name: Name of the predictor/model
+        config: Application configuration
+    """
     # Track prediction metrics only if enabled
     if config.observability.metrics:
         metrics = get_metrics()
         if metrics:
-            metrics.track_prediction(endpoint_path, duration_seconds, sample_count)
+            metrics.track_prediction(
+                endpoint_path,
+                duration_seconds,
+                input_samples=input_samples,
+                output_samples=output_samples
+            )
 
     # Log prediction
     if config.observability.structured_logging:
         log_prediction(
             model_name=model_name,
             duration_ms=duration_seconds * 1000,
-            sample_count=sample_count
+            sample_count=output_samples,
+            batch_size=input_samples
         )
 
 
@@ -397,6 +413,9 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req
 
     X = _prepare_input_data(req, config)
 
+    # Count input samples before prediction
+    input_sample_count = count_samples(X)
+
     try:
         predictions = app.state.predictor.predict(X)
     except Exception as e:
@@ -407,17 +426,16 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req
 
     duration_ms = (time.perf_counter() - start_time) * 1000
 
-    # Track metrics - handle different prediction types
-    if isinstance(predictions, (list, tuple)):
-        num_predictions = len(predictions)
-    elif hasattr(predictions, 'shape'):  # numpy array
-        num_predictions = predictions.shape[0] if len(predictions.shape) > 0 else 1
-    else:
-        num_predictions = 1
+    # Count output samples using the improved counter
+    output_sample_count = count_samples(predictions)
 
     _track_prediction_metrics(
-        endpoint_path, duration_ms / 1000, num_predictions,
-        app.state.predictor.name, config
+        endpoint_path,
+        duration_ms / 1000,
+        input_samples=input_sample_count,
+        output_samples=output_sample_count,
+        model_name=app.state.predictor.name,
+        config=config
     )
 
     # Include cached metadata if available
@@ -458,6 +476,9 @@ def _execute_predict_proba(app: FastAPI, config: AppConfig, endpoint_path: str, 
 
     X = _prepare_input_data(req, config)
 
+    # Count input samples before prediction
+    input_sample_count = count_samples(X)
+
     try:
         probabilities = app.state.predictor.predict_proba(X)
     except AttributeError:
@@ -470,9 +491,16 @@ def _execute_predict_proba(app: FastAPI, config: AppConfig, endpoint_path: str, 
 
     duration_ms = (time.perf_counter() - start_time) * 1000
 
+    # Count output samples
+    output_sample_count = count_samples(probabilities)
+
     _track_prediction_metrics(
-        endpoint_path, duration_ms / 1000, len(probabilities),
-        app.state.predictor.name, config
+        endpoint_path,
+        duration_ms / 1000,
+        input_samples=input_sample_count,
+        output_samples=output_sample_count,
+        model_name=app.state.predictor.name,
+        config=config
     )
 
     # Include cached metadata if available
