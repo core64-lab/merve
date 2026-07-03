@@ -1,0 +1,81 @@
+# CI for mlserver-fastapi-wrapper (RFC 0001, D17).
+# Jobs are independent by design: test matrix, lint (ruff check only until the
+# Wave 2 formatting finale), wheel build, and the docs-drift gate.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so setuptools-scm can resolve the version from tags.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package with test dependencies
+        run: pip install -e ".[test]"
+      - name: Run test suite with coverage floor
+        run: python -m pytest tests/ --cov-fail-under=60
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install ruff
+        run: pip install ruff
+      # `ruff format --check` intentionally deferred to Wave 2 (RFC 0001 W2.7).
+      - name: Ruff lint
+        run: ruff check .
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so setuptools-scm can resolve the version from tags.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install build frontend
+        run: pip install build
+      - name: Build wheel and sdist
+        run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+
+  docs-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check docs for drift (banned removed-feature tokens)
+        run: python scripts/check_docs_drift.py

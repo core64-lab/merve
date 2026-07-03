@@ -1,0 +1,26 @@
+# Pre-commit hooks for merve (mlserver-fastapi-wrapper)
+# Install: pip install pre-commit && pre-commit install
+# Run on all files: pre-commit run --all-files
+#
+# Lint policy: RFC 0001 (docs/rfcs/0001-design-decisions-and-sprint-plan.md), W0.2.
+# Formatting (ruff-format) is deliberately NOT enabled yet - see W2.7.
+
+exclude: '^(build/|dist/|htmlcov/|examples/example_titanic_raw/)'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep in sync with the ruff version in the dev extra (pyproject.toml)
+    rev: v0.15.20
+    hooks:
+      - id: ruff-check
+      # ruff-format is enabled in Wave 2 (RFC 0001 W2.7) - formatting lands as
+      # a single isolated commit after the breaking batch, not before.
+      # - id: ruff-format
