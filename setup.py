@@ -4,13 +4,13 @@ Setup script for mlserver-fastapi-wrapper.
 This handles build-time operations like embedding git information.
 """
 
-import os
 import sys
 from pathlib import Path
-from setuptools import setup, find_packages
+
+from setuptools import setup
+from setuptools.command.bdist_wheel import bdist_wheel
 from setuptools.command.build_py import build_py
 from setuptools.command.sdist import sdist
-from setuptools.command.bdist_wheel import bdist_wheel
 
 
 def capture_and_embed_git_info():

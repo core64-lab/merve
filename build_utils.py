@@ -5,9 +5,8 @@ This is called during package build (setup.py, poetry build, etc.)
 """
 
 import subprocess
-import os
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 
 
 def capture_git_info():
@@ -77,7 +76,7 @@ def write_version_info():
             version = data.get("project", {}).get("version", version)
             if not version:
                 version = data.get("tool", {}).get("poetry", {}).get("version", "0.2.0")
-    except:
+    except Exception:
         pass
 
     # Capture git info
