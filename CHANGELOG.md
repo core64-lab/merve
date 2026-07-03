@@ -9,7 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Stabilization sprint (2026-07-03): a bug-fix and cleanup pass across the server, CLI, and build tooling ahead of the v0.4.0 release (see RFC 0001). No breaking changes.
+RFC 0001 (Waves 0–2): stabilization, then the v1 roadmap. **Upgrade steps:
+[docs/migration-0.5.md](docs/migration-0.5.md).**
+
+### Breaking (Wave 2)
+- Renamed the distribution and command to **`merve`**; `mlserver` is a deprecated alias for one release. The `mlserver` module/import path and `mlserver.yaml` are unchanged.
+- CLI short flags: `-p` is `--port` only (use `-C`/`--path` for the project path); `run`'s volume is `--volume` (long-only); `-v` is `--verbose`.
+- Version tags now use the canonical `<classifier>/vX.Y.Z` format. Legacy `<classifier>-vX.Y.Z-mlserver-<hash>` tags are still read.
+- Multi-classifier `merve build` produces one commit image; `merve push --classifier X` applies registry tag aliases on the same image (no rebuild). `--per-classifier-image` restores the old behavior.
+- Removed the `GlobalSettings` singleton and `global_config.yaml`.
+
+### Deprecated (Wave 1)
+- The request `{"payload": {...}}` wrapper — send `records`/`instances`/`ndarray`/`inputs`/`features` at the top level.
+- `response_format: custom` and `api.extract_values`.
+- `classifier.version` in `mlserver.yaml` and `push --version-source` (git tags are canonical).
+
+### Added (Wave 1)
+- Dual request shapes (top-level keys alongside the deprecated wrapper).
+- A `Predictor` Protocol, a `"module:ClassName"` predictor spec, and import isolation (user modules load without mutating `sys.path`/`sys.modules`).
+- `api.retry_after_seconds`, `--json` output on read commands, OCI-standard image labels, and two-stage (multi-stage) Dockerfiles.
+- CI workflow, docs-drift gate, ruff/mypy config, and a tracked CHANGELOG (Wave 0).
+
+---
+
+Stabilization sprint (2026-07-03): a bug-fix and cleanup pass across the server, CLI, and build tooling (see RFC 0001).
 
 ### Added
 - `observability.log_payloads` is now actually implemented — request/response payloads are logged when enabled.

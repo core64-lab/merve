@@ -8,6 +8,9 @@ This index provides a comprehensive overview of all documentation available for 
 
 ## 📖 Core Documentation
 
+### [Migration Guide → 0.5](./migration-0.5.md)
+- **Upgrading**: the `merve` rename, CLI flag changes, canonical tag format, build-once pipeline, and Wave 1 deprecations
+
 ### [API Reference](./api-reference.md)
 - **REST API Endpoints**: Complete endpoint documentation with request/response schemas
 - **Input Formats**: Records and ndarray payloads, opt-in auto-detection
