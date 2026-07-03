@@ -1,10 +1,10 @@
 """RandomForest predictor for Titanic survival."""
-import pickle
 import json
+import pickle
+from typing import Union
+
 import numpy as np
 import pandas as pd
-from typing import List, Union, Any
-from pathlib import Path
 
 
 class RandomForestSurvivalPredictor:
@@ -21,7 +21,7 @@ class RandomForestSurvivalPredictor:
             self.model = pickle.load(f)
 
         # Load features
-        with open(features_path, 'r') as f:
+        with open(features_path) as f:
             self.feature_names = json.load(f)
 
         # Load encoders
@@ -57,7 +57,7 @@ class RandomForestSurvivalPredictor:
 
         return X_scaled
 
-    def predict(self, X: Union[List, np.ndarray, pd.DataFrame]) -> np.ndarray:
+    def predict(self, X: Union[list, np.ndarray, pd.DataFrame]) -> np.ndarray:
         """Make predictions."""
         # Convert to DataFrame if necessary
         if isinstance(X, (list, np.ndarray)):
@@ -74,7 +74,7 @@ class RandomForestSurvivalPredictor:
 
         return predictions
 
-    def predict_proba(self, X: Union[List, np.ndarray, pd.DataFrame]) -> np.ndarray:
+    def predict_proba(self, X: Union[list, np.ndarray, pd.DataFrame]) -> np.ndarray:
         """Predict class probabilities."""
         # Convert to DataFrame if necessary
         if isinstance(X, (list, np.ndarray)):

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Train multiple Titanic survival prediction models for multi-classifier demo."""
 
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
-from catboost import CatBoostClassifier
-import pickle
 import json
+import pickle
 from pathlib import Path
+
+from catboost import CatBoostClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 
 def prepare_data():

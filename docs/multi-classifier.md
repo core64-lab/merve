@@ -3,6 +3,8 @@
 ## Overview
 This guide explains how to set up, develop, and deploy multiple ML classifiers from a single repository using the mlserver framework.
 
+**Deployment model**: each classifier runs as its own server process / container serving flat endpoints (`/predict`, `/predict_proba`, ...). The classifier is selected at startup with `mlserver serve --classifier <name>` (or the `MLSERVER_CLASSIFIER` environment variable inside containers) — classifier names never appear in URLs.
+
 ## Workflow Summary
 
 ### Step 1: Train Multiple Models
@@ -35,7 +37,7 @@ Create a predictor class for each classifier:
 - `predictor_randomforest.py` - RandomForestSurvivalPredictor
 
 ### Step 3: Configure Multi-Classifier YAML
-Create `mlserver_multi_classifier.yaml` with structure:
+Create a multi-classifier `mlserver.yaml`. The canonical format uses a **dict** under `classifiers` (keyed by classifier name):
 
 ```yaml
 # Global settings (shared by all classifiers)
@@ -49,49 +51,62 @@ observability:
 repository:
   name: "titanic-multi-classifier"
 
-# Define multiple classifiers
+# Define multiple classifiers (dict format - canonical)
 classifiers:
   catboost-survival:
-    metadata:
+    classifier:
       name: "catboost-survival"
-      version: "1.0.0"
+      # version auto-detected from git tags
     predictor:
       module: predictor_catboost_v2
       class_name: CatBoostSurvivalPredictor
-    api:
-      include_version_in_url: false
 
   randomforest-survival:
-    metadata:
+    classifier:
       name: "randomforest-survival"
-      version: "1.0.0"
     predictor:
       module: predictor_randomforest
       class_name: RandomForestSurvivalPredictor
-    api:
-      include_version_in_url: false
 
 default_classifier: "catboost-survival"
 ```
+
+A **list** format is also accepted and normalized to the dict format at load time (each entry must carry its name in `classifier.name`):
+
+```yaml
+classifiers:
+  - classifier:
+      name: "catboost-survival"
+    predictor:
+      module: predictor_catboost_v2
+      class_name: CatBoostSurvivalPredictor
+  - classifier:
+      name: "randomforest-survival"
+    predictor:
+      module: predictor_randomforest
+      class_name: RandomForestSurvivalPredictor
+```
+
+Note: `server` and `observability` are global sections — there are no per-classifier server overrides. One classifier = one server process.
 
 ### Step 4: Local Development
 
 #### Serve specific classifier:
 ```bash
 # Serve CatBoost classifier
-ml_server serve mlserver_multi_classifier.yaml --classifier catboost-survival
+mlserver serve mlserver.yaml --classifier catboost-survival
 
-# Serve RandomForest classifier
-ml_server serve mlserver_multi_classifier.yaml --classifier randomforest-survival
+# Serve RandomForest classifier (e.g. on another port)
+mlserver serve mlserver.yaml --classifier randomforest-survival --port 8001
 
 # Serve default classifier (catboost-survival)
-ml_server serve mlserver_multi_classifier.yaml
+mlserver serve mlserver.yaml
 ```
 
-#### Test endpoints (versionless URLs):
+#### Test endpoints (flat URLs — one classifier per server):
 ```bash
-# CatBoost endpoint
-curl -X POST http://localhost:8000/catboost-survival/predict \
+# The served classifier answers at /predict (no classifier name in the URL)
+curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{
     "payload": {
@@ -110,33 +125,33 @@ curl -X POST http://localhost:8000/catboost-survival/predict \
     }
   }'
 
-# RandomForest endpoint
-curl -X POST http://localhost:8000/randomforest-survival/predict \
+# The RandomForest instance started on port 8001
+curl -X POST http://localhost:8001/predict \
   -H "Content-Type: application/json" \
   -d '{"payload": {"records": [...]}}'
 ```
 
 ### Step 5: Version Management
 
-#### Git Tagging Strategy:
-```bash
-# Tag format: {classifier}-v{version}
-git tag catboost-survival-v1.0.0
-git tag randomforest-survival-v1.0.0
+Use `mlserver tag` to create hierarchical tags that capture both the classifier version and the MLServer tool commit:
 
-# Push tags
-git push origin --tags
+```
+Tag format: <classifier>-v<version>-mlserver-<hash>
 ```
 
-#### Version Bumping:
 ```bash
-# Update version in mlserver_multi_classifier.yaml
-# Change catboost-survival version from 1.0.0 to 1.1.0
+# Create tags (auto-increments the version, embeds the MLServer commit)
+mlserver tag --classifier catboost-survival patch
+# ✓ Created tag: catboost-survival-v1.0.1-mlserver-b5dff2a
 
-# Commit and tag
-git add mlserver_multi_classifier.yaml
-git commit -m "Bump catboost-survival to v1.1.0"
-git tag catboost-survival-v1.1.0
+mlserver tag --classifier randomforest-survival minor
+# ✓ Created tag: randomforest-survival-v1.1.0-mlserver-b5dff2a
+
+# Push tags
+git push --tags
+
+# View tag status for all classifiers
+mlserver tag
 ```
 
 ### Step 6: Container Build Strategy
@@ -144,10 +159,10 @@ git tag catboost-survival-v1.1.0
 #### Build Single Classifier:
 ```bash
 # Build CatBoost classifier container
-ml_server build --classifier catboost-survival
+mlserver build --classifier catboost-survival
 
-# Build RandomForest classifier container
-ml_server build --classifier randomforest-survival
+# Build an exact tagged version (validates code matches the tag)
+mlserver build --classifier catboost-survival-v1.0.1-mlserver-b5dff2a
 ```
 
 #### Container Naming Convention:
@@ -155,39 +170,33 @@ ml_server build --classifier randomforest-survival
 {repository}-{classifier}:{version}
 
 Examples:
-- titanic-multi-classifier-catboost-survival:1.0.0
+- titanic-multi-classifier-catboost-survival:1.0.1
 - titanic-multi-classifier-catboost-survival:latest
-- titanic-multi-classifier-randomforest-survival:1.0.0
+- titanic-multi-classifier-randomforest-survival:1.1.0
 ```
+
+(Configurable via `deployment.container_naming`.)
 
 #### Build All Classifiers:
 ```bash
 # Script to build all classifiers
 #!/bin/bash
 for classifier in catboost-survival randomforest-survival; do
-  ml_server build --classifier $classifier
+  mlserver build --classifier $classifier
 done
 ```
 
 ### Step 7: CI/CD Integration
 
-#### GitHub Actions Workflow:
+Use `mlserver init-github` to generate a workflow triggered by hierarchical tag pushes, or write your own:
+
 ```yaml
 name: Build and Deploy Classifier
 
 on:
-  workflow_dispatch:
-    inputs:
-      classifier:
-        description: 'Classifier to build'
-        required: true
-        type: choice
-        options:
-          - catboost-survival
-          - randomforest-survival
-      tag:
-        description: 'Git tag (e.g., catboost-survival-v1.0.0)'
-        required: true
+  push:
+    tags:
+      - '*-v*-mlserver-*'  # Hierarchical tag format
 
 jobs:
   build-and-push:
@@ -195,7 +204,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.inputs.tag }}
+          ref: ${{ github.ref }}
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -203,18 +212,18 @@ jobs:
           python-version: '3.11'
 
       - name: Install mlserver
-        run: pip install fastapi-mlserver-wrapper
+        run: pip install mlserver-fastapi-wrapper
 
       - name: Build Container
         run: |
-          ml_server build \
-            --classifier ${{ github.event.inputs.classifier }} \
+          mlserver build \
+            --classifier ${{ github.ref_name }} \
             --registry ${{ secrets.REGISTRY_URL }}
 
       - name: Push Container
         run: |
-          ml_server push \
-            --classifier ${{ github.event.inputs.classifier }} \
+          mlserver push \
+            --classifier ${{ github.ref_name }} \
             --registry ${{ secrets.REGISTRY_URL }}
 ```
 
@@ -225,14 +234,14 @@ jobs:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: catboost-survival-v1-0-0
+  name: catboost-survival-v1-0-1
 spec:
   replicas: 3
   template:
     spec:
       containers:
       - name: classifier
-        image: registry.example.com/titanic-multi-classifier-catboost-survival:1.0.0
+        image: registry.example.com/titanic-multi-classifier-catboost-survival:1.0.1
         env:
         - name: MLSERVER_CLASSIFIER
           value: "catboost-survival"
@@ -244,10 +253,12 @@ metadata:
 spec:
   selector:
     app: catboost-survival
-    version: v1.0.0
+    version: v1.0.1
   ports:
   - port: 8000
 ```
+
+Clients call the classifier through its Service at the flat path, e.g. `http://catboost-survival:8000/predict`.
 
 ### Step 9: Version Tracking
 
@@ -257,17 +268,19 @@ Every prediction response includes metadata:
 {
   "predictions": [1, 0, 1],
   "time_ms": 12.5,
+  "predictor_class": "CatBoostSurvivalPredictor",
   "metadata": {
-    "repository": "titanic-multi-classifier",
+    "project": "titanic-multi-classifier",
     "classifier": "catboost-survival",
-    "version": "1.0.0",
-    "git_tag": "catboost-survival-v1.0.0",
+    "predictor_class": "CatBoostSurvivalPredictor",
+    "predictor_module": "predictor_catboost_v2",
+    "config_file": "mlserver.yaml",
     "git_commit": "abc123def",
-    "trained_at": "2024-01-15T10:30:00Z",
-    "model_metrics": {
-      "accuracy": 0.8267,
-      "f1_score": 0.7429
-    }
+    "git_tag": "catboost-survival-v1.0.1-mlserver-b5dff2a",
+    "deployed_at": "2025-01-15T10:30:00Z",
+    "mlserver_version": "0.3.2",
+    "mlserver_api_commit": "b5dff2a",
+    "mlserver_api_tag": null
   }
 }
 ```
@@ -275,8 +288,8 @@ Every prediction response includes metadata:
 ### Step 10: Production Workflow
 
 1. **Development**: Train model, create predictor, test locally
-2. **Version**: Update version in config, commit changes
-3. **Tag**: Create git tag for specific classifier version
+2. **Tag**: `mlserver tag --classifier <name> <patch|minor|major>` creates the hierarchical git tag
+3. **Push**: `git push --tags` triggers CI/CD
 4. **Build**: CI/CD builds container from tag
 5. **Deploy**: Deploy to dev environment
 6. **Test**: Validate predictions and performance
@@ -286,21 +299,21 @@ Every prediction response includes metadata:
 ## Best Practices
 
 ### 1. Naming Conventions
-- Classifiers: `{model-type}-{purpose}` (e.g., catboost-survival)
-- Git tags: `{classifier}-v{semver}` (e.g., catboost-survival-v1.2.3)
+- Classifiers: `{model-type}-{purpose}` (e.g. catboost-survival)
+- Git tags: `{classifier}-v{semver}-mlserver-{hash}` (created by `mlserver tag`)
 - Containers: `{repo}-{classifier}:{version}`
 
 ### 2. Version Management
 - Each classifier has independent versioning
-- Use semantic versioning (major.minor.patch)
+- Use semantic versioning (major.minor.patch) via `mlserver tag`
 - Tag every production deployment
-- Keep metadata synchronized with git tags
+- Versions are derived from git tags — no manual version fields in the config
 
 ### 3. Testing Strategy
 - Unit tests per predictor class
 - Integration tests per classifier
-- Load testing with specific classifier endpoints
-- A/B testing with multiple versions
+- Load testing against each classifier's deployment
+- A/B testing with multiple versions behind a service mesh
 
 ### 4. Deployment Strategy
 - Immutable containers (never update, always redeploy)
@@ -312,8 +325,8 @@ Every prediction response includes metadata:
 
 ### For Existing Projects:
 1. Keep existing `mlserver.yaml` for backward compatibility
-2. Create new `mlserver_multi.yaml` with multi-classifier format
-3. Update CI/CD to detect configuration type
+2. Move the per-classifier sections (`predictor`, `classifier`, `api`) under a named entry in `classifiers:`
+3. Update CI/CD to pass `--classifier` to build/push
 4. Gradually migrate to multi-classifier structure
 
 ### Detection Logic:
@@ -339,26 +352,29 @@ else:
 **Solution**: Check git tag matches container tag and deployment manifest
 
 ### Issue: Performance degradation
-**Solution**: Monitor metrics per classifier, scale replicas independently
+**Solution**: Monitor metrics per classifier deployment, scale replicas independently
 
 ## Example Commands Reference
 
 ```bash
 # Local development
-ml_server serve mlserver_multi.yaml --classifier catboost-survival
+mlserver serve mlserver.yaml --classifier catboost-survival
 
 # List available classifiers
-ml_server list-classifiers mlserver_multi.yaml
+mlserver list-classifiers mlserver.yaml
+
+# Tag a release (hierarchical tag with MLServer commit)
+mlserver tag --classifier catboost-survival patch
 
 # Build specific version
-git checkout catboost-survival-v1.2.3
-ml_server build --classifier catboost-survival
+git checkout catboost-survival-v1.2.3-mlserver-b5dff2a
+mlserver build --classifier catboost-survival
 
 # Push to registry
-ml_server push --classifier catboost-survival --registry gcr.io/myproject
+mlserver push --classifier catboost-survival --registry gcr.io/myproject
 
 # Check version info
-ml_server version --classifier catboost-survival
+mlserver version --classifier catboost-survival
 
 # Run tests for specific classifier
 pytest tests/test_catboost_predictor.py

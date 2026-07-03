@@ -39,7 +39,6 @@ The main documentation hub with links to all other docs. Start here to find any 
 - **`docs/development.md`** - Development setup and debugging
 - **`docs/examples.md`** - Complete working examples
 - **`docs/observability.md`** - Metrics, logging, and monitoring
-- **`docs/ainit.md`** - AI-powered initialization from notebooks
 - **`docs/multi-classifier.md`** - Multi-model repository support
 
 **When making changes**: Update relevant documentation immediately to keep it current
@@ -47,15 +46,24 @@ The main documentation hub with links to all other docs. Start here to find any 
 ## Commands
 
 ### Core CLI Commands
-There is an old version of the cli (in cli.py) which is obsolete - only use cli_v2.py (and the corresponding mlserver command!)
+The CLI lives in `mlserver/cli.py` (Typer-based) and is exposed as the `mlserver` command.
 
-- **Serve**: `mlserver serve [config.yaml]` - Start ML server (auto-detects mlserver.yaml or config.yaml)
-- **AI-Init**: `mlserver ainit notebook.ipynb` - **🤖 AI-powered initialization from Jupyter notebooks** (Auto-generates mlserver.yaml, predictor classes, and deployment files)
+- **Serve**: `mlserver serve [config.yaml]` - Start ML server (auto-detects mlserver.yaml)
 - **Version**: `mlserver version` - Display version and metadata information
 - **Build**: `mlserver build` - Build Docker container from current project
-- **Push**: `mlserver push --registry <url>` - Push container to registry
+- **Push**: `mlserver push` - Push container to registry
+- **Tag**: `mlserver tag <patch|minor|major>` - Create hierarchical version tag
 - **Images**: `mlserver images` - List built container images
 - **Clean**: `mlserver clean` - Remove built container images
+- **Run**: `mlserver run` - Run built container locally
+- **List**: `mlserver list-classifiers` - List classifiers in config
+- **Status**: `mlserver status` - Show system status
+- **Init**: `mlserver init` - Initialize a new project
+- **Init GitHub**: `mlserver init-github` - Generate GitHub Actions workflow
+- **Validate**: `mlserver validate [config.yaml]` - Validate configuration
+- **Doctor**: `mlserver doctor` - Diagnose common issues
+- **Test**: `mlserver test` - Test against a running server
+- **Schema**: `mlserver schema` - Generate JSON schema for mlserver.yaml (IDE support)
 
 ### Make Targets
 - **Setup**: `make dev-setup` - Complete development environment setup
@@ -70,9 +78,9 @@ There is an old version of the cli (in cli.py) which is obsolete - only use cli_
 ## Key Features
 - **Process-based scaling**: `server.workers` creates separate processes (not threads) for container-friendly scaling
 - **Modern configuration**: Unified `mlserver.yaml` format with classifier metadata
-- **Versioned endpoints**: Clean `/v1/classifier-name/predict` API paths
+- **Flat endpoints**: Each deployment serves `/predict` and `/predict_proba` (no version or classifier-name URL prefixes; `api.version` is metadata only)
 - **Observability**: Prometheus metrics at `/metrics`, structured JSON logging, correlation IDs
-- **Flexible input**: Supports records/JSON and ndarray input formats with auto-detection
+- **Flexible input**: Supports records/JSON and ndarray input formats (`records` is the default; auto-detection requires `api.adapter: auto`)
 - **Thread-safe predictions**: Configurable thread locking for model predictions
 - **Containerization**: Full Docker build/push/clean workflow with auto-generated Dockerfiles
 - **Dynamic loading**: Plugin architecture for any Python predictor class
@@ -117,8 +125,8 @@ The project uses FastAPI, Uvicorn, Pydantic, prometheus-client, and ML libraries
 - `api.adapter`: Input format adapter (records|ndarray|auto)
 - `api.feature_order`: Explicit feature ordering for records
 - `api.thread_safe_predict`: Thread-safe model predictions
-- `api.endpoints`: Enable/disable specific endpoints (predict, batch_predict, predict_proba)
-- `api.version`: API version for endpoint routing
+- `api.endpoints`: Enable/disable specific endpoints (predict, predict_proba)
+- `api.version`: API version for metadata tracking (not part of endpoint URLs)
 
 #### Configuration Extensions
 - `classifier.*`: Classifier metadata (name, version, description)
@@ -149,13 +157,8 @@ make demo-full
 - **Read `tests/INDEX.md` first** before modifying or adding tests to understand current coverage and patterns
 - **Track test coverage** for all new features and maintain the coverage metrics in the index
 
-### Current Status (2025-01-16)
-- **Total Coverage**: 32% (Target: 80%)
-- **Test Results**: 223 passing, 31 failing, 5 errors
-- **Key Achievements**:
-  - server.py: 72% coverage (up from 12%)
-  - adapters.py: 93% coverage (up from 41%)
-  - config.py: 94% coverage (maintained high)
+### Current Status
+Run `pytest tests/` for the current test status and `pytest tests/ --cov=mlserver` for up-to-date coverage numbers. Do not rely on hardcoded snapshots in documentation - see `tests/INDEX.md` for suite organization.
 
 ### Quick Test Commands
 ```bash

@@ -2,9 +2,9 @@
 Titanic Survival Classifier - Inference Demo Script
 
 This script demonstrates how to load trained artifacts and perform inference
-on the Titanic survival prediction model. This is an example of the kind of
-Python file that could be used with `ml_server ainit` to automatically
-generate MLServer configuration files.
+on the Titanic survival prediction model. It shows the inference patterns you
+would wrap into a predictor class and mlserver.yaml configuration - see
+examples/example_titanic_manual_setup/ for the finished result.
 """
 
 import joblib
@@ -16,7 +16,7 @@ from pathlib import Path
 # Load trained artifacts
 print("Loading model artifacts...")
 
-# Define paths to artifacts (this would be auto-detected by ainit)
+# Define paths to artifacts
 artifacts_path = Path("../example_titanic_manual_setup/artifacts")
 model_path = artifacts_path / "catboost_model.pkl"
 preprocessor_path = artifacts_path / "preprocessor.pkl"
@@ -151,9 +151,9 @@ print(f"Feature names in: {feature_order}")
 print(f"Transformed feature count: {preprocessor.transform(pd.DataFrame([single_passenger])).shape[1]}")
 
 
-# This is the pattern that ainit would extract for the predictor class
+# This is the pattern to wrap into a predictor class for MLServer
 class TitanicPredictor:
-    """Example predictor class that ainit would generate."""
+    """Example predictor class suitable for serving with MLServer."""
 
     def __init__(self, model_path: str, preprocessor_path: str, feature_order_path: str):
         # Load artifacts
@@ -217,5 +217,6 @@ predictor = TitanicPredictor(
 test_result = predictor.predict(single_passenger)
 print(f"Predictor class result: {test_result[0]:.3f}")
 
-print("\n🚀 This script demonstrates patterns that ml_server ainit would extract!")
-print("Run: ml_server ainit inference_example.py --trace")
+print("\n🚀 This script demonstrates the predictor patterns MLServer wraps!")
+print("See examples/example_titanic_manual_setup/ for the served version,")
+print("or run 'mlserver init' to scaffold a new project.")

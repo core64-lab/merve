@@ -3,12 +3,11 @@ CatBoost Predictor for Titanic survival prediction.
 This version works with the multi-classifier setup.
 """
 
-import pickle
 import json
+import pickle
+
 import numpy as np
 import pandas as pd
-from typing import List, Any, Optional
-from pathlib import Path
 
 
 class CatBoostSurvivalPredictor:
@@ -30,16 +29,16 @@ class CatBoostSurvivalPredictor:
             self.model = pickle.load(f)
 
         # Load feature order
-        with open(features_path, 'r') as f:
+        with open(features_path) as f:
             self.feature_order = json.load(f)
 
         # Load categorical indices
-        with open(categorical_indices_path, 'r') as f:
+        with open(categorical_indices_path) as f:
             self.categorical_indices = json.load(f)
 
         print(f"Loaded CatBoost model with features: {self.feature_order}")
 
-    def predict(self, X: np.ndarray) -> List[int]:
+    def predict(self, X: np.ndarray) -> list[int]:
         """Make predictions.
 
         Args:

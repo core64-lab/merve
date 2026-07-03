@@ -2,10 +2,9 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-860%20passing-brightgreen.svg)](#testing)
-[![Coverage](https://img.shields.io/badge/coverage-63%25-yellow.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-897%20passing-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-64%25-yellow.svg)](#testing)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 > **M**odel s**erve**r - Wrap any Python predictor class into a production-ready FastAPI inference API using a simple YAML configuration file.
 
@@ -80,15 +79,15 @@ mlserver serve
 # Single prediction
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"instances": [{"feature1": 1.0, "feature2": 2.0}]}'
+  -d '{"payload": {"records": [{"feature1": 1.0, "feature2": 2.0}]}}'
 
 # Batch prediction (same endpoint)
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"instances": [
+  -d '{"payload": {"records": [
     {"feature1": 1.0, "feature2": 2.0},
     {"feature1": 3.0, "feature2": 4.0}
-  ]}'
+  ]}}'
 ```
 
 ## API Endpoints
@@ -141,10 +140,10 @@ classifier:
   description: My ML classifier
 
 api:
-  adapter: auto              # auto | records | ndarray
+  adapter: records           # records (default) | ndarray | auto
   feature_order: [col1, col2]  # or path to JSON file
   thread_safe_predict: false
-  max_concurrent_predictions: 1
+  max_concurrent_predictions: 1  # 0 disables the limiter
   warmup_on_start: true
   endpoints:
     predict: true
@@ -212,6 +211,7 @@ mlserver doctor                        Diagnose common issues
 mlserver test                          Test against running server
 mlserver init                          Initialize new project
 mlserver init-github                   Generate GitHub Actions workflow
+mlserver schema                        Generate JSON schema for mlserver.yaml
 ```
 
 ## Docker Containerization
@@ -271,19 +271,19 @@ deployment:
 
 ## Input Formats
 
-The API auto-detects input format:
+All requests wrap the input in a `payload` object. The default adapter is `records`; set `api.adapter: auto` to opt in to auto-detection of the input format.
 
-**Records (list of dicts):**
+**Records (list of dicts, default):**
 ```json
-{"instances": [{"age": 25, "income": 50000}]}
+{"payload": {"records": [{"age": 25, "income": 50000}]}}
 ```
 
-**ndarray (nested lists):**
+**ndarray (nested lists, requires `api.adapter: ndarray` or `auto`):**
 ```json
-{"instances": [[25, 50000]]}
+{"payload": {"ndarray": [[25, 50000]]}}
 ```
 
-Force a specific format with `api.adapter: records` or `api.adapter: ndarray`.
+The ndarray adapter also accepts an `"inputs"` key in place of `"ndarray"`. Force a specific format with `api.adapter: records` or `api.adapter: ndarray`.
 
 ## Observability
 
@@ -292,7 +292,7 @@ Built-in observability at no extra configuration:
 - **Prometheus metrics** at `/metrics`
 - **Structured JSON logging** with correlation IDs
 - **Health checks** at `/healthz`
-- **Request tracing** via X-Correlation-ID header
+- **Correlation IDs** attached to structured logs
 
 Example Prometheus + Grafana setup in `monitoring/` directory.
 
@@ -335,7 +335,7 @@ pytest tests/unit/           # Unit tests
 pytest tests/integration/    # Integration tests
 ```
 
-Current status: **860 tests passing**, **63% coverage**
+Current status: **897 tests passing, 0 failing**, **64% coverage**
 
 ## Troubleshooting
 

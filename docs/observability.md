@@ -2,24 +2,33 @@
 
 ## Overview
 
-MLServer provides comprehensive observability features including Prometheus metrics, structured logging, distributed tracing, and health monitoring.
+MLServer provides comprehensive observability features including Prometheus metrics, structured logging, correlation IDs, and health monitoring.
 
 ## Metrics
 
 ### Prometheus Integration
 
-MLServer exposes metrics at the `/metrics` endpoint in Prometheus format.
+MLServer exposes metrics at the `/metrics` endpoint (path configurable via `observability.metrics_endpoint`) in Prometheus format.
+
+> **⚠️ Multi-worker caveat**: with `server.workers > 1`, each worker process keeps its own in-process Prometheus registry — `prometheus_client` multiprocess mode is **not** configured. A scrape of `/metrics` samples whichever worker answers the request, so counters will appear to jump around. For accurate metrics, run `workers: 1` per container and scale horizontally with pod replicas.
 
 #### Available Metrics
 
 | Metric | Type | Description | Labels |
 |--------|------|-------------|--------|
-| `mlserver_requests_total` | Counter | Total number of requests | `endpoint`, `method`, `status` |
-| `mlserver_request_duration_seconds` | Histogram | Request latency | `endpoint`, `method` |
-| `mlserver_prediction_duration_seconds` | Histogram | Model prediction time | `model` |
-| `mlserver_prediction_errors_total` | Counter | Total prediction errors | `model`, `error_type` |
-| `mlserver_active_requests` | Gauge | Currently active requests | - |
-| `mlserver_model_loaded` | Gauge | Model load status (1=loaded) | `model`, `version` |
+| `mlserver_requests_total` | Counter | Total number of requests | `method`, `endpoint`, `status_code`, `model` |
+| `mlserver_request_duration_seconds` | Histogram | Request duration in seconds | `method`, `endpoint`, `model` |
+| `mlserver_prediction_duration_seconds` | Histogram | Model prediction duration in seconds | `model`, `endpoint` |
+| `mlserver_predictions_total` | Counter | Total number of predictions made (output samples) | `model`, `endpoint` |
+| `mlserver_input_samples_total` | Counter | Total number of input samples received | `model`, `endpoint` |
+| `mlserver_active_requests` | Gauge | Number of active requests | `model` |
+| `mlserver_batch_size` | Histogram | Distribution of prediction batch sizes | `model`, `endpoint` |
+| `mlserver_model_info` | Gauge | Model information (set to 1 when the model is loaded) | `model`, `version` |
+
+Notes:
+- The `model` label carries the predictor class name (e.g. `CatBoostPredictor`).
+- Requests to `/healthz` and the metrics endpoint itself are excluded from request metrics to reduce noise.
+- There is no dedicated error counter — derive error rates from `mlserver_requests_total` filtered by `status_code`.
 
 #### Configuration
 
@@ -28,7 +37,6 @@ MLServer exposes metrics at the `/metrics` endpoint in Prometheus format.
 observability:
   metrics: true
   metrics_endpoint: "/metrics"
-  metrics_prefix: "mlserver_"
 ```
 
 #### Custom Metrics
@@ -90,7 +98,7 @@ Pre-built dashboards for monitoring MLServer.
         "id": 2,
         "title": "Error Rate",
         "targets": [{
-          "expr": "rate(mlserver_requests_total{status=~'4..|5..'}[5m])"
+          "expr": "rate(mlserver_requests_total{status_code=~'4..|5..'}[5m])"
         }]
       },
       {
@@ -124,9 +132,15 @@ Pre-built dashboards for monitoring MLServer.
     "title": "Model Performance",
     "panels": [
       {
-        "title": "Prediction Throughput",
+        "title": "Prediction Throughput (requests)",
         "targets": [{
           "expr": "rate(mlserver_requests_total{endpoint='/predict'}[1m])"
+        }]
+      },
+      {
+        "title": "Prediction Throughput (samples)",
+        "targets": [{
+          "expr": "rate(mlserver_predictions_total[1m])"
         }]
       },
       {
@@ -136,9 +150,15 @@ Pre-built dashboards for monitoring MLServer.
         }]
       },
       {
-        "title": "Model Errors",
+        "title": "Prediction Errors",
         "targets": [{
-          "expr": "rate(mlserver_prediction_errors_total[5m])"
+          "expr": "rate(mlserver_requests_total{endpoint='/predict', status_code=~'5..'}[5m])"
+        }]
+      },
+      {
+        "title": "Batch Size P95",
+        "targets": [{
+          "expr": "histogram_quantile(0.95, rate(mlserver_batch_size_bucket[5m]))"
         }]
       },
       {
@@ -161,43 +181,49 @@ MLServer uses structured JSON logging for better log aggregation and analysis.
 #### Configuration
 
 ```yaml
+server:
+  log_level: "INFO"        # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  logger:
+    timestamp: false       # Include timestamps (default: false — container runtimes add their own)
+    structured: true       # JSON output format
+    show_tasks: false      # Include asyncio task names
+    format: null           # Custom log format string (overrides other settings)
+
 observability:
-  structured_logging: true
-  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-  log_file: null     # Optional: write to file
-  log_payloads: false  # Log request/response bodies (privacy!)
+  structured_logging: true   # Emit request/response log events
+  correlation_ids: true      # Attach a correlation_id to all logs of a request
+  log_payloads: false        # Log request payload + response at INFO (privacy!)
 ```
+
+`observability.log_payloads: true` logs the incoming request payload and the outgoing response at INFO level — useful for debugging, but be mindful of sensitive data in production.
 
 #### Log Format
 
+Each log line is a JSON object. Base fields are `level`, `logger`, and `message`; `correlation_id` is added when `correlation_ids` is enabled, and `timestamp` only when `server.logger.timestamp: true`. Request lifecycle events add structured fields:
+
 ```json
-{
-  "timestamp": "2024-01-15T10:30:45.123Z",
-  "level": "INFO",
-  "message": "Prediction completed",
-  "request_id": "abc-123-def",
-  "model": "catboost-survival",
-  "version": "1.0.0",
-  "duration_ms": 45,
-  "input_shape": [1, 4],
-  "output_shape": [1],
-  "status": "success"
-}
+{"level": "INFO", "logger": "mlserver.request", "message": "Request started", "correlation_id": "0b0e8a7e-4f6e-4a9e-9a1e-1f2d3c4b5a69", "event": "request_start", "method": "POST", "path": "/predict"}
+{"level": "INFO", "logger": "mlserver.response", "message": "Request completed", "correlation_id": "0b0e8a7e-4f6e-4a9e-9a1e-1f2d3c4b5a69", "event": "request_complete", "status_code": 200, "duration_ms": 45.2}
+```
+
+On errors, the log entry additionally carries the exception details:
+
+```json
+{"level": "ERROR", "logger": "mlserver.server", "message": "Prediction error: could not convert string to float", "correlation_id": "0b0e8a7e-4f6e-4a9e-9a1e-1f2d3c4b5a69", "exception": "Traceback (most recent call last): ..."}
 ```
 
 #### Custom Logging
 
 ```python
-import structlog
+import logging
 
-logger = structlog.get_logger()
+logger = logging.getLogger("my_predictor")
 
 class LoggingPredictor:
     def predict(self, X):
         logger.info(
             "prediction_started",
-            model=self.__class__.__name__,
-            input_shape=X.shape
+            extra={"model": self.__class__.__name__, "input_shape": X.shape}
         )
 
         start_time = time.time()
@@ -206,8 +232,10 @@ class LoggingPredictor:
 
             logger.info(
                 "prediction_completed",
-                duration_ms=(time.time() - start_time) * 1000,
-                output_shape=predictions.shape
+                extra={
+                    "duration_ms": (time.time() - start_time) * 1000,
+                    "output_shape": predictions.shape,
+                }
             )
 
             return predictions
@@ -215,12 +243,13 @@ class LoggingPredictor:
         except Exception as e:
             logger.error(
                 "prediction_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                exc_info=True
+                exc_info=True,
+                extra={"error_type": type(e).__name__}
             )
             raise
 ```
+
+Extra fields passed via `extra=` are merged into the JSON log entry, and the correlation ID of the current request is attached automatically.
 
 ### Log Aggregation
 
@@ -262,28 +291,25 @@ output.elasticsearch:
 </match>
 ```
 
-## Distributed Tracing
+## Request Tracking
 
 ### Correlation IDs
 
-Every request gets a unique correlation ID for tracking across services.
+Every request gets a unique correlation ID for tracking across log lines.
 
 ```yaml
 observability:
   correlation_ids: true
 ```
 
-Request flow with correlation ID:
-```
-Client -> (X-Request-ID: abc-123) -> MLServer
-MLServer logs: {"request_id": "abc-123", ...}
-MLServer -> (X-Request-ID: abc-123) -> Downstream Service
-```
+The correlation ID is generated server-side per request and attached to every log entry emitted while handling that request (via a context variable). It is not propagated via HTTP headers; to correlate with downstream services, log your own identifiers from within the predictor.
 
 ### OpenTelemetry Integration
 
+MLServer has no built-in tracing, but you can instrument your predictor with OpenTelemetry:
+
 ```python
-# mlserver/tracing.py
+# your_project/tracing.py — user-level integration example
 from opentelemetry import trace
 from opentelemetry.exporter.jaeger import JaegerExporter
 from opentelemetry.sdk.trace import TracerProvider
@@ -321,55 +347,14 @@ class TracedPredictor:
 
 ## Health Monitoring
 
-### Health Checks
+### Health Endpoints
 
-#### Liveness Probe
-```python
-@app.get("/healthz")
-def health_check():
-    """Basic liveness check."""
-    return {"status": "healthy"}
-```
+MLServer exposes two built-in endpoints for health monitoring:
 
-#### Readiness Probe
-```python
-@app.get("/readyz")
-def readiness_check():
-    """Check if model is loaded and ready."""
-    if not predictor_loaded:
-        raise HTTPException(status_code=503, detail="Model not loaded")
+- **`GET /healthz`** — returns `{"status": "ok", "model": "<PredictorClass>"}`. Use this for liveness **and** readiness probes; `model` is `null` until the predictor is loaded, and the endpoint only responds once the app has started.
+- **`GET /status`** — returns concurrency-limiter state: `{"prediction_slots_available": ..., "active_predictions": ..., "max_concurrent_predictions": ..., "concurrency_control_enabled": ...}`. Useful for observing prediction slot saturation (e.g. before routing traffic).
 
-    # Optional: Check model responsiveness
-    try:
-        test_input = [[0] * expected_features]
-        predictor.predict(test_input)
-    except Exception:
-        raise HTTPException(status_code=503, detail="Model not responding")
-
-    return {"status": "ready"}
-```
-
-#### Startup Probe
-```python
-@app.get("/startupz")
-def startup_check():
-    """Extended startup check for slow-loading models."""
-    checks = {
-        "config_loaded": config is not None,
-        "model_loaded": predictor is not None,
-        "metrics_initialized": metrics_ready,
-        "dependencies_healthy": check_dependencies()
-    }
-
-    if not all(checks.values()):
-        failed = [k for k, v in checks.items() if not v]
-        raise HTTPException(
-            status_code=503,
-            detail=f"Startup incomplete: {failed}"
-        )
-
-    return {"status": "started", "checks": checks}
-```
+These are the only health endpoints — there are no separate readiness or startup probe paths, so point all Kubernetes probes at `/healthz`.
 
 ### Kubernetes Configuration
 
@@ -390,14 +375,15 @@ spec:
 
         readinessProbe:
           httpGet:
-            path: /readyz
+            path: /healthz
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 5
 
+        # For slow-loading models, point the startup probe at /healthz too
         startupProbe:
           httpGet:
-            path: /startupz
+            path: /healthz
             port: 8000
           failureThreshold: 30
           periodSeconds: 10
@@ -430,7 +416,7 @@ class ProfilingMiddleware:
             stats.print_stats(20)
 
             # Log or return profile data
-            logger.info("profile_data", profile=stream.getvalue())
+            logger.info("profile_data", extra={"profile": stream.getvalue()})
         else:
             await self.app(scope, receive, send)
 ```
@@ -459,7 +445,7 @@ class MemoryMonitor:
         if self.process.memory_percent() > threshold_percent:
             logger.warning(
                 "high_memory_usage",
-                **self.get_memory_stats()
+                extra=self.get_memory_stats()
             )
             # Trigger garbage collection
             gc.collect()
@@ -477,7 +463,7 @@ groups:
   - name: mlserver
     rules:
       - alert: HighErrorRate
-        expr: rate(mlserver_requests_total{status=~"5.."}[5m]) > 0.05
+        expr: rate(mlserver_requests_total{status_code=~"5.."}[5m]) > 0.05
         for: 2m
         labels:
           severity: warning
@@ -494,13 +480,24 @@ groups:
           summary: "High latency on {{ $labels.instance }}"
           description: "P95 latency is {{ $value }} seconds"
 
-      - alert: ModelNotLoaded
-        expr: mlserver_model_loaded == 0
+      - alert: ModelInfoMissing
+        # mlserver_model_info is set to 1 at startup once the model is loaded;
+        # absence of the series means the server is down or the model never loaded.
+        expr: absent(mlserver_model_info) == 1
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Model not loaded on {{ $labels.instance }}"
+          summary: "No mlserver_model_info series — model not loaded or server down"
+
+      - alert: ConcurrencyRejections
+        expr: rate(mlserver_requests_total{status_code="503"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Prediction requests being rejected (503) on {{ $labels.instance }}"
+          description: "Concurrency limit reached — consider adding replicas"
 
       - alert: HighMemoryUsage
         expr: process_resident_memory_bytes / 1024 / 1024 / 1024 > 2
@@ -640,7 +637,7 @@ class TimedPredictor:
         predictions = self.model.predict(X_processed)
         timings['inference_ms'] = (time.time() - start) * 1000
 
-        logger.info("prediction_timings", **timings)
+        logger.info("prediction_timings", extra=timings)
         return predictions
 ```
 
@@ -649,7 +646,7 @@ class TimedPredictor:
 1. **Monitor memory growth**:
 ```bash
 # Watch memory usage
-watch -n 1 'ps aux | grep ml_server'
+watch -n 1 'ps aux | grep mlserver'
 ```
 
 2. **Profile memory**:
@@ -674,3 +671,5 @@ curl http://localhost:9090/api/v1/targets
 # Should return Prometheus format
 curl -v http://localhost:8000/metrics
 ```
+
+3. **Counters look inconsistent between scrapes**: check `server.workers` — with more than one worker each scrape samples a single process (see the multi-worker caveat above).

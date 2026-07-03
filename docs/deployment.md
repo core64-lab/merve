@@ -54,43 +54,28 @@ multi-classifier-repo/
 └── build.sh             # Build script for all classifiers
 ```
 
-## Configuration Changes
+## Versionless Endpoints and Metadata
 
-### Remove API Version from URLs
-Update `mlserver/config.py`:
-```python
-def get_base_path(self) -> str:
-    """Get base API path for endpoints."""
-    # Option 1: Classifier name only (recommended)
-    classifier_name = self.classifier.get('name', 'classifier')
-    return f"/{classifier_name}"
+Endpoints are versionless and flat: every deployment serves exactly one classifier at `/predict`, `/predict_proba`, `/info`, `/status`, `/healthz`, and `/metrics` — no version or classifier name in the URL. Version information travels in the response metadata instead:
 
-    # Option 2: Keep versioning but make it optional
-    # api_version = self.api.version
-    # if self.api.include_version_in_url:  # New config option
-    #     return f"/{api_version}/{classifier_name}"
-    # return f"/{classifier_name}"
-```
-
-### Enhanced Metadata Response
-All endpoints should include comprehensive metadata:
 ```json
 {
   "predictions": [...],
+  "time_ms": 12.5,
+  "predictor_class": "SentimentPredictor",
   "metadata": {
-    "repository": "multi-classifier-repo",
+    "project": "multi-classifier-repo",
     "classifier": "sentiment-analyzer",
-    "version": "2.3.1",
-    "git_tag": "v2.3.1",
+    "predictor_class": "SentimentPredictor",
+    "predictor_module": "predictor_sentiment",
+    "config_file": "mlserver.yaml",
     "git_commit": "abc123def",
-    "trained_at": "2024-01-15T10:30:00Z",
-    "api_version": "v1",
-    "model_metrics": {
-      "accuracy": 0.95,
-      "f1_score": 0.93
-    }
-  },
-  "time_ms": 12.5
+    "git_tag": "sentiment-v2.3.1-mlserver-b5dff2a",
+    "deployed_at": "2024-01-15T10:30:00Z",
+    "mlserver_version": "0.3.2",
+    "mlserver_api_commit": "b5dff2a",
+    "mlserver_api_tag": null
+  }
 }
 ```
 
@@ -155,7 +140,7 @@ VERSION=$2
 
 # Build specific classifier
 cd $CLASSIFIER_PATH
-ml_server build --tag "${REPO_NAME}-${CLASSIFIER_NAME}:${VERSION}"
+mlserver build --classifier "$CLASSIFIER_NAME"
 ```
 
 ### 3. GitHub Actions Workflows
@@ -206,15 +191,11 @@ jobs:
         run: |
           pip install -e .
 
-      - name: Validate Tag Matches Code
-        run: |
-          # Verify current code matches tag
-          mlserver build --classifier ${{ github.ref_name }} --dry-run || true
-
       - name: Build Container
         run: |
-          # Build with full hierarchical tag for validation
-          mlserver build --classifier ${{ github.ref_name }}
+          # Build with full hierarchical tag - validates the checked-out code
+          # matches the tag's expected commits (use --force to skip the prompt in CI)
+          mlserver build --classifier ${{ github.ref_name }} --force
 
       - name: Login to Container Registry
         uses: docker/login-action@v2
@@ -368,9 +349,8 @@ spec:
       containers:
       - name: classifier
         image: registry.example.com/multi-classifier-repo-sentiment:v2.3.1
-        env:
-        - name: MAX_CONCURRENT_PREDICTIONS
-          value: "1"  # Single request per pod
+        # Concurrency is configured in mlserver.yaml (api.max_concurrent_predictions,
+        # default 1 = one prediction per pod; overflow gets 503 so the LB retries)
         resources:
           requests:
             memory: "512Mi"
@@ -404,6 +384,8 @@ spec:
   - match:
     - uri:
         prefix: /sentiment-analyzer
+    rewrite:
+      uri: /   # MLServer serves flat endpoints (/predict), so strip the routing prefix
     route:
     - destination:
         host: sentiment-analyzer
@@ -423,8 +405,10 @@ spec:
 cd classifiers/sentiment
 mlserver serve mlserver.yaml
 
-# Test endpoint
-curl http://localhost:8000/sentiment-analyzer/predict
+# Test endpoint (flat path - no classifier name in the URL)
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"records": [{"text": "Great product!"}]}}'
 ```
 
 ### 2. Building Multiple Classifiers
@@ -580,7 +564,7 @@ mlserver build --classifier sentiment-v1.0.1-mlserver-b5dff2a
    - Canary and blue-green deployment support
 
 6. **Simplified Client Integration**: Clients use stable URLs, versions tracked via metadata
-   - Versionless endpoints: `/sentiment-analyzer/predict`
+   - Versionless, flat endpoints: `/predict` on each classifier's service
    - Version information in response metadata
    - No client code changes for version updates
 
@@ -601,27 +585,28 @@ import requests
 
 class MLClient:
     def __init__(self, base_url: str):
+        # base_url points at one classifier's service,
+        # e.g. http://sentiment-analyzer.ml.svc:8000
         self.base_url = base_url
         self.last_metadata = None
 
-    def predict(self, classifier_name: str, data: dict):
-        # URL doesn't include version
-        url = f"{self.base_url}/{classifier_name}/predict"
+    def predict(self, records: list):
+        # Flat, versionless endpoint
+        url = f"{self.base_url}/predict"
 
-        response = requests.post(url, json={"payload": data})
+        response = requests.post(url, json={"payload": {"records": records}})
         result = response.json()
 
         # Track version from metadata
         self.last_metadata = result.get("metadata", {})
         print(f"Used {self.last_metadata.get('classifier')} "
-              f"v{self.last_metadata.get('version')} "
               f"(git: {self.last_metadata.get('git_tag')})")
 
         return result["predictions"]
 
 # Client doesn't need to know about versions
-client = MLClient("http://ml-service.internal")
-predictions = client.predict("sentiment-analyzer", {"text": "Great product!"})
+client = MLClient("http://sentiment-analyzer.internal:8000")
+predictions = client.predict([{"text": "Great product!"}])
 ```
 
 ## Monitoring and Observability
@@ -633,22 +618,8 @@ predictions = client.predict("sentiment-analyzer", {"text": "Great product!"})
 - Version adoption rate (for canary deployments)
 
 ### Prometheus Metrics
-```python
-# Add to metrics.py
-classifier_version_info = Info(
-    'mlserver_classifier_version',
-    'Classifier version information',
-    ['repository', 'classifier', 'version', 'git_tag']
-)
 
-# Set at startup
-classifier_version_info.labels(
-    repository=config.classifier.repository,
-    classifier=config.classifier.name,
-    version=config.classifier.version,
-    git_tag=git_info.tag
-).set({'deployed': '1'})
-```
+The built-in `mlserver_model_info{model, version}` gauge is set to 1 at startup and identifies the loaded model. Combine it with the per-request metrics (`mlserver_requests_total`, `mlserver_request_duration_seconds`, ...) and Kubernetes labels (`app`, `version`) to break dashboards down by classifier version. See [Observability Features](./observability.md#available-metrics) for the full metric list.
 
 ## Security Considerations
 

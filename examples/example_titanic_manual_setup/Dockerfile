@@ -48,4 +48,4 @@ LABEL ml.classifier.version="1.0.0"
 LABEL ml.created="2025-09-15T18:36:43.230163"
 
 # Command to run the server
-CMD ["ml_server", "serve", "mlserver.yaml"]
+CMD ["mlserver", "serve", "mlserver.yaml"]

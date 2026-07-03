@@ -18,20 +18,27 @@ server:
     allow_headers: ["Content-Type"]
     allow_credentials: false
 
-# Predictor Configuration (REQUIRED)
+  # Logger configuration (optional)
+  logger:
+    timestamp: false                    # Include timestamps (false for containers - the runtime adds them)
+    structured: true                    # Use structured JSON logging
+    show_tasks: false                   # Show async task names (Task-1, Task-2) in logs
+    format: null                        # Custom log format string (overrides other settings)
+
+# Predictor Configuration (REQUIRED - the only required section)
 predictor:
-  module: "my_predictor"                # Python module name
+  module: "my_predictor"                # Python module name (placeholder - replace with your own module)
   class_name: "MyPredictor"             # Class to instantiate
   init_kwargs:                          # Constructor arguments
     model_path: "./models/model.pkl"
     threshold: 0.5
 
-# API Configuration (REQUIRED)
+# API Configuration (OPTIONAL - defaults shown below are used if omitted)
 api:
   version: "v1"                         # API version
   endpoints:
     predict: true
-    # Note: batch_predict removed - /predict handles both single and batch
+    # Note: the former batch endpoint was removed - /predict handles both single and batch
     predict_proba: true
 
   # Input/Output
@@ -45,7 +52,10 @@ api:
 
   # Concurrency
   thread_safe_predict: false
-  max_concurrent_predictions: 1
+  max_concurrent_predictions: 1         # 0 disables the limiter
+
+  # Warmup
+  warmup_on_start: true                 # Run a warmup prediction at startup (reduces first-request latency)
 
 # Observability
 observability:
@@ -55,7 +65,7 @@ observability:
   log_payloads: false                   # Privacy consideration
   correlation_ids: true
 
-# Classifier Metadata (REQUIRED)
+# Classifier Metadata (OPTIONAL - auto-generated from the predictor class name if omitted)
 classifier:
   name: "my-classifier"                 # URL-safe name
   version: "1.0.0"                      # Semantic version
@@ -78,3 +88,19 @@ build:
   tag_prefix: "ml-models"
   include_files: ["models/", "*.py"]
   exclude_patterns: ["*.pyc", "tests/"]
+
+# Deployment Configuration (OPTIONAL - registry and release settings)
+# deployment:
+#   strategy: "single"                  # single|multi (separate services per classifier)
+#   container_naming: "{repository}-{classifier}:{version}"
+#   git_tag_format: "{classifier}-v{version}"
+#   parallel_builds: true               # Parallel container builds for multi-classifier repos
+#   registry:
+#     type: "ghcr"                      # ghcr (GitHub Container Registry) | ecr (AWS)
+#     url: null                         # Registry URL (GHCR default: ghcr.io)
+#     namespace: "your-org"             # Registry namespace (GHCR default: auto-detected from git)
+#     push_on_build: false              # Automatically push after build
+#     # ecr:                            # Required when type: ecr
+#     #   aws_region: "eu-central-1"
+#     #   registry_id: "123456789012"   # AWS account ID
+#     #   repository_prefix: "ml-classifiers"

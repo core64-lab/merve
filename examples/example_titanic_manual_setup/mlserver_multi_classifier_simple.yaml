@@ -47,12 +47,13 @@ classifiers:
     api:
       version: "v1"
       adapter: records
-      feature_order: [Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, FamilySize, IsAlone, Title]
+      # Must match the order the model was trained with (see artifacts/feature_order.json)
+      feature_order: [pclass, sex, age, sibsp, parch, fare, embarked, who, adult_male, alone]
       thread_safe_predict: false
       max_concurrent_predictions: 1
       endpoints:
         predict: true
-        # Note: batch_predict removed - /predict handles both single and batch
+        # Note: the former batch endpoint was removed - /predict handles both single and batch
         predict_proba: true
 
   # RandomForest classifier - also using just the filename!
@@ -80,12 +81,13 @@ classifiers:
     api:
       version: "v1"
       adapter: records
-      feature_order: [Pclass, Sex, Age, SibSp, Parch, Fare, Embarked, FamilySize, IsAlone, Title]
+      # Must match the order the model was trained with (see artifacts/randomforest-survival/features.json)
+      feature_order: [pclass, sex, age, sibsp, parch, fare, embarked, FamilySize, IsAlone, Title]
       thread_safe_predict: false
       max_concurrent_predictions: 1
       endpoints:
         predict: true
-        # Note: batch_predict removed - /predict handles both single and batch
+        # Note: the former batch endpoint was removed - /predict handles both single and batch
         predict_proba: true
 
 default_classifier: "catboost-survival"

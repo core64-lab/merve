@@ -10,27 +10,27 @@ This index provides a comprehensive overview of all documentation available for 
 
 ### [API Reference](./api-reference.md)
 - **REST API Endpoints**: Complete endpoint documentation with request/response schemas
-- **Input Formats**: Records, ndarray, and auto-detection modes
+- **Input Formats**: Records and ndarray payloads, opt-in auto-detection
 - **Response Formats**: Prediction responses, metadata, and error handling
-- **Authentication**: Security and access control patterns
-- **Rate Limiting**: Concurrency control and throttling
+- **Security**: CORS configuration and request validation
+- **Concurrency Control**: 503-based prediction limiting with `Retry-After`
 
 ### [Configuration Guide](./configuration.md)
 - **YAML Structure**: Complete configuration schema and options
-- **Server Settings**: Workers, ports, CORS, timeouts
+- **Server Settings**: Workers, ports, CORS, logging
 - **Predictor Setup**: Module loading, initialization, and parameters
-- **Observability**: Metrics, logging, tracing configuration
+- **Observability**: Metrics, logging, correlation ID configuration
 - **Multi-Classifier**: Managing multiple models in one repository
 
 ### [CLI Reference](./cli-reference.md)
-- **Classic CLI** (`ml_server`): Traditional command interface
-- **Modern CLI** (`mlserver`): Typer-based rich interface with rich output
+- **The `mlserver` CLI**: Typer-based interface with rich output
 - **Version Management**: Hierarchical tagging for complete reproducibility
 - **Tag Command**: Create semantic version tags with MLServer commit tracking
 - **Build Command**: Container builds with validation warnings
-- **Version Command**: Display version info with detailed flag
+- **Project Setup**: `init` and `init-github` scaffolding
+- **Diagnostics**: `validate`, `doctor`, `test`, `schema`
 - **Command Options**: Complete parameter documentation
-- **Environment Variables**: CLI overrides and defaults
+- **Environment Variables**: The variables MLServer actually reads
 - **Examples**: Common usage patterns and workflows
 
 ### [Architecture Overview](./architecture.md)
@@ -38,7 +38,7 @@ This index provides a comprehensive overview of all documentation available for 
 - **Request Flow**: From API to predictor and back
 - **Process Model**: Multi-worker architecture and scaling
 - **Plugin System**: Dynamic predictor loading mechanism
-- **Performance**: Optimization strategies and benchmarks
+- **Performance**: Optimization strategies
 
 ---
 
@@ -74,24 +74,17 @@ This index provides a comprehensive overview of all documentation available for 
 
 ## 🔧 Feature Documentation
 
-### [AI-Powered Initialization](./ainit.md)
-- **Jupyter Integration**: Converting notebooks to production APIs
-- **Auto-Generation**: Creating configs and predictors from notebooks
-- **Best Practices**: Notebook structure for optimal results
-- **Customization**: Tweaking generated outputs
-- **Architecture**: How `ainit` analyzes and generates code
-
 ### [Multi-Classifier Support](./multi-classifier.md)
-- **Configuration Format**: YAML structure for multiple models
-- **Deployment Patterns**: Kubernetes and container strategies
-- **Version Management**: Per-classifier versioning
-- **Routing**: Request handling and classifier selection
+- **Configuration Format**: Dict (canonical) and list YAML structures for multiple models
+- **Deployment Patterns**: One classifier per container/process, selected at startup
+- **Version Management**: Per-classifier versioning via `mlserver tag`
+- **Classifier Selection**: `serve --classifier` and `MLSERVER_CLASSIFIER`
 - **Examples**: Real-world multi-model deployments
 
 ### [Observability Features](./observability.md)
 - **Prometheus Metrics**: Available metrics and labels
 - **Structured Logging**: JSON log format and fields
-- **Correlation IDs**: Request tracking across services
+- **Correlation IDs**: Request tracking across log lines
 - **Grafana Dashboards**: Pre-built visualizations
 - **Performance Monitoring**: Latency, throughput, errors
 
@@ -127,14 +120,15 @@ mlserver build --classifier sentiment-v1.0.1-mlserver-abc123
 # Version information
 mlserver version --detailed
 
-# AI-powered init
-mlserver ainit notebook.ipynb
+# Scaffold a new project
+mlserver init --classifier my-model
 ```
 
 ### API Quick Endpoints
-- `POST /predict` - Single prediction
-- `POST /batch_predict` - Batch predictions
+- `POST /predict` - Predictions (single and batch)
+- `POST /predict_proba` - Probability predictions
 - `GET /info` - Model metadata and version
+- `GET /status` - Prediction slot availability
 - `GET /metrics` - Prometheus metrics
 - `GET /healthz` - Health check
 
@@ -149,8 +143,8 @@ mlserver ainit notebook.ipynb
 - **"I want to monitor performance"** → [Observability Features](./observability.md)
 - **"I want to use multiple models"** → [Multi-Classifier Support](./multi-classifier.md)
 - **"I want to version my classifier"** → [CLI Reference > Tag Command](./cli-reference.md#tag---version-tagging--reproducibility)
-- **"I want reproducible builds"** → [Deployment Guide > Hierarchical Versioning](./deployment.md#ci-cd-workflow-adaptations)
-- **"I want to set up CI/CD"** → [Deployment Guide > GitHub Actions](./deployment.md#github-actions-workflows)
+- **"I want reproducible builds"** → [Deployment Guide > CI/CD Workflow Adaptations](./deployment.md#cicd-workflow-adaptations)
+- **"I want to set up CI/CD"** → [Deployment Guide > GitHub Actions](./deployment.md#3-github-actions-workflows)
 
 ### By Component
 - **Server** → [Architecture Overview](./architecture.md)
@@ -161,9 +155,15 @@ mlserver ainit notebook.ipynb
 
 ### By Problem
 - **"Server won't start"** → [Development Guide > Debugging](./development.md#debugging)
-- **"Predictions are slow"** → [Architecture > Performance](./architecture.md#performance)
+- **"Predictions are slow"** → [Architecture > Performance](./architecture.md#performance-optimizations)
 - **"Can't find module"** → [Configuration > Module Resolution](./configuration.md#module-resolution)
 - **"Metrics not showing"** → [Observability > Troubleshooting](./observability.md#troubleshooting)
+
+---
+
+## 🗄️ Archive
+
+Historical planning documents and session notes (refactoring plans, test session summaries, the never-implemented AI-init proposal, etc.) live in [`docs/archive/`](./archive/README.md). They are kept for reference only and do not describe the current system.
 
 ---
 
@@ -177,5 +177,5 @@ This documentation is continuously updated as the codebase evolves. When making 
 4. Verify links remain valid
 5. Update CLAUDE.md references
 
-**Last Updated**: 2025-10-27
-**Version**: 0.3.0 (Hierarchical Versioning Release)
+**Last Updated**: 2026-07-03
+**Version**: 0.3.x

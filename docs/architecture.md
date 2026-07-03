@@ -13,7 +13,8 @@ MLServer follows a modular, plugin-based architecture designed for flexibility a
 │                    FastAPI Application                   │
 │  ┌──────────────────────────────────────────────────┐  │
 │  │              API Endpoints Layer                  │  │
-│  │  /predict  /info  /metrics  /healthz             │  │
+│  │  /predict  /predict_proba  /info  /status        │  │
+│  │  /healthz  /metrics                              │  │
 │  └──────────────────────────────────────────────────┘  │
 │  ┌──────────────────────────────────────────────────┐  │
 │  │              Middleware Stack                     │  │
@@ -61,19 +62,21 @@ app = FastAPI(
 ### Configuration System
 
 ```python
-# mlserver/config.py
-class AppConfig:
+# mlserver/config.py (simplified)
+class AppConfig(BaseModel):
     server: ServerConfig
     predictor: PredictorConfig
     observability: ObservabilityConfig
-    api: ApiConfig
+    api: Optional[ApiConfig]
+    classifier: Optional[Dict[str, Any]]
+    build: Optional[BuildConfig]
+    deployment: Optional[DeploymentConfig]
 ```
 
 **Features**:
 - Pydantic validation
-- Environment variable overrides
-- Multi-classifier support
-- Global settings inheritance
+- Warnings for unknown/typo'd config keys at load time
+- Multi-classifier support (`MultiClassifierConfig` in `mlserver/multi_classifier.py`)
 
 ### Predictor Loader
 
@@ -95,37 +98,33 @@ def load_predictor(config: PredictorConfig):
 
 ### Input Adapters
 
+Input adaptation is function-based, not class-based:
+
 ```python
 # mlserver/adapters.py
-class AdapterFactory:
-    @staticmethod
-    def get_adapter(adapter_type: str) -> BaseAdapter:
-        if adapter_type == "records":
-            return RecordsAdapter()
-        elif adapter_type == "ndarray":
-            return NdarrayAdapter()
-        else:
-            return AutoAdapter()
+def to_ndarray(payload: dict, adapter: str, feature_order: Optional[List[str]]) -> np.ndarray:
+    """Convert a request payload to a numpy array based on the configured adapter."""
 ```
 
-**Adapter Types**:
-- **RecordsAdapter**: JSON objects with named features
-- **NdarrayAdapter**: Nested arrays
-- **AutoAdapter**: Automatic format detection
+**Adapter Modes** (`api.adapter`):
+- **records** (default): JSON objects with named features (`payload.records` / `payload.instances` / `payload.features`)
+- **ndarray**: Nested arrays (`payload.ndarray` / `payload.inputs`)
+- **auto**: Format inferred from the payload structure (`_infer_adapter_type`)
+
+Feature ordering for records is cached per feature-name set (`_get_cached_feature_order`).
 
 ### Concurrency Control
 
 ```python
-# mlserver/concurrency_limiter.py
-class ConcurrencyLimiter:
-    def __init__(self, max_concurrent: int):
-        self.semaphore = asyncio.Semaphore(max_concurrent)
-    
-    async def acquire(self):
-        await self.semaphore.acquire()
-    
-    def release(self):
-        self.semaphore.release()
+# mlserver/concurrency_limiter.py (simplified)
+class PredictionSemaphore:
+    """Limit concurrent predictions; overflow is rejected immediately."""
+
+    def __init__(self, max_concurrent: int = 1, timeout: float = 0):
+        self._semaphore = threading.Semaphore(max_concurrent)
+
+class PredictionLimiter:
+    """Context manager: acquires the semaphore or raises HTTP 503 (Retry-After: 5)."""
 ```
 
 ## Request Flow
@@ -137,39 +136,42 @@ Client → nginx/LB → FastAPI → Middleware Stack
 
 ### 2. Preprocessing
 ```python
-# Request validation
-request_data = PredictionRequest(**await request.json())
+# Request validation (Pydantic) — body uses the payload wrapper
+req = PredictRequest(payload={"records": [...]})
 
-# Correlation ID generation
-request_id = str(uuid.uuid4())
+# Correlation ID generation (ObservabilityMiddleware)
+correlation_id = set_correlation_id()
 
-# Logging
-logger.info(f"Request {request_id}: {request_data}")
+# Structured request log
+log_request(method="POST", path="/predict", correlation_id=correlation_id)
 ```
 
 ### 3. Adaptation
 ```python
 # Convert input format
-adapter = AdapterFactory.get_adapter(config.api.adapter)
-input_array = adapter.transform(request_data.data)
+input_array = to_ndarray(
+    req.payload,
+    adapter=config.api.adapter,
+    feature_order=feature_order,
+)
 ```
 
 ### 4. Prediction
 ```python
-# Concurrency control
-async with limiter:
-    # Thread-safe prediction (if configured)
-    with prediction_lock:
-        predictions = predictor.predict(input_array)
+# Concurrency control: acquire a slot or fail fast with 503
+with PredictionLimiter(prediction_semaphore):
+    # Thread-safe prediction (if api.thread_safe_predict)
+    predictions = predictor_wrapper.predict(input_array)
 ```
 
 ### 5. Response
 ```python
 # Format response
-response = PredictionResponse(
-    predictions=predictions.tolist(),
-    model=config.classifier.name,
-    version=config.classifier.version
+response = PredictResponse(
+    predictions=_tolist(predictions),
+    time_ms=duration_ms,
+    predictor_class=predictor_wrapper.name,
+    metadata=metadata,  # project, classifier, git info, deployed_at, ...
 )
 
 # Return with metrics
@@ -217,53 +219,32 @@ return response
 ### 1. Feature Ordering Cache
 
 ```python
-# Cache feature order after first request
-class RecordsAdapter:
-    def __init__(self):
-        self._feature_order_cache = {}
-    
-    def transform(self, data):
-        # Use cached order for subsequent requests
-        if hash(data) in self._feature_order_cache:
-            return self._feature_order_cache[hash(data)]
+# mlserver/adapters.py — feature order is resolved once per feature-name set
+def _get_cached_feature_order(records, config_order=None) -> List[str]:
+    """Cache the column ordering so repeated requests skip re-sorting keys."""
 ```
 
-### 2. Numpy Optimizations
+The cache can be inspected/cleared via `get_cache_info()` / `clear_feature_cache()`.
+
+### 2. Numpy Conversions
 
 ```python
-# Efficient array operations
-def batch_predict(self, X):
-    # Vectorized operations
-    X = np.asarray(X, dtype=np.float32)
-    
-    # Batch processing
-    return self.model.predict(X)
+# mlserver/adapters.py — records are converted to numpy in one pass
+def _records_to_numpy_fast(records: List[Dict], feature_order: List[str]) -> np.ndarray:
+    ...
 ```
 
-### 3. Connection Pooling
+### 3. Model Warmup
 
 ```python
-# Keep-alive connections
-app.add_middleware(
-    HTTPSRedirectMiddleware,
-    keep_alive=True,
-    pool_connections=10
-)
+# With api.warmup_on_start (default: true), a dummy prediction runs at startup
+# so model internals are initialized before the first real request.
 ```
 
-### 4. Async I/O
+### 4. Metrics Caching
 
 ```python
-# Non-blocking operations
-@app.post("/predict")
-async def predict(request: Request):
-    # Async JSON parsing
-    data = await request.json()
-    
-    # Async prediction (if supported)
-    result = await predictor.async_predict(data)
-    
-    return result
+# /metrics output is cached in 5-second windows to keep scrape cost low.
 ```
 
 ## Plugin System
@@ -311,10 +292,10 @@ predictor:
 ```yaml
 # Increase workers
 server:
-  workers: 16  # More processes
+  workers: 16  # More processes (note: /metrics samples one worker per scrape)
 
 api:
-  max_concurrent_requests: 100  # Higher concurrency
+  max_concurrent_predictions: 0  # 0 disables per-process concurrency limiting
 ```
 
 ### Horizontal Scaling
@@ -352,16 +333,12 @@ upstream mlserver {
 ### Request Validation
 
 ```python
-# Pydantic models
-class PredictionRequest(BaseModel):
-    data: Union[List[Dict], List[List]]
-    
-    @validator('data')
-    def validate_data(cls, v):
-        # Size limits
-        if len(v) > 1000:
-            raise ValueError("Batch too large")
-        return v
+# mlserver/schemas.py — requests use the payload wrapper
+class PredictRequest(BaseModel):
+    payload: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Prediction input data: 'records' (list of dicts) or 'ndarray' (2D array)"
+    )
 ```
 
 ### CORS Configuration
@@ -376,13 +353,14 @@ app.add_middleware(
 )
 ```
 
-### Rate Limiting
+### Concurrency Limiting
 
 ```python
-# Semaphore-based limiting
-if config.api.max_concurrent_requests:
-    limiter = ConcurrencyLimiter(
-        config.api.max_concurrent_requests
+# Semaphore-based limiting (mlserver/server.py)
+if config.api.max_concurrent_predictions > 0:
+    prediction_limiter = PredictionSemaphore(
+        max_concurrent=config.api.max_concurrent_predictions,
+        timeout=0,  # immediate rejection (503 + Retry-After: 5)
     )
 ```
 
@@ -391,55 +369,52 @@ if config.api.max_concurrent_requests:
 ### Metrics Collection
 
 ```python
-# Prometheus metrics
+# mlserver/metrics.py — MetricsCollector (simplified)
 request_duration = Histogram(
-    'mlserver_request_duration_seconds',
-    'Request duration',
-    ['endpoint', 'method']
+    "mlserver_request_duration_seconds",
+    "Request duration in seconds",
+    ["method", "endpoint", "model"],
 )
 
-@app.middleware("http")
-async def metrics_middleware(request, call_next):
-    with request_duration.time():
-        response = await call_next(request)
-    return response
+# ObservabilityMiddleware tracks each request (skipping /healthz and /metrics)
+# and records duration, status_code and active-request gauges.
 ```
+
+See [Observability Features](./observability.md#available-metrics) for the full metric list.
 
 ### Health Checks
 
 ```python
 @app.get("/healthz")
-def health_check():
-    # Liveness probe
-    return {"status": "healthy"}
+def health():
+    # Liveness/readiness probe — reports the loaded predictor class
+    return HealthResponse(status="ok", model=predictor.name if predictor else None)
 
-@app.get("/readyz")
-def readiness_check():
-    # Readiness probe
-    if predictor_loaded:
-        return {"status": "ready"}
-    else:
-        raise HTTPException(503)
+@app.get("/status")
+def prediction_status():
+    # Concurrency-limiter visibility (slots available, active predictions)
+    return {...}
 ```
 
 ## Error Handling
 
-### Graceful Degradation
+### Sanitized Errors
 
 ```python
-@app.exception_handler(PredictionError)
-async def prediction_error_handler(request, exc):
-    return JSONResponse(
+# mlserver/server.py — failures are logged in full, clients get a sanitized detail
+try:
+    predictions = app.state.predictor.predict(X)
+except Exception as e:
+    logging.error(f"Prediction error: {e}", exc_info=True)
+    raise HTTPException(
         status_code=500,
-        content={
-            "error": "Prediction failed",
-            "details": str(exc),
-            "fallback": "Using default prediction"
-        }
+        detail="Prediction failed. Please contact support if the issue persists."
     )
 ```
 
-### Circuit Breaker Pattern
+All error responses use the FastAPI shape `{"detail": "..."}`.
+
+### Circuit Breaker Pattern (illustrative — not built in)
 
 ```python
 class CircuitBreaker:
@@ -475,7 +450,7 @@ FROM python:3.9-slim as builder
 FROM python:3.9-slim
 # Runtime only
 COPY --from=builder /app /app
-CMD ["ml_server", "serve"]
+CMD ["mlserver", "serve"]
 ```
 
 ### Kubernetes Architecture
@@ -495,6 +470,8 @@ spec:
 ```
 
 ## Performance Benchmarks
+
+> **Note**: the numbers below are illustrative, meant to show the shape of the latency/throughput profile — they are not measured benchmarks of this codebase. Actual figures depend entirely on your model and hardware.
 
 ### Latency Profile
 

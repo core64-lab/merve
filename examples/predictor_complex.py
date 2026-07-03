@@ -5,7 +5,7 @@ try:
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
-from typing import Any, Dict, List, Union
+from typing import Any
 
 
 class ComplexResponsePredictor:
@@ -16,7 +16,7 @@ class ComplexResponsePredictor:
         self.name = "ComplexResponsePredictor"
         self.version = "1.0.0"
 
-    def predict(self, X: Any) -> Dict[str, Any]:
+    def predict(self, X: Any) -> dict[str, Any]:
         """Return a complex dictionary structure.
 
         This demonstrates the new response handling capabilities.
@@ -56,7 +56,7 @@ class ComplexResponsePredictor:
             }
         }
 
-    def predict_proba(self, X: Any) -> List[List[float]]:
+    def predict_proba(self, X: Any) -> list[list[float]]:
         """Return probability predictions."""
         num_samples = len(X) if hasattr(X, '__len__') else 1
         # Return mock probabilities
@@ -76,7 +76,7 @@ class LegacyFormatPredictor:
         """Initialize the predictor."""
         self.name = "LegacyFormatPredictor"
 
-    def predict(self, X: Any) -> Dict[str, Any]:
+    def predict(self, X: Any) -> dict[str, Any]:
         """Return a legacy format response.
 
         This should be used with response_format: "passthrough"
@@ -101,7 +101,7 @@ class SimplePredictor:
         """Initialize the predictor."""
         self.name = "SimplePredictor"
 
-    def predict(self, X: Any) -> List[int]:
+    def predict(self, X: Any) -> list[int]:
         """Return simple list of predictions."""
         num_samples = len(X) if hasattr(X, '__len__') else 1
         base_pattern = [0, 1]

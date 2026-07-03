@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Test script for complex response handling."""
 
-import requests
 import json
 import sys
+
+import httpx
 
 
 def test_standard_format():
@@ -20,7 +21,7 @@ def test_standard_format():
         }
     }
 
-    response = requests.post("http://localhost:8000/predict", json=payload)
+    response = httpx.post("http://localhost:8000/predict", json=payload)
     print(f"Status: {response.status_code}")
     print(f"Response: {json.dumps(response.json(), indent=2)}")
 
@@ -35,7 +36,8 @@ def test_custom_format():
     """Test custom response format with complex dictionary."""
     print("\n=== Testing Custom Format ===")
 
-    # This assumes server is running with mlserver_complex.yaml
+    # This assumes server is running with examples/mlserver_complete.yaml
+    # (with api.response_format set to "custom")
     payload = {
         "payload": {
             "records": [
@@ -45,7 +47,7 @@ def test_custom_format():
         }
     }
 
-    response = requests.post("http://localhost:8000/predict", json=payload)
+    response = httpx.post("http://localhost:8000/predict", json=payload)
     print(f"Status: {response.status_code}")
 
     if response.status_code == 200:
@@ -84,7 +86,7 @@ def test_passthrough_format():
     """Test passthrough response format."""
     print("\n=== Testing Passthrough Format ===")
 
-    # This assumes server is running with mlserver_legacy.yaml on port 8001
+    # This assumes a server with api.response_format: "passthrough" on port 8001
     payload = {
         "payload": {
             "records": [
@@ -94,7 +96,7 @@ def test_passthrough_format():
     }
 
     try:
-        response = requests.post("http://localhost:8001/predict", json=payload)
+        response = httpx.post("http://localhost:8001/predict", json=payload)
         print(f"Status: {response.status_code}")
 
         if response.status_code == 200:
@@ -110,10 +112,10 @@ def test_passthrough_format():
                 print("! Response doesn't match expected legacy format")
         else:
             print(f"Error: {response.text}")
-    except requests.exceptions.ConnectionError:
+    except httpx.ConnectError:
         print("! Could not connect to port 8001")
-        print("  To test passthrough format, start server with:")
-        print("  mlserver serve examples/mlserver_legacy.yaml")
+        print("  To test passthrough format, start a server on port 8001 with")
+        print("  api.response_format: passthrough in its mlserver.yaml")
 
 
 def main():
@@ -129,10 +131,10 @@ def main():
         # test_standard_format()
         # test_passthrough_format()
 
-    except requests.exceptions.ConnectionError:
+    except httpx.ConnectError:
         print("\n! Error: Could not connect to server")
         print("  Make sure the server is running:")
-        print("  mlserver serve examples/mlserver_complex.yaml")
+        print("  mlserver serve examples/mlserver_complete.yaml")
         sys.exit(1)
     except Exception as e:
         print(f"\n! Test failed: {e}")

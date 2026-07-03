@@ -1,19 +1,19 @@
 
 from __future__ import annotations
-import os
+
 import json
+import os
+
 import joblib
 import numpy as np
-import pandas as pd
-from sklearn.datasets import fetch_openml
-from sklearn.model_selection import train_test_split
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.metrics import roc_auc_score, accuracy_score
 from catboost import CatBoostClassifier
-
+from sklearn.compose import ColumnTransformer
+from sklearn.datasets import fetch_openml
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 # 1) Load a mixed-type tabular dataset (Titanic) with numerics, categoricals, bools
 X, y = fetch_openml("titanic", version=1, as_frame=True, return_X_y=True)

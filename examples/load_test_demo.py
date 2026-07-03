@@ -7,7 +7,7 @@ the ML server with requests while displaying real-time metrics.
 
 Usage:
     1. Start the ML server:
-       ml_server examples/config.yaml
+       mlserver serve examples/example_titanic_manual_setup/mlserver.yaml
 
     2. Run this script:
        python examples/load_test_demo.py
@@ -21,17 +21,16 @@ Usage:
        - Grafana: http://localhost:3000
 """
 
-import asyncio
-import aiohttp
-import random
-import time
-import json
 import argparse
+import asyncio
+import random
 import signal
 import sys
-from typing import Dict, List, Any
-from concurrent.futures import ThreadPoolExecutor
+import time
 from datetime import datetime
+from typing import Any
+
+import httpx
 
 
 class LoadTester:
@@ -48,18 +47,18 @@ class LoadTester:
         }
 
     async def create_session(self):
-        """Create aiohttp session"""
-        self.session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=30),
-            connector=aiohttp.TCPConnector(limit=100)
+        """Create httpx async client"""
+        self.session = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0),
+            limits=httpx.Limits(max_connections=100)
         )
 
     async def close_session(self):
-        """Close aiohttp session"""
+        """Close httpx async client"""
         if self.session:
-            await self.session.close()
+            await self.session.aclose()
 
-    def generate_sample_data(self) -> Dict[str, Any]:
+    def generate_sample_data(self) -> dict[str, Any]:
         """Generate random sample data for predictions"""
         return {
             "payload": {
@@ -81,7 +80,7 @@ class LoadTester:
             }
         }
 
-    async def make_prediction_request(self, endpoint: str = "/v1/test-classifier/predict") -> Dict[str, Any]:
+    async def make_prediction_request(self, endpoint: str = "/predict") -> dict[str, Any]:
         """Make a single prediction request"""
         if not self.session:
             await self.create_session()
@@ -90,33 +89,33 @@ class LoadTester:
         start_time = time.time()
 
         try:
-            async with self.session.post(
+            response = await self.session.post(
                 f"{self.base_url}{endpoint}",
                 json=payload
-            ) as response:
-                response_time = time.time() - start_time
+            )
+            response_time = time.time() - start_time
 
-                self.stats["requests_sent"] += 1
-                self.stats["total_response_time"] += response_time
+            self.stats["requests_sent"] += 1
+            self.stats["total_response_time"] += response_time
 
-                if response.status == 200:
-                    self.stats["successful_requests"] += 1
-                    result = await response.json()
-                    return {
-                        "success": True,
-                        "status_code": response.status,
-                        "response_time": response_time,
-                        "predictions": len(result.get("predictions", [])),
-                        "server_time_ms": result.get("time_ms", 0)
-                    }
-                else:
-                    self.stats["failed_requests"] += 1
-                    return {
-                        "success": False,
-                        "status_code": response.status,
-                        "response_time": response_time,
-                        "error": await response.text()
-                    }
+            if response.status_code == 200:
+                self.stats["successful_requests"] += 1
+                result = response.json()
+                return {
+                    "success": True,
+                    "status_code": response.status_code,
+                    "response_time": response_time,
+                    "predictions": len(result.get("predictions", [])),
+                    "server_time_ms": result.get("time_ms", 0)
+                }
+            else:
+                self.stats["failed_requests"] += 1
+                return {
+                    "success": False,
+                    "status_code": response.status_code,
+                    "response_time": response_time,
+                    "error": response.text
+                }
 
         except Exception as e:
             self.stats["requests_sent"] += 1
@@ -133,55 +132,55 @@ class LoadTester:
             await self.create_session()
 
         try:
-            async with self.session.get(f"{self.base_url}/metrics") as response:
-                if response.status == 200:
-                    return await response.text()
-                else:
-                    return f"Error fetching metrics: {response.status}"
+            response = await self.session.get(f"{self.base_url}/metrics")
+            if response.status_code == 200:
+                return response.text
+            else:
+                return f"Error fetching metrics: {response.status_code}"
         except Exception as e:
             return f"Error fetching metrics: {e}"
 
-    async def check_health(self) -> Dict[str, Any]:
+    async def check_health(self) -> dict[str, Any]:
         """Check server health"""
         if not self.session:
             await self.create_session()
 
         try:
-            async with self.session.get(f"{self.base_url}/healthz") as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return {"healthy": True, "data": data}
-                else:
-                    return {"healthy": False, "status_code": response.status}
+            response = await self.session.get(f"{self.base_url}/healthz")
+            if response.status_code == 200:
+                data = response.json()
+                return {"healthy": True, "data": data}
+            else:
+                return {"healthy": False, "status_code": response.status_code}
         except Exception as e:
             return {"healthy": False, "error": str(e)}
 
-    def parse_metrics(self, metrics_text: str) -> Dict[str, Any]:
+    def parse_metrics(self, metrics_text: str) -> dict[str, Any]:
         """Parse key metrics from Prometheus format"""
         parsed = {}
 
         for line in metrics_text.split('\n'):
             if line.startswith('mlserver_requests_total'):
                 # Extract request counts by endpoint and status
-                if ('endpoint="/v1/' in line and '/predict"' in line and 'status_code="200"' in line):
+                if ('endpoint="/predict"' in line and 'status_code="200"' in line):
                     try:
                         value = float(line.split()[-1])
                         parsed['successful_predictions'] = value
-                    except:
+                    except Exception:
                         pass
             elif line.startswith('mlserver_predictions_total'):
                 # Total predictions made
                 try:
                     value = float(line.split()[-1])
                     parsed['total_predictions'] = value
-                except:
+                except Exception:
                     pass
             elif line.startswith('mlserver_active_requests'):
                 # Active requests
                 try:
                     value = float(line.split()[-1])
                     parsed['active_requests'] = value
-                except:
+                except Exception:
                     pass
 
         return parsed
@@ -198,11 +197,8 @@ class LoadTester:
         delay = 1.0 / requests_per_second if requests_per_second > 0 else 0.1
 
         while self.running:
-            # Random endpoint selection
-            # Try to detect endpoint from server
-            # For now, use common endpoint pattern
-            # Note: batch_predict removed - /predict handles both single and batch
-            endpoint = "/v1/titanic-survival-predictor/predict"
+            # Flat endpoint - /predict handles both single and batch
+            endpoint = "/predict"
 
             result = await self.make_prediction_request(endpoint)
 
@@ -236,13 +232,13 @@ class LoadTester:
                 # Display dashboard
                 print(f"\n{'=' * 60}")
                 print(f"⏰ Time: {datetime.now().strftime('%H:%M:%S')} | Elapsed: {elapsed:.1f}s")
-                print(f"📊 Load Test Stats:")
+                print("📊 Load Test Stats:")
                 print(f"   Requests Sent: {self.stats['requests_sent']}")
                 print(f"   Success Rate: {success_rate:.1f}%")
                 print(f"   Avg Response Time: {avg_response_time:.1f}ms")
                 print(f"   Current RPS: {current_rps:.1f}")
 
-                print(f"📈 Server Metrics:")
+                print("📈 Server Metrics:")
                 for key, value in parsed_metrics.items():
                     print(f"   {key.replace('_', ' ').title()}: {value}")
 
@@ -263,7 +259,7 @@ class LoadTester:
     ):
         """Run the complete load test"""
 
-        print(f"\n🚀 Starting Live Metrics Demo")
+        print("\n🚀 Starting Live Metrics Demo")
         print(f"Target URL: {self.base_url}")
         print(f"Duration: {duration}s")
         print(f"Workers: {workers}")
@@ -326,7 +322,7 @@ class LoadTester:
             self.stats["total_response_time"] / max(self.stats["requests_sent"], 1)
         ) * 1000
 
-        print(f"\n📊 Final Statistics:")
+        print("\n📊 Final Statistics:")
         print(f"   Total Runtime: {elapsed:.1f}s")
         print(f"   Total Requests: {self.stats['requests_sent']}")
         print(f"   Successful: {self.stats['successful_requests']}")
@@ -339,7 +335,7 @@ class LoadTester:
         try:
             final_metrics = await self.get_metrics()
             parsed = self.parse_metrics(final_metrics)
-            print(f"\n📈 Final Server Metrics:")
+            print("\n📈 Final Server Metrics:")
             for key, value in parsed.items():
                 print(f"   {key.replace('_', ' ').title()}: {value}")
         except Exception as e:
@@ -386,11 +382,11 @@ async def main():
 
         if success:
             print("\n✅ Load test completed successfully")
-            print(f"\n💡 Pro Tips:")
+            print("\n💡 Pro Tips:")
             print(f"   • View live metrics: {args.url}/metrics")
-            print(f"   • Set up Prometheus: docker-compose -f docker-compose.monitoring.yml up -d")
-            print(f"   • Prometheus UI: http://localhost:9090")
-            print(f"   • Grafana dashboards: http://localhost:3000")
+            print("   • Set up Prometheus: docker-compose -f docker-compose.monitoring.yml up -d")
+            print("   • Prometheus UI: http://localhost:9090")
+            print("   • Grafana dashboards: http://localhost:3000")
         else:
             print("\n❌ Load test failed")
             return 1

@@ -3,12 +3,11 @@ RandomForest Predictor for Titanic survival prediction.
 This is the second classifier in our multi-classifier setup.
 """
 
-import pickle
 import json
+import pickle
+
 import numpy as np
 import pandas as pd
-from typing import List, Any, Optional, Dict
-from pathlib import Path
 
 
 class RandomForestSurvivalPredictor:
@@ -32,7 +31,7 @@ class RandomForestSurvivalPredictor:
             self.model = pickle.load(f)
 
         # Load feature order
-        with open(features_path, 'r') as f:
+        with open(features_path) as f:
             self.feature_order = json.load(f)
 
         # Load label encoders
@@ -65,7 +64,7 @@ class RandomForestSurvivalPredictor:
                 # Handle unknown categories by using the most frequent category
                 le = self.label_encoders[cat]
                 X_processed[cat] = X_processed[cat].apply(
-                    lambda x: le.transform([x])[0] if x in le.classes_ else 0
+                    lambda x, le=le: le.transform([x])[0] if x in le.classes_ else 0
                 )
 
         # Scale numerical features
@@ -76,7 +75,7 @@ class RandomForestSurvivalPredictor:
 
         return X_processed.values
 
-    def predict(self, X: np.ndarray) -> List[int]:
+    def predict(self, X: np.ndarray) -> list[int]:
         """Make predictions.
 
         Args:

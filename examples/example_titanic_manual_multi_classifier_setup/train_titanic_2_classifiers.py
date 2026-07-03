@@ -7,18 +7,18 @@ Classifier 1: CatBoost (primary model for survival prediction)
 Classifier 2: RandomForest (alternative model for comparison/ensemble)
 """
 
-import os
-import pickle
 import json
-from pathlib import Path
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from catboost import CatBoostClassifier
+import pickle
 import warnings
+from pathlib import Path
+
+import pandas as pd
+from catboost import CatBoostClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+
 warnings.filterwarnings('ignore')
 
 
@@ -34,7 +34,7 @@ def load_and_prepare_data():
     df['Fare'].fillna(df['Fare'].median(), inplace=True)
     df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
     df['IsAlone'] = (df['FamilySize'] == 1).astype(int)
-    df['Title'] = df['Name'].str.extract(' ([A-Za-z]+)\.', expand=False)
+    df['Title'] = df['Name'].str.extract(r' ([A-Za-z]+)\.', expand=False)
 
     # Simplify titles
     df['Title'] = df['Title'].replace(['Lady', 'Countess','Capt', 'Col','Don',
@@ -251,9 +251,9 @@ def main():
     print("\n✅ Successfully trained 2 classifiers!")
     print("\nNext steps:")
     print("1. Create predictor classes for each model")
-    print("2. Configure mlserver_dual_classifier.yaml")
-    print("3. Deploy with: ml_server serve --classifier catboost-survival")
-    print("   or: ml_server serve --classifier randomforest-survival")
+    print("2. Configure mlserver_multi_classifier.yaml")
+    print("3. Deploy with: mlserver serve --classifier catboost-survival")
+    print("   or: mlserver serve --classifier randomforest-survival")
 
 
 if __name__ == "__main__":

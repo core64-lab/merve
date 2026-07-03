@@ -21,11 +21,10 @@
 > 1. **Remove deprecated fields** from your config:
 >    - ❌ `model.version`, `model.trained_at`, `model.metrics`
 >    - ❌ `classifier.version`, `classifier.repository`
->    - ❌ `api.version`
 > 2. **Keep only essential fields**:
 >    - ✅ `classifier.name` and `classifier.description`
 >    - ✅ Your predictor and API configurations
-> 3. **Use git tags** for versioning: `git tag v1.0.0`
+> 3. **Use git tags** for versioning: `mlserver tag --classifier <name> patch`
 
 ## Complete Annotated Example
 
@@ -45,8 +44,10 @@ server:
   port: 8000                            # Port number 1-65535 (default: 8000)
   log_level: "INFO"                     # Logging level: DEBUG|INFO|WARNING|ERROR (default: "INFO")
   workers: 1                            # Number of worker processes (default: 1, use 1 for K8s)
+                                        # NOTE: with workers > 1 each process keeps its own
+                                        # Prometheus registry - see docs/observability.md
 
-  # Logger Configuration (NEW - controls log output format)
+  # Logger Configuration (controls log output format)
   logger:
     timestamp: false                     # Include timestamps in logs (default: false)
     structured: true                     # Use structured JSON logging (default: true)
@@ -72,19 +73,22 @@ predictor:
     threshold: 0.5
 
 # ----------------------------------------------------------------------------
-# API CONFIGURATION (REQUIRED)
+# API CONFIGURATION (OPTIONAL - sensible defaults if omitted)
 # ----------------------------------------------------------------------------
 api:
+  version: "v1"                         # API version label, metadata tracking ONLY
+                                        # (endpoints are never prefixed with it)
   endpoints:                            # Enable/disable specific endpoints
     predict: true                       # POST /predict endpoint (default: true)
     predict_proba: true                 # POST /predict_proba endpoint (default: true)
-    # Note: batch_predict removed - /predict handles both single and batch
+    # Note: no separate batch endpoint - /predict handles both single and batch
 
   # Input/Output Configuration
   adapter: "records"                    # Input format: "records"|"ndarray"|"auto" (default: "records")
-  feature_order: null                   # Optional list to enforce feature order, e.g., ["age", "sex"]
+  feature_order: null                   # Optional: list of feature names, e.g., ["age", "sex"],
+                                        # or a path to a JSON file containing the list
 
-  # Response Format Configuration (NEW)
+  # Response Format Configuration
   response_format: "standard"           # Response format type (default: "standard")
                                         # Options:
                                         # - "standard": Traditional format with predictions list
@@ -97,7 +101,13 @@ api:
   # Concurrency Control
   thread_safe_predict: false            # Use thread lock during prediction (default: false)
   max_concurrent_predictions: 1         # Max concurrent predictions (default: 1)
-                                        # Set to 1 for single model protection in K8s
+                                        # 1 = one prediction at a time (K8s pod protection),
+                                        # overflow requests get HTTP 503 + Retry-After: 5.
+                                        # 0 = concurrency limiting disabled entirely.
+
+  # Startup behavior
+  warmup_on_start: true                 # Run a dummy prediction at startup to reduce
+                                        # first-request latency (needs feature_order)
 
 # ----------------------------------------------------------------------------
 # OBSERVABILITY CONFIGURATION
@@ -106,7 +116,7 @@ observability:
   metrics: true                         # Enable Prometheus metrics (default: true)
   metrics_endpoint: "/metrics"          # Metrics endpoint path (default: "/metrics")
   structured_logging: true              # Enable JSON structured logging (default: true)
-  log_payloads: false                   # Log request/response payloads (default: false)
+  log_payloads: false                   # Log request payload + response at INFO (default: false)
                                         # WARNING: May log sensitive data
   correlation_ids: true                 # Generate correlation IDs for tracing (default: true)
 
@@ -121,7 +131,8 @@ classifier:
 # ----------------------------------------------------------------------------
 # MODEL METADATA (DEPRECATED - Do not use!)
 # ----------------------------------------------------------------------------
-# The 'model' section is deprecated. All metadata is now auto-detected:
+# The 'model' section is still accepted but deprecated. All metadata is now
+# auto-detected:
 # - Version comes from git tags
 # - Deployment timestamp is auto-generated
 # - Project/repository name is detected from git
@@ -144,73 +155,51 @@ build:
     - ".git"
     - "tests/"
 
-# ============================================================================
-# MULTI-CLASSIFIER CONFIGURATION (Alternative to single classifier)
-# ============================================================================
-# Use this structure in mlserver_multi.yaml for multiple models:
-
-# server:                               # Global server settings
-#   workers: 4
-#   port: 8000
-#
-# observability:                        # Global observability settings
-#   metrics: true
-#   structured_logging: true
-#
-# repository:                           # Repository metadata
-#   name: "multi-model-repo"
-#   description: "Repository with multiple ML models"
-#
-# classifiers:                          # Multiple classifier definitions
-#   model-a:
-#     predictor:
-#       module: predictor_a
-#       class_name: PredictorA
-#     classifier:
-#       name: "model-a"
-#       # version auto-detected from git tags
-#     api:
-#       response_format: "standard"
-#
-#   model-b:
-#     predictor:
-#       module: predictor_b
-#       class_name: PredictorB
-#     classifier:
-#       name: "model-b"
-#       # version auto-detected from git tags
-#     api:
-#       response_format: "custom"
-#
-# default_classifier: "model-a"        # Default when none specified
-#
-# deployment:                           # Deployment configuration
-#   strategy: "single"                  # or "multi" for separate services
-#   resource_limits:
-#     memory: "2Gi"
-#     cpu: "1000m"
+# ----------------------------------------------------------------------------
+# DEPLOYMENT CONFIGURATION (OPTIONAL - used by build/CI tooling)
+# ----------------------------------------------------------------------------
+deployment:
+  strategy: "single"                    # "single" or "multi" for separate services
+  container_naming: "{repository}-{classifier}:{version}"  # Container tag template
+  git_tag_format: "{classifier}-v{version}"                # Git tag format for releases
+  parallel_builds: true                 # Parallel container builds for multiple classifiers
+  registry:
+    type: "ghcr"                        # "ghcr" (GitHub Container Registry) or "ecr" (AWS)
+    url: null                           # Registry URL (GHCR default: ghcr.io)
+    namespace: null                     # Registry namespace (GHCR: auto-detected from git)
+    push_on_build: false                # Automatically push after build
+    ecr:                                # Required when type: "ecr"
+      aws_region: "eu-central-1"
+      registry_id: "123456789012"       # AWS account ID
+      repository_prefix: "ml-classifiers"
+    github_variables:
+      aws_role_arn_var: "AWS_RUNNER_ROLE_ARN"  # GitHub variable with AWS IAM role ARN
+      aws_role_arn_value: null                 # Direct ARN value (less secure alternative)
+  resource_limits:                      # Resource limits for Kubernetes deployments
+    memory: "2Gi"
+    cpu: "1000m"
+  health_check: null                    # Health check configuration (optional)
 ```
 
 ## Overview
 
 MLServer uses YAML configuration files to define server settings, predictor loading, observability, and API behavior. Configuration is validated using Pydantic for type safety and clear error messages.
 
+**Unknown keys are not silently ignored**: if the YAML contains a key that is not part of the schema (e.g. a typo like `porrt: 9999`), MLServer logs a warning at load time so misconfigurations don't slip through. `mlserver validate` reports the same warnings.
+
 ## Configuration Files
 
 ### File Detection Priority
 
-1. **Explicit path**: `ml_server serve /path/to/config.yaml`
-2. **Auto-detection** (in order):
-   - `mlserver.yaml` (preferred)
-   - `config.yaml`
-   - `mlserver_multi.yaml` (multi-classifier)
-   - Any `*.yaml` with classifier configs
+1. **Explicit path**: `mlserver serve /path/to/config.yaml`
+2. **Auto-detection**: `mlserver.yaml` in the current directory
+
+If neither exists, the CLI exits with an error.
 
 ### Configuration Types
 
-- **Single Classifier**: Standard `mlserver.yaml`
-- **Multi-Classifier**: `mlserver_multi.yaml` with multiple models
-- **Global Settings**: `global_config.yaml` for shared defaults
+- **Single Classifier**: `mlserver.yaml` with a top-level `predictor` section
+- **Multi-Classifier**: `mlserver.yaml` with a top-level `classifiers` section (detected automatically)
 
 ## Single Classifier Configuration
 
@@ -226,19 +215,17 @@ predictor:
 ### Complete Configuration
 
 ```yaml
-# mlserver.yaml - Full example with all options
+# mlserver.yaml - Full realistic example
 server:
   title: "Titanic Survival Prediction API"
-  description: "ML model for predicting passenger survival"
   host: "0.0.0.0"
   port: 8000
-  workers: 4  # Number of processes
+  log_level: "INFO"
+  workers: 1
   cors:
-    enabled: true
-    allow_origins: ["*"]
+    allow_origins: ["https://app.example.com"]
     allow_methods: ["GET", "POST"]
-    allow_headers: ["*"]
-  timeout: 30  # Request timeout in seconds
+    allow_headers: ["Content-Type"]
 
 predictor:
   module: predictor_catboost  # Simple filename
@@ -252,38 +239,21 @@ observability:
   metrics: true
   metrics_endpoint: "/metrics"
   structured_logging: true
-  log_level: "INFO"
   correlation_ids: true
   log_payloads: false  # Privacy consideration
 
 api:
-  adapter: "auto"  # auto|records|ndarray
+  adapter: "records"
   feature_order: ["age", "sex", "fare", "pclass"]
   thread_safe_predict: true
-  max_concurrent_requests: 10
+  max_concurrent_predictions: 1
   endpoints:
     predict: true
-    batch_predict: true
     predict_proba: true
-    info: true
-    healthz: true
-    status: true
-  version: "v1"
 
 classifier:
   name: "catboost-survival"
-  version: "1.0.0"
-  repository: "mlserver-models"
   description: "CatBoost model for Titanic survival"
-
-model:
-  version: "1.0.0"
-  metrics:
-    accuracy: 0.94
-    precision: 0.92
-    recall: 0.89
-  trained_at: "2024-01-15T10:30:00Z"
-  framework: "catboost"
 
 build:
   base_image: "python:3.9-slim"
@@ -293,10 +263,24 @@ build:
 
 ## Multi-Classifier Configuration
 
-### Basic Multi-Classifier
+A config with a top-level `classifiers` section defines multiple classifiers in one repository. Each entry contains a full per-classifier configuration (`predictor`, `classifier`, `api`, ...). Global `server` and `observability` sections are shared by all classifiers. See [Multi-Classifier Support](./multi-classifier.md) for the full workflow.
+
+### Dict Format (canonical)
 
 ```yaml
-# mlserver_multi.yaml
+# mlserver.yaml (multi-classifier)
+server:
+  host: 0.0.0.0
+  port: 8000
+
+observability:
+  metrics: true
+  structured_logging: true
+
+repository:
+  name: "multi-model-repo"
+  description: "Repository with multiple ML models"
+
 classifiers:
   catboost-model:
     predictor:
@@ -304,9 +288,11 @@ classifiers:
       class_name: CatBoostPredictor
       init_kwargs:
         model_path: "./models/catboost.cbm"
-    metadata:
+    classifier:
       name: "catboost-model"
-      version: "1.0.0"
+      # version auto-detected from git tags
+    api:
+      response_format: "standard"
 
   randomforest-model:
     predictor:
@@ -314,73 +300,42 @@ classifiers:
       class_name: RandomForestPredictor
       init_kwargs:
         model_path: "./models/rf.pkl"
-    metadata:
+    classifier:
       name: "randomforest-model"
-      version: "2.0.0"
+    api:
+      response_format: "custom"
 
 default_classifier: "catboost-model"
 
-# Shared settings for all classifiers
-server:
-  workers: 4
-  port: 8000
-
-observability:
-  metrics: true
-  structured_logging: true
+deployment:
+  strategy: "multi"
+  resource_limits:
+    memory: "2Gi"
+    cpu: "1000m"
 ```
 
-### Advanced Multi-Classifier
+### List Format (also accepted)
+
+The `classifiers` section may alternatively be a list; each entry must carry its name in `classifier.name` (or a `name` key). It is normalized to the dict format at load time:
 
 ```yaml
-# mlserver_multi_advanced.yaml
-global_settings:
-  server:
-    workers: 4
-    cors:
-      enabled: true
-  observability:
-    metrics: true
-    structured_logging: true
-  api:
-    max_concurrent_requests: 10
-
 classifiers:
-  production:
+  - classifier:
+      name: "catboost-model"
     predictor:
-      module: predictor_prod
-      class_name: ProductionModel
-    metadata:
-      name: "production"
-      version: "3.0.0"
-      stage: "production"
-    api:
-      thread_safe_predict: true
-
-  staging:
+      module: predictor_catboost
+      class_name: CatBoostPredictor
+  - classifier:
+      name: "randomforest-model"
     predictor:
-      module: predictor_staging
-      class_name: StagingModel
-    metadata:
-      name: "staging"
-      version: "3.1.0-rc1"
-      stage: "staging"
-    api:
-      thread_safe_predict: false  # Testing new async mode
-
-  experimental:
-    predictor:
-      module: predictor_exp
-      class_name: ExperimentalModel
-    metadata:
-      name: "experimental"
-      version: "4.0.0-alpha"
-      stage: "experimental"
-    server:
-      workers: 1  # Limited resources for experimental
-
-default_classifier: "production"
+      module: predictor_rf
+      class_name: RandomForestPredictor
 ```
+
+Notes:
+- The `server` and `observability` sections are **global** — there are no per-classifier server overrides. Each classifier runs as its own server process/container, selected via `mlserver serve --classifier <name>` (or the `MLSERVER_CLASSIFIER` environment variable in containers).
+- `repository` holds free-form repository metadata (e.g. `name`, `description`).
+- `default_classifier` names the classifier used when `--classifier` is not passed.
 
 ## Configuration Sections
 
@@ -390,33 +345,33 @@ default_classifier: "production"
 server:
   # API metadata
   title: "API Title"
-  description: "API Description"
-  version: "1.0.0"
 
   # Network settings
   host: "0.0.0.0"  # Bind address
   port: 8000       # Port number
 
+  # Logging
+  log_level: "INFO"  # DEBUG|INFO|WARNING|ERROR|CRITICAL
+
   # Worker configuration
-  workers: 4       # Number of processes (not threads!)
+  workers: 1       # Number of processes (not threads!)
 
-  # CORS settings
+  # Log output format
+  logger:
+    timestamp: false
+    structured: true
+    show_tasks: false
+    format: null
+
+  # CORS settings (omit entirely to disable CORS)
   cors:
-    enabled: true
-    allow_origins: ["*"]
-    allow_methods: ["GET", "POST", "OPTIONS"]
-    allow_headers: ["*"]
+    allow_origins: ["https://app.example.com"]  # Empty list = disabled
+    allow_methods: ["GET", "POST"]
+    allow_headers: ["Content-Type"]
     allow_credentials: false
-    max_age: 3600
-
-  # Timeouts
-  timeout: 30           # Request timeout (seconds)
-  shutdown_timeout: 10  # Graceful shutdown timeout
-
-  # Advanced
-  reload: false    # Auto-reload on code changes (dev only)
-  access_log: true # Enable access logging
 ```
+
+For development auto-reload, use the CLI flag `mlserver serve --reload` — it is not a config key.
 
 ### Predictor Configuration
 
@@ -463,59 +418,47 @@ observability:
   # Metrics
   metrics: true
   metrics_endpoint: "/metrics"
-  metrics_prefix: "mlserver_"
 
   # Logging
-  structured_logging: true  # JSON format
-  log_level: "INFO"        # DEBUG|INFO|WARNING|ERROR
-  log_file: null           # Optional file output
+  structured_logging: true  # JSON request/response log events
 
   # Request tracking
-  correlation_ids: true    # Generate request IDs
-  log_payloads: false     # Log request/response (privacy!)
-
-  # Performance monitoring
-  profile: false          # Enable profiling
-  trace_sampling: 0.1     # Trace 10% of requests
+  correlation_ids: true    # Attach correlation IDs to logs
+  log_payloads: false      # Log request payload + response at INFO (privacy!)
 ```
+
+The log level lives under `server.log_level`; log formatting (timestamps, JSON, task names) under `server.logger`.
 
 ### API Configuration
 
 ```yaml
 api:
   # Input adapter
-  adapter: "auto"  # auto|records|ndarray
+  adapter: "records"  # records|ndarray|auto (default: records)
 
   # Feature handling
-  feature_order: ["feat1", "feat2"]  # Explicit ordering
-  validate_features: true            # Check required features
+  feature_order: ["feat1", "feat2"]  # Explicit ordering (or path to JSON file)
 
   # Concurrency
   thread_safe_predict: true          # Lock during prediction
-  max_concurrent_requests: 10        # Rate limiting
+  max_concurrent_predictions: 1      # 1 = single prediction at a time (default)
+                                     # 0 = disable concurrency limiting
 
-  # Response format (NEW)
+  # Response format
   response_format: "standard"         # standard|custom|passthrough
-  response_validation: true            # Enable/disable validation
+  response_validation: true           # Enable/disable validation
   extract_values: false               # Extract dict values to list
 
   # Endpoints control
   endpoints:
     predict: true
-    batch_predict: true
     predict_proba: true
-    info: true
-    healthz: true
-    status: true
-    metrics: true
-    docs: true
 
-  # Versioning
-  version: "v1"  # API version for metadata
+  # Versioning (metadata only - never used in URL paths)
+  version: "v1"
 
-  # Request limits
-  max_request_size: "100MB"
-  max_batch_size: 1000
+  # Startup
+  warmup_on_start: true
 ```
 
 #### Response Formats
@@ -527,7 +470,7 @@ The `response_format` configuration controls how predictions are formatted:
    {
      "predictions": [0, 1, 0],
      "time_ms": 12.5,
-     "model": "classifier",
+     "predictor_class": "MyPredictor",
      "metadata": {...}
    }
    ```
@@ -540,7 +483,6 @@ The `response_format` configuration controls how predictions are formatted:
        "b": {"c": [4, 5]}
      },
      "time_ms": 16.4,
-     "model": "CustomPredictor",
      "metadata": {...}
    }
    ```
@@ -573,150 +515,94 @@ api:
 
 ```yaml
 classifier:
-  name: "model-name"
-  version: "1.0.0"
-  repository: "ml-models"
+  name: "model-name"        # Required for tagging/builds; URL-safe
   description: "Model description"
-  tags: ["production", "nlp", "transformer"]
-  author: "Data Science Team"
-
-  # Additional metadata
-  framework: "pytorch"
-  task: "classification"
-  domain: "finance"
-
-  # Performance specs
-  inference_time_ms: 50
-  memory_mb: 512
-  gpu_required: false
 ```
 
-### Model Information
-
-```yaml
-model:
-  version: "1.0.0"
-
-  # Training metadata
-  trained_at: "2024-01-15T10:30:00Z"
-  training_data: "dataset_v3"
-
-  # Model metrics
-  metrics:
-    accuracy: 0.94
-    precision: 0.92
-    recall: 0.89
-    f1_score: 0.905
-    auc_roc: 0.96
-
-  # Feature importance
-  features:
-    important: ["age", "income", "education"]
-    importance_scores:
-      age: 0.45
-      income: 0.35
-      education: 0.20
-```
+Everything else (version, repository, commit, deployment time) is auto-detected from git and the environment and surfaced in `/info` and response metadata.
 
 ### Build Configuration
 
 ```yaml
 build:
-  # Docker settings
-  base_image: "python:3.9-slim"
-  registry: "registry.example.com"
-  repository: "ml-models"
+  base_image: "python:3.9-slim"       # Docker base image
+  registry: "registry.example.com"    # Registry URL
+  tag_prefix: "mlserver"              # Container tag prefix
+  include_files:                      # Explicit include list
+    - "models/"
+    - "*.py"
+  exclude_patterns:                   # Exclusions
+    - "__pycache__"
+    - "tests/"
+```
 
-  # Tagging
-  tag_prefix: "mlserver"
-  tag_suffix: null
-  latest: true  # Also tag as latest
+### Deployment Configuration
 
-  # Build options
-  no_cache: false
-  platform: "linux/amd64"
+Used by the build/CI tooling (`mlserver build`, `mlserver init-github`) for multi-classifier repositories:
 
-  # Dependencies
-  requirements_file: "requirements.txt"
-  system_packages: ["libgomp1", "libatlas-base-dev"]
+```yaml
+deployment:
+  strategy: "single"                  # single|multi
+  container_naming: "{repository}-{classifier}:{version}"
+  git_tag_format: "{classifier}-v{version}"
+  parallel_builds: true
+  registry:
+    type: "ghcr"                      # ghcr|ecr
+    url: null
+    namespace: null
+    push_on_build: false
+    ecr:
+      aws_region: "eu-central-1"
+      registry_id: "123456789012"
+      repository_prefix: "ml-classifiers"
+    github_variables:
+      aws_role_arn_var: "AWS_RUNNER_ROLE_ARN"
+      aws_role_arn_value: null
+  resource_limits:
+    memory: "2Gi"
+    cpu: "1000m"
+  health_check: null
 ```
 
 ## Environment Variables
 
-Override configuration via environment variables:
+MLServer does **not** support per-setting override variables like `MLSERVER_PORT` or `MLSERVER_WORKERS` — use the YAML config or CLI flags. The variables that are actually read are tooling defaults and container plumbing:
 
 ```bash
-# Server settings
-export MLSERVER_HOST="0.0.0.0"
-export MLSERVER_PORT="8080"
-export MLSERVER_WORKERS="8"
+# Tooling defaults (settings)
+export MLSERVER_DEFAULT_HOST="0.0.0.0"   # Default bind host when config omits it
+export MLSERVER_DEFAULT_PORT="8000"      # Default port when config omits it
+export MLSERVER_LOG_LEVEL="DEBUG"        # Default log level
 
-# Observability
-export MLSERVER_METRICS="true"
-export MLSERVER_LOG_LEVEL="DEBUG"
-
-# API settings
-export MLSERVER_MAX_CONCURRENT_REQUESTS="20"
-
-# Run server
-ml_server serve
+# Server factory / containers (usually set for you)
+export MLSERVER_CONFIG_PATH="/app/mlserver.yaml"  # Config path for worker processes
+export MLSERVER_CLASSIFIER="sentiment"            # Classifier selection in multi-classifier configs
 ```
+
+See the [CLI Reference](./cli-reference.md#environment-variables) for the complete list (including the git-metadata variables baked into containers at build time).
 
 ## CLI Overrides
 
-Command-line arguments override both config and environment:
+Command-line arguments override the config file:
 
 ```bash
 # Override port
-ml_server serve --port 9000
+mlserver serve --port 9000
 
 # Override workers
-ml_server serve --workers 8
+mlserver serve --workers 8
 
-# Select classifier from multi-config
-ml_server serve mlserver_multi.yaml --classifier staging
+# Select classifier from multi-classifier config
+mlserver serve mlserver.yaml --classifier staging
 
 # Multiple overrides
-ml_server serve \
+mlserver serve \
   --port 9000 \
   --workers 8 \
-  --log-level DEBUG \
-  --no-metrics
+  --log-level DEBUG
 ```
 
-## Global Configuration
-
-Create `global_config.yaml` for shared settings:
-
-```yaml
-# global_config.yaml
-server:
-  workers: 4
-  cors:
-    enabled: true
-
-observability:
-  metrics: true
-  structured_logging: true
-  log_level: "INFO"
-
-api:
-  thread_safe_predict: true
-  max_concurrent_requests: 10
-```
-
-Reference in classifier configs:
-
-```yaml
-# mlserver.yaml
-global_config: "./global_config.yaml"
-
-predictor:
-  module: my_predictor
-  class_name: MyPredictor
-
-# Inherits all global settings
-```
+Note: `--log-level` only overrides `server.log_level` when explicitly passed on the command line.
 
 ## Configuration Validation
 
@@ -724,7 +610,7 @@ predictor:
 
 All configurations are validated using Pydantic:
 
-```python
+```yaml
 # Invalid config example
 server:
   port: "not_a_number"  # Error: port must be integer
@@ -738,6 +624,16 @@ Configuration error:
   - server.workers: ensure this value is greater than 0
 ```
 
+### Unknown Key Warnings
+
+Keys that are not part of the schema produce warnings (not errors) at load time:
+
+```
+Warning: Unknown configuration key 'server.porrt' — did you mean 'port'?
+```
+
+This catches typos that Pydantic would otherwise silently drop.
+
 ### Required Fields
 
 Minimal required configuration:
@@ -750,11 +646,11 @@ predictor:
 ### Type Checking
 
 Configuration types are enforced:
-- Integers: `port`, `workers`, `timeout`
-- Booleans: `metrics`, `structured_logging`
-- Strings: `module`, `class_name`, `log_level`
-- Lists: `allow_origins`, `allow_methods`
-- Dictionaries: `init_kwargs`, `metrics`
+- Integers: `port`, `workers`, `max_concurrent_predictions`
+- Booleans: `metrics`, `structured_logging`, `thread_safe_predict`
+- Strings: `module`, `class_name`, `log_level`, `adapter`
+- Lists: `allow_origins`, `allow_methods`, `feature_order`
+- Dictionaries: `init_kwargs`, `endpoints`
 
 ## Configuration Patterns
 
@@ -763,15 +659,19 @@ Configuration types are enforced:
 ```yaml
 # mlserver.dev.yaml
 server:
-  reload: true  # Auto-reload
-  workers: 1    # Single worker for debugging
+  workers: 1        # Single worker for debugging
+  log_level: "DEBUG"
 
 observability:
-  log_level: "DEBUG"
-  log_payloads: true  # See all requests
+  log_payloads: true  # See all requests (dev only!)
 
 api:
   thread_safe_predict: false  # Faster for single worker
+```
+
+```bash
+# Auto-reload comes from the CLI flag
+mlserver serve mlserver.dev.yaml --reload
 ```
 
 ### Production Configuration
@@ -779,19 +679,17 @@ api:
 ```yaml
 # mlserver.prod.yaml
 server:
-  workers: 8
-  timeout: 60
+  workers: 1          # 1 worker per pod; scale with replicas (accurate metrics)
+  log_level: "WARNING"
 
 observability:
   metrics: true
   structured_logging: true
-  log_level: "WARNING"
   log_payloads: false  # Privacy
 
 api:
   thread_safe_predict: true
-  max_concurrent_requests: 100
-  validate_features: true
+  max_concurrent_predictions: 1  # Reject overflow with 503 so the LB retries elsewhere
 ```
 
 ### Testing Configuration
@@ -799,8 +697,8 @@ api:
 ```yaml
 # mlserver.test.yaml
 server:
-  port: 0  # Random port
-  workers: 2
+  port: 8001  # Dedicated test port
+  workers: 1
 
 predictor:
   module: mock_predictor
@@ -808,7 +706,6 @@ predictor:
 
 observability:
   metrics: false  # Disable for tests
-  log_level: "ERROR"
 ```
 
 ## Troubleshooting
@@ -842,15 +739,15 @@ predictor:
 
 Enable debug logging:
 ```bash
-ml_server serve --log-level DEBUG
+mlserver serve --log-level DEBUG
 ```
 
-Validate configuration:
+Validate configuration (including unknown-key warnings):
 ```bash
-ml_server validate mlserver.yaml
+mlserver validate mlserver.yaml -v
 ```
 
-Print resolved configuration:
+Diagnose the environment:
 ```bash
-ml_server serve --print-config
+mlserver doctor -v
 ```

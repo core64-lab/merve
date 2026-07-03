@@ -29,7 +29,7 @@ class MyPredictor:
 
 ```bash
 # Start server
-ml_server serve
+mlserver serve
 
 # Test prediction
 curl -X POST http://localhost:8000/predict \
@@ -253,10 +253,10 @@ observability:
 python train_models.py
 
 # Serve single classifier
-ml_server serve mlserver.yaml
+mlserver serve mlserver.yaml
 
 # Or serve specific classifier from multi-config
-ml_server serve mlserver_multi_classifier_simple.yaml --classifier catboost-survival
+mlserver serve mlserver_multi_classifier_simple.yaml --classifier catboost-survival
 
 # Test prediction
 curl -X POST http://localhost:8000/predict \
@@ -319,11 +319,11 @@ class TitanicPredictionUser(HttpUser):
         )
 
     @task(5)
-    def batch_prediction(self):
-        """Test batch predictions."""
+    def bulk_prediction(self):
+        """Test batch predictions (multiple records in one /predict call)."""
         passengers = [self.generate_passenger() for _ in range(10)]
         self.client.post(
-            "/batch_predict",
+            "/predict",
             json={"payload": {"records": passengers}}
         )
 
@@ -349,7 +349,7 @@ class TitanicPredictionUser(HttpUser):
 ### Running Load Tests
 ```bash
 # Start server
-ml_server serve
+mlserver serve
 
 # Run Locust web UI
 locust -f tests/load/locustfile.py --host http://localhost:8000
@@ -483,8 +483,7 @@ services:
     build: .
     ports:
       - "8000:8000"
-    environment:
-      - MLSERVER_METRICS=true
+    # Metrics are enabled via mlserver.yaml (observability.metrics: true, the default)
     volumes:
       - ./examples:/app/examples
 
@@ -547,7 +546,7 @@ scrape_configs:
         "title": "Error Rate",
         "targets": [
           {
-            "expr": "rate(mlserver_prediction_errors_total[5m])"
+            "expr": "rate(mlserver_requests_total{status_code=~\"5..\"}[5m])"
           }
         ]
       }
@@ -650,7 +649,7 @@ demo-train:
 
 # Start server
 demo-serve:
-	ml_server serve examples/mlserver.yaml
+	mlserver serve examples/mlserver.yaml
 
 # Test predictions
 demo-test:

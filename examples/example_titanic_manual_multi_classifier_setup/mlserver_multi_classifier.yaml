@@ -44,7 +44,7 @@ classifiers:
 
     # Predictor configuration
     predictor:
-      module: examples.example_titanic_manual_multi_classifier_setup.predictor_catboost_v2
+      module: examples.example_titanic_manual_multi_classifier_setup.predictor_catboost
       class_name: CatBoostSurvivalPredictor
       init_kwargs:
         model_path: "./artifacts/catboost-survival/model.pkl"
@@ -60,7 +60,7 @@ classifiers:
       max_concurrent_predictions: 1
       endpoints:
         predict: true
-        # Note: batch_predict removed - /predict handles both single and batch
+        # Note: the former batch endpoint was removed - /predict handles both single and batch
         predict_proba: true
 
     # Build configuration
@@ -71,7 +71,7 @@ classifiers:
         COPY requirements.txt .
         RUN pip install --no-cache-dir -r requirements.txt
         COPY . .
-        CMD ["ml_server", "serve", "--classifier", "catboost-survival"]
+        CMD ["mlserver", "serve", "--classifier", "catboost-survival"]
 
   # Classifier 2: RandomForest model
   randomforest-survival:
@@ -106,7 +106,7 @@ classifiers:
       max_concurrent_predictions: 1
       endpoints:
         predict: true
-        # Note: batch_predict removed - /predict handles both single and batch
+        # Note: the former batch endpoint was removed - /predict handles both single and batch
         predict_proba: true
 
     # Build configuration
@@ -117,7 +117,7 @@ classifiers:
         COPY requirements.txt .
         RUN pip install --no-cache-dir -r requirements.txt
         COPY . .
-        CMD ["ml_server", "serve", "--classifier", "randomforest-survival"]
+        CMD ["mlserver", "serve", "--classifier", "randomforest-survival"]
 
 # Default classifier (when no --classifier flag is provided)
 default_classifier: "catboost-survival"

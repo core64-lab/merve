@@ -26,27 +26,47 @@ pip install -e ".[dev]"
 pytest
 ```
 
+### Development Environment
+
+This repository owns its own virtual environment at `.venv`:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+```
+
+Never develop this package against another project's virtual environment (or against a source checkout nested inside one, e.g. `.venv/src/`). Downstream projects that need a development version install it editable from this repository's path into their own venv:
+
+```bash
+# From the downstream project
+.venv/bin/pip install -e /path/to/merve
+```
+
 ## Project Structure
 
 ```
-fastapi-mlserver-wrapper/
+merve/  (package: mlserver-fastapi-wrapper)
 ├── mlserver/               # Core package
 │   ├── __init__.py
-│   ├── cli.py             # Classic CLI
-│   ├── cli_v2.py          # Modern Typer CLI
+│   ├── cli.py             # Typer CLI (the `mlserver` command)
 │   ├── server.py          # FastAPI application
-│   ├── config.py          # Configuration management
-│   ├── adapters.py        # Input adapters
-│   ├── predictor_loader.py # Dynamic loading
-│   ├── container.py       # Docker building
-│   ├── settings.py        # Global settings
+│   ├── config.py          # Configuration management (AppConfig)
+│   ├── schemas.py         # Request/response models
+│   ├── adapters.py        # Input adapters (records/ndarray/auto)
+│   ├── predictor_loader.py # Dynamic predictor loading
+│   ├── concurrency_limiter.py # Prediction concurrency control
+│   ├── metrics.py         # Prometheus metrics
+│   ├── logging_conf.py    # Structured logging + correlation IDs
+│   ├── auto_detect.py     # Git/project metadata auto-detection
 │   ├── multi_classifier.py # Multi-model support
-│   ├── concurrency_limiter.py # Rate limiting
-│   └── ainit/             # AI-powered init
-│       ├── __init__.py
-│       ├── analyzer.py
-│       ├── generator.py
-│       └── templates/
+│   ├── container.py       # Docker building
+│   ├── version_control.py # Hierarchical tagging
+│   ├── github_actions.py  # CI/CD workflow generation
+│   ├── init_project.py    # `mlserver init` scaffolding
+│   ├── validation.py      # `mlserver validate` checks
+│   ├── doctor.py          # `mlserver doctor` diagnostics
+│   ├── schema_generator.py # `mlserver schema` JSON schema
+│   └── settings.py        # Global tool settings
 ├── tests/                 # Test suite
 │   ├── unit/             # Unit tests
 │   ├── integration/      # Integration tests
@@ -153,18 +173,23 @@ def test_prediction():
 ```python
 # tests/integration/test_api.py
 import pytest
+import yaml
 from fastapi.testclient import TestClient
+from mlserver.config import AppConfig
 from mlserver.server import create_app
 
 @pytest.fixture
 def client():
-    app = create_app("test_config.yaml")
+    # create_app takes an AppConfig object, not a file path
+    with open("test_config.yaml") as f:
+        config = AppConfig.model_validate(yaml.safe_load(f))
+    app = create_app(config)
     return TestClient(app)
 
 def test_predict_endpoint(client):
     response = client.post(
         "/predict",
-        json={"data": [{"feature1": 1, "feature2": 2}]}
+        json={"payload": {"records": [{"feature1": 1, "feature2": 2}]}}
     )
     assert response.status_code == 200
     assert "predictions" in response.json()
@@ -187,7 +212,7 @@ class MLServerUser(HttpUser):
     def predict(self):
         self.client.post(
             "/predict",
-            json={"data": [{"age": 25, "fare": 50}]}
+            json={"payload": {"records": [{"age": 25, "fare": 50}]}}
         )
 
     @task(2)
@@ -209,15 +234,17 @@ locust -f tests/load/locustfile.py --host http://localhost:8000
 ### Enable Debug Logging
 
 ```bash
-# Via CLI
+# Via CLI (only overrides the YAML value when explicitly passed)
 mlserver serve --log-level DEBUG
 
-# Via environment
+# Via environment (tooling default)
 export MLSERVER_LOG_LEVEL=DEBUG
 mlserver serve
+```
 
+```yaml
 # In config
-observability:
+server:
   log_level: "DEBUG"
 ```
 
@@ -418,8 +445,8 @@ docker inspect sentiment:latest | grep -A 20 Labels
 # 5. Test the container
 docker run -p 8000:8000 sentiment:latest
 
-# 6. Verify version endpoint
-curl http://localhost:8000/version
+# 6. Verify version metadata via the info endpoint
+curl http://localhost:8000/info
 ```
 
 #### Multi-Classifier Development
@@ -540,6 +567,18 @@ mlserver tag --classifier sentiment minor
 - **Create version tag** for significant changes
 - **Test reproducibility** with container builds
 
+## Release Procedure
+
+Releases of the `mlserver-fastapi-wrapper` package itself are cut from git tags — tags are the canonical version source. Package releases use plain `vX.Y.Z` tags on `main` (not to be confused with the classifier tags described above, which version classifier repositories).
+
+1. **Update `CHANGELOG.md`**: move the `[Unreleased]` entries into a new `[X.Y.Z] - YYYY-MM-DD` section
+2. **Tag on main**: `git tag vX.Y.Z`
+3. **Push the tag**: `git push origin vX.Y.Z` — CI builds the wheel from the tag
+
+Consumers pin the released version rather than tracking `main`.
+
+The next planned release is **v0.4.0**, scheduled for the end of sprint Wave 1 (see [RFC 0001](rfcs/0001-design-decisions-and-sprint-plan.md)).
+
 ## Performance Optimization
 
 ### Profiling
@@ -638,9 +677,9 @@ prediction_duration = Histogram(
     'Time spent making predictions'
 )
 
-prediction_errors = Counter(
-    'prediction_errors_total',
-    'Total prediction errors'
+prediction_failures = Counter(
+    'my_model_prediction_failures_total',
+    'Total prediction failures in the custom predictor'
 )
 
 class MetricsPredictor:
@@ -649,7 +688,7 @@ class MetricsPredictor:
             try:
                 return self.model.predict(X)
             except Exception as e:
-                prediction_errors.inc()
+                prediction_failures.inc()
                 raise
 ```
 
@@ -713,7 +752,14 @@ lsof -i :8000
 pip install -r requirements.txt
 
 # Validate config
-python -c "from mlserver.config import load_config; load_config('mlserver.yaml')"
+mlserver validate mlserver.yaml
+
+# Or programmatically
+python -c "
+import yaml
+from mlserver.config import AppConfig
+AppConfig.model_validate(yaml.safe_load(open('mlserver.yaml')))
+"
 ```
 
 ### Issue: Predictions Failing

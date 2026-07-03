@@ -2,56 +2,46 @@
 
 ## Overview
 
-MLServer provides two CLI interfaces:
-- **Classic CLI** (`ml_server`): Traditional command-line interface with argparse
-- **Modern CLI** (`mlserver`): Rich, colorful interface using Typer framework
-
-Both CLIs provide the same functionality, with the modern CLI offering enhanced visual output.
+MLServer ships a single command-line interface, `mlserver`, built on Typer with rich, colorful output. It covers the full lifecycle: serving, validation, versioning, container builds, and deployment helpers.
 
 ## Installation
 
-Both CLIs are automatically installed with the package:
+The CLI is installed with the package:
 
 ```bash
 pip install mlserver-fastapi-wrapper
 
-# Classic CLI
-ml_server --help
-
-# Modern CLI (with rich output)
 mlserver --help
 ```
 
-## Modern CLI (`mlserver`)
-
-### Features
-- 🎨 Colorful, formatted output
-- 📊 Rich tables for data display
-- ✨ Progress indicators
-- 🔍 Better error messages
-- 📝 Structured command groups
-
-### Commands Overview
+## Commands Overview
 
 ```bash
 mlserver --help  # Show all commands with rich formatting
 ```
 
-![CLI Output Example]
 ```
-╭─ Commands ──────────────────────────────────────────────────────╮
-│ serve              🚀 Start ML server with FastAPI              │
-│ ainit              🤖 AI-powered initialization from notebook   │
-│ tag                🏷️  Create version tag with reproducibility   │
-│ build              📦 Build Docker container                    │
-│ push               🚢 Push container to registry                │
-│ status             📊 Show system status                        │
-│ list-classifiers   📋 List available classifiers               │
-│ version            ℹ️  Show version information                  │
-│ images             🖼️  List Docker images                        │
-│ clean              🧹 Remove Docker images                      │
+╭─ Commands ───────────────────────────────────────────────────────╮
+│ serve              🚀 Launch ML FastAPI server from YAML config  │
+│ version            📦 Display version information                │
+│ build              🏗️  Build Docker container                     │
+│ push               📤 Push container to registry                 │
+│ images             📋 List Docker images                         │
+│ tag                🏷️  Manage version tags for classifiers        │
+│ clean              🧹 Remove Docker images                       │
+│ run                🚀 Run Docker container for the classifier    │
+│ list-classifiers   📋 List classifiers in multi-classifier config│
+│ status             📊 Show ML Server status and system info      │
+│ init               🎬 Initialize a new classifier project        │
+│ init-github        🔧 Initialize GitHub Actions CI/CD workflow   │
+│ validate           Validate configuration without starting       │
+│ doctor             Diagnose common issues                        │
+│ test               Test prediction against a running server      │
+│ schema             Generate JSON schema for mlserver.yaml        │
 ╰──────────────────────────────────────────────────────────────────╯
 ```
+
+> Note: There is no shell completion support (`--install-completion` is disabled), and `mlserver` is the only CLI entry point — no separate legacy binary exists.
 
 ---
 
@@ -63,28 +53,25 @@ Launch the ML inference server with FastAPI.
 
 #### Syntax
 ```bash
-# Classic CLI
-ml_server serve [config] [options]
-
-# Modern CLI
-mlserver serve [config] [options]
+mlserver serve [CONFIG] [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `config` | Path to config file | Auto-detect |
-| `--host` | Bind address | `0.0.0.0` |
-| `--port` | Port number | `8000` |
-| `--workers` | Number of processes | `1` |
-| `--classifier` | Select classifier (multi-config) | Default from config |
-| `--reload` | Auto-reload on changes | `false` |
-| `--log-level` | Logging level | `INFO` |
-| `--no-metrics` | Disable metrics | `false` |
+| `CONFIG` | Path to config file | `mlserver.yaml` |
+| `--classifier`, `-c` | Classifier to serve (for multi-classifier configs) | Default from config |
+| `--host` | Override host address | From config |
+| `--port`, `-p` | Override port number | From config |
+| `--workers`, `-w` | Number of worker processes | From config |
+| `--reload` | Enable auto-reload for development | `false` |
+| `--log-level`, `-l` | Set log level (`DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL`) | `INFO` |
+
+> `--log-level` only overrides the YAML `server.log_level` when it is explicitly passed on the command line.
 
 #### Examples
 ```bash
-# Auto-detect configuration
+# Auto-detect configuration (mlserver.yaml)
 mlserver serve
 
 # Specific configuration
@@ -94,77 +81,60 @@ mlserver serve mlserver.yaml
 mlserver serve --port 9000 --workers 4
 
 # Multi-classifier selection
-mlserver serve multi.yaml --classifier production
+mlserver serve mlserver.yaml --classifier catboost-survival
 
 # Development mode
 mlserver serve --reload --log-level DEBUG
 ```
 
-#### Output (Modern CLI)
-```
-╭─ ML Server Starting ─────────────────────────────────────────────╮
-│ 📁 Config: mlserver.yaml                                         │
-│ 🎯 Model: catboost-survival v1.0.0                              │
-│ 🔧 Workers: 4                                                    │
-│ 🌐 URL: http://0.0.0.0:8000                                    │
-╰──────────────────────────────────────────────────────────────────╯
-
-✅ Server ready at http://localhost:8000
-📊 Metrics at http://localhost:8000/metrics
-📚 Docs at http://localhost:8000/docs
-```
-
 ---
 
-### `ainit` - AI-Powered Initialization
+### `version` - Version Information
 
-Generate complete ML server setup from Jupyter notebooks using AI analysis.
+Display version information for the classifier project. Use `--detailed` to include MLServer tool version, commit, and installation source.
 
 #### Syntax
 ```bash
-ml_server ainit <notebook> [options]
-mlserver ainit <notebook> [options]
+mlserver version [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `notebook` | Path to Jupyter notebook | Required |
-| `--output-dir` | Output directory | `./` |
-| `--model-type` | Force model type | Auto-detect |
-| `--config-only` | Only generate config | `false` |
-| `--force` | Overwrite existing files | `false` |
+| `--path`, `-p` | Path to classifier project | `.` |
+| `--classifier`, `-c` | Classifier name (for multi-classifier configs) | None |
+| `--json` | Output as JSON | `false` |
+| `--detailed` | Show detailed MLServer tool information | `false` |
 
 #### Examples
 ```bash
-# Generate from notebook
-mlserver ainit notebook.ipynb
+# Basic version (classifier only)
+mlserver version
 
-# Custom output directory
-mlserver ainit notebook.ipynb --output-dir ./api
+# JSON format
+mlserver version --json
 
-# Force model type
-mlserver ainit notebook.ipynb --model-type catboost
+# With MLServer tool details
+mlserver version --detailed
 
-# Config only (no predictor generation)
-mlserver ainit notebook.ipynb --config-only
+# Specific classifier in a multi-classifier repo
+mlserver version --classifier sentiment
 ```
 
-#### Generated Files
-```
-./
-├── mlserver.yaml         # Configuration file
-├── predictor.py          # Predictor class
-├── requirements.txt      # Dependencies
-├── Dockerfile           # Container definition
-└── README.md            # Documentation
+#### Use Cases
+```bash
+# Get full version info for bug reports
+mlserver version --detailed --json > version-info.json
+
+# Verify MLServer commit in a build pipeline
+mlserver version --detailed | grep -i commit
 ```
 
 ---
 
 ### `tag` - Version Tagging & Reproducibility
 
-Create semantic version tags with full reproducibility tracking. Tags include both classifier and MLServer tool commits for complete traceability.
+Manage semantic version tags with full reproducibility tracking. Tags include both classifier and MLServer tool commits for complete traceability.
 
 #### Hierarchical Tag Format
 
@@ -179,23 +149,22 @@ This format ensures:
 
 #### Syntax
 ```bash
-# Create new tag
-mlserver tag --classifier <name> <major|minor|patch>
-
 # Show tag status for all classifiers
 mlserver tag
 
-# Show tag status with MLServer commit info
-mlserver tag --detailed
+# Create a version tag for a specific classifier
+mlserver tag --classifier <name> <major|minor|patch>
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--classifier <name>` | Classifier to tag | Required for tagging |
-| `<bump>` | Version bump type | Required: major\|minor\|patch |
-| `--force` | Allow tagging with uncommitted changes | `false` |
-| `--allow-missing-mlserver` | Tag without MLServer commit (dev mode) | `false` |
+| `BUMP_TYPE` | Version bump type: `major`, `minor`, or `patch` | None (status mode) |
+| `--classifier`, `-c` | Classifier name to tag (required for tagging) | None |
+| `--config` | Config file path | `mlserver.yaml` |
+| `--message`, `-m` | Tag message | `Release <classifier> vX.Y.Z` |
+| `--path` | Path to classifier project | `.` |
+| `--allow-missing-mlserver` | Allow tagging even if the MLServer commit cannot be determined (dev/testing only) | `false` |
 
 #### Examples
 
@@ -227,11 +196,9 @@ Next steps:
 
 **View Status:**
 ```bash
-# Show all classifier tag status
 mlserver tag
 ```
 
-**Output:**
 ```
                       🏷️  Classifier Version Status
 ┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
@@ -239,19 +206,8 @@ mlserver tag
 ┡━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
 │ sentiment         │ 1.0.3   │ b5dff2a ✓ │ Ready  │ -               │
 │ intent            │ 2.0.1   │ b5dff2a ✓ │ Ready  │ -               │
-│ fraud             │ 0.5.0   │ a3c2f1d ⚠ │ Behind │ Update MLServer │
 └───────────────────┴─────────┴───────────┴────────┴─────────────────┘
-
-Current MLServer commit: b5dff2a
 ```
-
-#### Tag Validation
-
-Tags are validated before creation:
-- ✅ Working directory must be clean (or use `--force`)
-- ✅ Classifier code must be committed
-- ✅ MLServer commit must be available (or use `--allow-missing-mlserver`)
-- ✅ Version must follow semantic versioning
 
 #### Reproducibility Workflow
 
@@ -279,10 +235,8 @@ Tags are validated before creation:
 
 Each classifier is tagged independently:
 ```bash
-# Tag different classifiers at different versions
 mlserver tag --classifier sentiment patch  # v1.0.3
 mlserver tag --classifier intent minor     # v2.1.0
-mlserver tag --classifier fraud major      # v3.0.0
 
 # View all tags
 mlserver tag
@@ -292,25 +246,31 @@ mlserver tag
 
 ### `build` - Build Docker Container
 
-Build a Docker container for the ML server with full reproducibility tracking.
+Build a Docker container for the classifier project with full reproducibility tracking.
+
+The `--classifier` parameter accepts both simple names and full hierarchical tags:
+- Simple: `--classifier sentiment`
+- Full tag: `--classifier sentiment-v1.0.0-mlserver-b5dff2a`
+
+When using a full tag, the build validates that your current code matches the tag's expected commits and warns on mismatches.
 
 #### Syntax
 ```bash
-ml_server build [options]
 mlserver build [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--classifier <name>` | Classifier name or full hierarchical tag | Auto-detect |
-| `--tag` | Container tag override | Auto-generate from git tag |
-| `--registry` | Registry URL | None |
-| `--config` | Config file path | Auto-detect |
-| `--no-cache` | Disable Docker cache | `false` |
-| `--platform` | Target platform | `linux/amd64` |
-| `--push` | Push after build | `false` |
-| `--force` | Skip validation warnings | `false` |
+| `--classifier`, `-c` | Classifier to build (simple name or full tag `name-vX.Y.Z-mlserver-hash`) | Auto-detect |
+| `--path` | Path to classifier project | `.` |
+| `--config` | Config file to use | Auto-detected |
+| `--registry` | Container registry URL | None |
+| `--tag-prefix` | Tag prefix for container names | None |
+| `--build-arg` | Build arguments (`key=value`, repeatable) | None |
+| `--no-cache` | Do not use cache when building | `false` |
+| `--verbose`, `-v` | Verbose output | `false` |
+| `--force` | Skip validation prompts and continue with build | `false` |
 
 #### Examples
 
@@ -327,14 +287,6 @@ mlserver build --classifier sentiment
 ```bash
 # Build exact tagged version (with validation)
 mlserver build --classifier sentiment-v1.0.3-mlserver-b5dff2a
-
-# Output shows validation:
-🏗️  Building container...
-→ Full tag provided: sentiment-v1.0.3-mlserver-b5dff2a
-
-✓ Current code matches tag specification
-
-→ Building for classifier: sentiment
 ```
 
 **Validation Warnings:**
@@ -355,23 +307,17 @@ Current working directory:
 Building with CURRENT code. To build exact tagged version:
   git checkout sentiment-v1.0.2-mlserver-old123
 
-# Use --force to skip prompt
+# Use --force to skip the prompt
 mlserver build --classifier sentiment-v1.0.2-mlserver-old123 --force
 ```
 
 **Advanced Builds:**
 ```bash
-# Custom tag
-mlserver build --tag my-model:v1.0.0
-
-# Build and push
-mlserver build --registry gcr.io/project --push
-
-# Fresh build
+# Fresh build without Docker cache
 mlserver build --no-cache
 
-# Multi-platform
-mlserver build --platform linux/amd64,linux/arm64
+# Custom registry and build arguments
+mlserver build --registry gcr.io/project --build-arg PIP_INDEX_URL=https://pypi.internal
 ```
 
 #### Container Labels
@@ -388,7 +334,6 @@ LABEL com.classifier.git_branch="main"
 # MLServer tool information
 LABEL com.mlserver.version="0.3.2"
 LABEL com.mlserver.commit="b5dff2a"
-LABEL com.mlserver.git_url="https://github.com/core64-lab/merve"
 
 # OCI standard labels
 LABEL org.opencontainers.image.version="1.0.3"
@@ -410,77 +355,125 @@ git checkout sentiment-v1.0.3-mlserver-b5dff2a
 mlserver build --classifier sentiment
 ```
 
-#### Output
-```
-🏗️  Building Docker container...
-→ Classifier: sentiment v1.0.3
-→ MLServer: b5dff2a
-→ Base image: python:3.9-slim
-
-📝 Installing dependencies...
-✅ Built: sentiment:v1.0.3
-📏 Size: 450 MB
-🏷️  Labels: 17 added for traceability
-```
-
 ---
 
 ### `push` - Push Container
 
-Push built container to a registry.
+Push a built container to a registry. Requires a tagged commit for the specific classifier (or `--force`).
 
 #### Syntax
 ```bash
-ml_server push [options]
 mlserver push [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--registry` | Registry URL | Required |
-| `--tag` | Container tag | Latest built |
-| `--all` | Push all tags | `false` |
+| `--registry`, `-r` | Container registry URL | **Required** |
+| `--classifier`, `-c` | Classifier to push (required for multi-classifier configs) | None |
+| `--path` | Path to classifier project | `.` |
+| `--tag-prefix` | Tag prefix for container names | None |
+| `--force`, `-f` | Force push even if not on tagged commit or tag exists | `false` |
+| `--version-source` | Version source: `git-tag`, `config`, or `auto` | `auto` |
 
 #### Examples
 ```bash
-# Push latest
-mlserver push --registry gcr.io/project
+# Push classifier image
+mlserver push --registry gcr.io/project --classifier sentiment
 
-# Push specific tag
-mlserver push --registry gcr.io/project --tag v1.0.0
+# Force push from an untagged commit
+mlserver push --registry gcr.io/project --classifier sentiment --force
 
-# Push all versions
-mlserver push --registry gcr.io/project --all
+# Take the version from the config instead of git tags
+mlserver push --registry gcr.io/project --version-source config
 ```
 
 ---
 
-### `status` - System Status (Modern CLI Only)
+### `images` - List Docker Images
 
-Display comprehensive system and server status.
+List Docker images for the classifier project. For multi-classifier configs, use `--classifier` to filter.
 
 #### Syntax
 ```bash
-mlserver status [options]
+mlserver images [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--url` | Server URL | `http://localhost:8000` |
-| `--detailed` | Show detailed info | `false` |
+| `--path` | Path to classifier project | `.` |
+| `--classifier`, `-c` | Classifier name (for multi-classifier configs) | None |
 
 #### Output
 ```
-╭─ Server Status ──────────────────────────────────────────────────╮
-│ Status       │ ✅ Healthy                                        │
-│ Model        │ catboost-survival v1.0.0                         │
-│ Uptime       │ 2 hours, 15 minutes                              │
-│ Requests     │ 1,234                                            │
-│ Avg Latency  │ 45ms                                             │
-│ Errors       │ 2 (0.16%)                                        │
+╭─ Docker Images ──────────────────────────────────────────────────╮
+│ Repository   │ Tag     │ Size    │ Created              │       │
+├──────────────┼─────────┼─────────┼──────────────────────┼───────┤
+│ sentiment    │ v1.0.3  │ 450 MB  │ 2 hours ago         │       │
+│ sentiment    │ latest  │ 450 MB  │ 2 hours ago         │       │
 ╰──────────────────────────────────────────────────────────────────╯
+```
+
+---
+
+### `clean` - Remove Docker Images
+
+Remove Docker images for the classifier project.
+
+#### Syntax
+```bash
+mlserver clean [options]
+```
+
+#### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--path` | Path to classifier project | `.` |
+| `--force`, `-f` | Force removal without confirmation | `false` |
+
+#### Examples
+```bash
+# Interactive clean
+mlserver clean
+
+# Remove without confirmation
+mlserver clean --force
+```
+
+---
+
+### `run` - Run Docker Container
+
+Run a built Docker container for the classifier locally.
+
+#### Syntax
+```bash
+mlserver run [options]
+```
+
+#### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--classifier`, `-c` | Classifier to run (required for multi-classifier configs) | None |
+| `--path` | Path to classifier project | `.` |
+| `--port`, `-p` | Port to expose the container on | `8000` |
+| `--version` | Specific version to run | latest |
+| `--detach`, `-d` | Run container in background | `false` |
+| `--name` | Container name | Auto-generated |
+| `--env`, `-e` | Environment variables (`KEY=value`, repeatable) | None |
+| `--volume`, `-v` | Volume mounts (`host:container`, repeatable) | None |
+
+#### Examples
+```bash
+# Run latest build on port 8000
+mlserver run --classifier sentiment
+
+# Run a specific version in the background
+mlserver run --classifier sentiment --version 1.0.2 --detach
+
+# Custom port, env vars, and mounts
+mlserver run -c sentiment -p 9000 -e LOG_LEVEL=DEBUG -v ./models:/app/models
 ```
 
 ---
@@ -491,7 +484,7 @@ Show all classifiers in a multi-classifier configuration.
 
 #### Syntax
 ```bash
-mlserver list-classifiers [config]
+mlserver list-classifiers [CONFIG]
 ```
 
 #### Output
@@ -501,174 +494,87 @@ mlserver list-classifiers [config]
 ├──────────────┼─────────┼────────────┼──────────────────────────┤
 │ catboost     │ 1.0.0   │ Default ✓  │ CatBoost model          │
 │ randomforest │ 2.0.0   │ Available  │ RandomForest model      │
-│ xgboost      │ 1.5.0   │ Available  │ XGBoost model           │
 ╰──────────────────────────────────────────────────────────────────╯
 ```
 
 ---
 
-### `version` - Version Information
+### `status` - System Status
 
-Display version and environment information, including MLServer tool details.
+Show ML Server status and system info (local environment overview, Docker availability, config detection). Takes no options.
 
 #### Syntax
 ```bash
-ml_server version [options]
-mlserver version [options]
+mlserver status
+```
+
+---
+
+## Project Setup Commands
+
+### `init` - Initialize a New Project
+
+Initialize a new MLServer classifier project. Creates all necessary files:
+- `mlserver.yaml` (configuration file)
+- `<predictor>.py` (skeleton predictor class)
+- `.github/workflows/ml-classifier-container-build.yml` (CI/CD workflow)
+- `.gitignore` (Python/ML project gitignore)
+
+Existing files are never overwritten unless `--force` is used.
+
+#### Syntax
+```bash
+mlserver init [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--json` | JSON output | `false` |
-| `--detailed` | Include MLServer tool information | `false` |
+| `--path`, `-p` | Path to initialize project in | `.` |
+| `--classifier`, `-c` | Classifier name | Directory name |
+| `--predictor-file` | Name of predictor Python file (without `.py`) | Derived from classifier |
+| `--predictor-class` | Name of predictor class | Derived from classifier |
+| `--no-github` | Skip GitHub Actions workflow creation | `false` |
+| `--force`, `-f` | Overwrite existing files | `false` |
 
 #### Examples
 ```bash
-# Basic version (classifier only)
-mlserver version
-
-# JSON format
-mlserver version --json
-
-# With MLServer tool details
-mlserver version --detailed
-```
-
-#### Output (Modern CLI)
-
-**Basic:**
-```
-╭─ MLServer Version ───────────────────────────────────────────────╮
-│ Classifier   │ sentiment                                        │
-│ Version      │ 1.0.3                                            │
-│ Python       │ 3.9.15                                           │
-│ FastAPI      │ 0.110.0                                          │
-│ Platform     │ Darwin 24.0.0                                    │
-╰──────────────────────────────────────────────────────────────────╯
-```
-
-**Detailed (with `--detailed` flag):**
-```
-╭─ MLServer Version ───────────────────────────────────────────────╮
-│ Classifier   │ sentiment                                        │
-│ Version      │ 1.0.3                                            │
-│ Python       │ 3.9.15                                           │
-│ FastAPI      │ 0.110.0                                          │
-│ Platform     │ Darwin 24.0.0                                    │
-│                                                                  │
-│ MLServer Tool                                                    │
-│   Version    │ 0.3.2.dev0                                       │
-│   Commit     │ b5dff2a                                          │
-│   Install    │ git (editable)                                   │
-│   Location   │ /path/to/mlserver                                │
-╰──────────────────────────────────────────────────────────────────╯
-```
-
-**JSON Output:**
-```bash
-mlserver version --json --detailed
-```
-
-```json
-{
-  "classifier": {
-    "name": "sentiment",
-    "version": "1.0.3"
-  },
-  "python": "3.9.15",
-  "fastapi": "0.110.0",
-  "platform": "Darwin 24.0.0",
-  "mlserver_tool": {
-    "version": "0.3.2.dev0",
-    "commit": "b5dff2a",
-    "install_type": "git (editable)",
-    "location": "/path/to/mlserver"
-  }
-}
-```
-
-#### Use Cases
-
-**Development:**
-```bash
-# Check which MLServer version you're developing with
-mlserver version --detailed
-
-# Verify you're using editable install
-mlserver version --detailed | grep "Install"
-```
-
-**Debugging:**
-```bash
-# Get full version info for bug reports
-mlserver version --detailed --json > version-info.json
-```
-
-**CI/CD:**
-```bash
-# Verify MLServer commit in build pipeline
-mlserver version --detailed | grep "Commit"
+mlserver init --classifier sentiment-analyzer
+mlserver init --classifier my-model --predictor-file custom_predictor
+mlserver init --no-github
 ```
 
 ---
 
-### `images` - List Docker Images
+### `init-github` - Initialize CI/CD Workflow
 
-List all built ML server Docker images.
+Initialize a GitHub Actions workflow for automated container builds. Sets up automated building and publishing of containers to a container registry when hierarchical version tags (created with `mlserver tag`) are pushed.
+
+This command:
+- Creates `.github/workflows/ml-classifier-container-build.yml`
+- Configures automated Docker builds on tag push
+- Sets up container publishing to GitHub Container Registry
+- Auto-detects your GitHub repository information
+
+Note: `mlserver init` already creates this workflow; run `init-github` separately only to add CI/CD to an existing project.
 
 #### Syntax
 ```bash
-ml_server images [options]
-mlserver images [options]
+mlserver init-github [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--format` | Output format | `table` |
-| `--filter` | Filter images | None |
-
-#### Output
-```
-╭─ Docker Images ──────────────────────────────────────────────────╮
-│ Repository   │ Tag     │ Size    │ Created              │       │
-├──────────────┼─────────┼─────────┼──────────────────────┼───────┤
-│ ml-model     │ v1.0.0  │ 450 MB  │ 2 hours ago         │       │
-│ ml-model     │ v0.9.0  │ 445 MB  │ 1 day ago           │       │
-│ ml-model     │ latest  │ 450 MB  │ 2 hours ago         │       │
-╰──────────────────────────────────────────────────────────────────╯
-```
-
----
-
-### `clean` - Remove Docker Images
-
-Clean up built ML server Docker images.
-
-#### Syntax
-```bash
-ml_server clean [options]
-mlserver clean [options]
-```
-
-#### Options
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--all` | Remove all images | `false` |
-| `--force` | Skip confirmation | `false` |
-| `--keep-latest` | Keep latest version | `true` |
+| `--path`, `-p` | Path to classifier project | `.` |
+| `--python-version` | Python version for CI/CD workflow | `3.11` |
+| `--registry` | Container registry | `ghcr.io` |
+| `--force`, `-f` | Overwrite existing workflow files | `false` |
 
 #### Examples
 ```bash
-# Interactive clean
-mlserver clean
-
-# Remove all
-mlserver clean --all --force
-
-# Keep only latest
-mlserver clean --keep-latest
+mlserver init-github
+mlserver init-github --python-version 3.12 --registry ghcr.io
 ```
 
 ---
@@ -677,31 +583,43 @@ mlserver clean --keep-latest
 
 ### `validate` - Validate Configuration
 
-Validate mlserver.yaml configuration without starting the server.
+Validate configuration without starting the server.
+
+Checks:
+- YAML syntax validity
+- Required fields present
+- Predictor module importable
+- Model files exist
+- Feature order file exists (if configured)
 
 #### Syntax
 ```bash
-mlserver validate [config] [options]
+mlserver validate [CONFIG] [options]
 ```
 
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `config` | Path to config file | Auto-detect |
+| `CONFIG` | Path to config file | Auto-detect (`mlserver.yaml`) |
 | `--strict`, `-s` | Fail on warnings | `false` |
-| `--check-imports/--no-check-imports` | Check predictor imports | `true` |
+| `--check-imports/--no-check-imports` | Check predictor imports | `check-imports` |
 | `--verbose`, `-v` | Show detailed output | `false` |
+
+Passing a file path validates that named file (e.g. `mlserver validate staging.yaml`). Unknown configuration keys are reported as warnings.
 
 #### Examples
 ```bash
 # Validate auto-detected config
 mlserver validate
 
-# Validate specific config with verbose output
+# Validate a specific config with verbose output
 mlserver validate mlserver.yaml -v
 
 # Strict mode - fail on any warning
 mlserver validate --strict
+
+# Skip import checking
+mlserver validate mlserver.yaml --no-check-imports
 ```
 
 #### Output
@@ -719,7 +637,7 @@ Validating configuration...
 
 ### `doctor` - Diagnose Environment
 
-Diagnose common issues and environment problems.
+Diagnose common issues and environment problems. Checks system requirements, project configuration, dependencies, and provides recommendations for fixing issues.
 
 #### Syntax
 ```bash
@@ -734,14 +652,9 @@ mlserver doctor [options]
 
 #### Examples
 ```bash
-# Run all diagnostics
 mlserver doctor
-
-# Verbose output
 mlserver doctor -v
-
-# Check specific project
-mlserver doctor --path /path/to/project
+mlserver doctor --path ./my-project
 ```
 
 #### Output
@@ -764,7 +677,7 @@ Summary: 5 passed, 0 failed, 1 warning
 
 ### `test` - Test Prediction
 
-Send a test request to a running server.
+Send a test request to a running server to verify it is working correctly.
 
 #### Syntax
 ```bash
@@ -778,7 +691,7 @@ mlserver test [options]
 | `--file`, `-f` | JSON file with request data | None |
 | `--url`, `-u` | Server URL | `http://localhost:8000` |
 | `--endpoint`, `-e` | Prediction endpoint | `/predict` |
-| `--pretty/--raw` | Pretty-print response | `true` |
+| `--pretty/--raw` | Pretty-print response | `pretty` |
 
 #### Examples
 ```bash
@@ -788,15 +701,15 @@ mlserver test --data '{"feature1": 1.5, "feature2": 2.0}'
 # Test with JSON file
 mlserver test --file sample_request.json
 
-# Test custom endpoint
-mlserver test --url http://localhost:8080 --endpoint /v1/model/predict
+# Test another server / endpoint
+mlserver test --url http://localhost:8080 --endpoint /predict_proba
 ```
 
 ---
 
 ### `schema` - Generate JSON Schema
 
-Generate JSON schema for IDE autocompletion and validation.
+Generate a JSON schema for `mlserver.yaml` configuration files, enabling IDE autocompletion and validation.
 
 #### Syntax
 ```bash
@@ -807,9 +720,9 @@ mlserver schema [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--output`, `-o` | Output path for schema file | stdout |
-| `--type`, `-t` | Config type: 'single', 'multi', 'auto' | `auto` |
-| `--setup`, `-s` | Show IDE setup instructions | `false` |
-| `--vscode` | Generate .vscode/settings.json | `false` |
+| `--type`, `-t` | Config type: `single`, `multi`, or `auto` (supports both) | `auto` |
+| `--setup`, `-s` | Show IDE setup instructions after generating schema | `false` |
+| `--vscode` | Generate `.vscode/settings.json` for automatic schema association | `false` |
 
 #### Examples
 ```bash
@@ -822,7 +735,7 @@ mlserver schema -o .mlserver/schema.json --setup
 # Full VSCode setup
 mlserver schema -o .mlserver/schema.json --vscode --setup
 
-# Generate for multi-classifier only
+# Generate for multi-classifier configs only
 mlserver schema --type multi -o schema.json
 ```
 
@@ -850,36 +763,35 @@ Or add to `.vscode/settings.json`:
 
 ## Environment Variables
 
-Override CLI defaults using environment variables:
+These are the environment variables MLServer actually reads:
 
-```bash
-# Server configuration
-export MLSERVER_HOST="0.0.0.0"
-export MLSERVER_PORT="8080"
-export MLSERVER_WORKERS="4"
+| Variable | Purpose |
+|----------|---------|
+| `MLSERVER_DEFAULT_HOST` | Default bind host when the config does not set one |
+| `MLSERVER_DEFAULT_PORT` | Default port when the config does not set one |
+| `MLSERVER_LOG_LEVEL` | Default log level |
+| `MLSERVER_LOG_FILE` | Server log file path (global settings) |
+| `MLSERVER_PID_FILE` | Server PID file path (global settings) |
+| `MLSERVER_GLOBAL_CONFIG` | Global settings file path |
+| `MLSERVER_GLOBAL_CONFIG_PATH` | Alternate path to the global settings YAML |
+| `MLSERVER_VENV_PATH` | Virtual environment path used by tooling |
+| `MLSERVER_EXEC_PATH` | Path to the `mlserver` executable |
+| `MLSERVER_CONFIG_PATH` | Config file path used by the server factory (set by `serve` for worker processes) |
+| `MLSERVER_CLASSIFIER` | Classifier to serve from a multi-classifier config (set by `serve --classifier`; baked into containers) |
+| `MLSERVER_CONFIG_FILE` | Config file name recorded in response metadata (set in built containers) |
+| `MLSERVER_GIT_COMMIT` / `MLSERVER_GIT_TAG` / `MLSERVER_GIT_BRANCH` | Classifier git metadata overrides (baked into containers at build time) |
+| `MLSERVER_API_COMMIT` / `MLSERVER_API_TAG` / `MLSERVER_API_BRANCH` | MLServer tool git metadata overrides (baked into containers at build time) |
 
-# Logging
-export MLSERVER_LOG_LEVEL="DEBUG"
-export MLSERVER_STRUCTURED_LOGGING="true"
-
-# Metrics
-export MLSERVER_METRICS="true"
-export MLSERVER_METRICS_PORT="9090"
-
-# API settings
-export MLSERVER_CORS_ENABLED="true"
-export MLSERVER_MAX_CONCURRENT_REQUESTS="100"
-```
+There are no `MLSERVER_HOST`, `MLSERVER_PORT`, `MLSERVER_WORKERS`, `MLSERVER_METRICS`, or similar per-setting override variables — use the YAML config or CLI flags instead.
 
 ## Configuration File Detection
 
-The CLI automatically detects configuration files in this order:
+The CLI resolves the configuration file as follows:
 
-1. Explicitly provided path
-2. `mlserver.yaml` (preferred)
-3. `config.yaml`
-4. `mlserver_multi.yaml`
-5. Any `*.yaml` with valid configuration
+1. Explicitly provided path (e.g. `mlserver serve my-config.yaml`)
+2. `mlserver.yaml` in the current directory
+
+If neither is found, the command exits with an error asking you to create `mlserver.yaml` or pass a path.
 
 ## Advanced Usage
 
@@ -887,14 +799,14 @@ The CLI automatically detects configuration files in this order:
 
 ```bash
 # List available classifiers
-mlserver list-classifiers multi.yaml
+mlserver list-classifiers mlserver.yaml
 
-# Deploy specific classifier
-mlserver serve multi.yaml --classifier production
+# Serve a specific classifier
+mlserver serve mlserver.yaml --classifier production
 
-# Deploy multiple instances
-mlserver serve multi.yaml --classifier staging --port 8001 &
-mlserver serve multi.yaml --classifier production --port 8002 &
+# Serve multiple classifiers as separate processes
+mlserver serve mlserver.yaml --classifier staging --port 8001 &
+mlserver serve mlserver.yaml --classifier production --port 8002 &
 ```
 
 ### Development Workflow
@@ -903,27 +815,27 @@ mlserver serve multi.yaml --classifier production --port 8002 &
 # Start with auto-reload
 mlserver serve --reload --log-level DEBUG
 
-# Monitor logs
-mlserver logs --follow
+# Validate the configuration
+mlserver validate -v
 
-# Check status
-mlserver status --detailed
+# Diagnose the environment
+mlserver doctor
 
-# Run tests
-mlserver test
+# Send a test request
+mlserver test --data '{"feature1": 1.5, "feature2": 2.0}'
 ```
 
 ### Production Deployment
 
 ```bash
-# Build container
-mlserver build --tag prod:v1.0.0
+# Tag a release
+mlserver tag --classifier sentiment patch
 
-# Run health checks
-mlserver health --url https://api.example.com
+# Build container from the tag
+mlserver build --classifier sentiment
 
 # Push to registry
-mlserver push --registry gcr.io/project --tag prod:v1.0.0
+mlserver push --registry gcr.io/project --classifier sentiment
 
 # Deploy to Kubernetes
 kubectl apply -f deployment.yaml
@@ -934,34 +846,22 @@ kubectl apply -f deployment.yaml
 ### Verbose Output
 
 ```bash
-# Maximum verbosity
-mlserver serve -vvv
-
 # Debug logging
 mlserver serve --log-level DEBUG
 
-# Trace requests
-mlserver serve --trace
-```
-
-### Dry Run
-
-```bash
-# Preview without starting
-mlserver serve --dry-run
-
-# Preview build
-mlserver build --dry-run
+# Verbose validation / diagnostics
+mlserver validate -v
+mlserver doctor -v
 ```
 
 ### Configuration Validation
 
 ```bash
-# Validate config
-mlserver validate mlserver.yaml
+# Validate auto-detected config
+mlserver validate
 
-# Print resolved config
-mlserver config --print
+# Validate a specific file
+mlserver validate mlserver.yaml
 ```
 
 ## Common Issues
@@ -979,11 +879,11 @@ lsof -ti:8000 | xargs kill -9
 ### Module Not Found
 
 ```bash
-# Check Python path
-mlserver debug --python-path
-
-# Verify module
+# Verify predictor imports
 mlserver validate --check-imports
+
+# Full environment diagnosis
+mlserver doctor -v
 ```
 
 ### Permission Denied
@@ -994,23 +894,6 @@ sudo mlserver serve --port 80
 
 # Or use high port
 mlserver serve --port 8080
-```
-
-## Shell Completion
-
-Enable tab completion for commands:
-
-```bash
-# Bash
-mlserver --install-completion bash
-source ~/.bashrc
-
-# Zsh
-mlserver --install-completion zsh
-source ~/.zshrc
-
-# Fish
-mlserver --install-completion fish
 ```
 
 ## Tips and Tricks
@@ -1024,11 +907,11 @@ mlserver serve
 # Quick status check
 mlserver status
 
-# List models
-mlserver ls
+# List classifiers in the config
+mlserver list-classifiers
 
-# Show logs
-mlserver logs
+# Smoke-test a running server
+mlserver test
 ```
 
 ### Aliases
@@ -1039,17 +922,16 @@ Add to your shell profile:
 alias mls='mlserver serve'
 alias mlb='mlserver build'
 alias mlp='mlserver push'
-alias mli='mlserver info'
+alias mlv='mlserver validate'
 ```
 
 ### Docker Integration
 
 ```bash
 # Build and run locally
-mlserver build --tag local
-docker run -p 8000:8000 local
+mlserver build --classifier sentiment
+mlserver run --classifier sentiment --port 8000
 
-# Multi-stage deployment
-mlserver build --target development --tag dev
-mlserver build --target production --tag prod
+# Or run the image directly
+docker run -p 8000:8000 sentiment:latest
 ```

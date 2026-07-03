@@ -5,8 +5,10 @@ This class loads artifacts once in __init__ (kept in memory). It exposes
 predict() and predict_proba(). Replace loading with your real artifacts.
 """
 from __future__ import annotations
-from typing import Any, List, Optional
+
 import json
+from typing import Optional
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -17,7 +19,7 @@ class CatBoostPredictor:
         self,
         model_path: str,
         preprocessor_path: str,
-        feature_order: Optional[List[str]] = None,
+        feature_order: Optional[list[str]] = None,
         feature_order_path: Optional[str] = None,
     ):
         self.model_path = model_path
@@ -30,7 +32,7 @@ class CatBoostPredictor:
         if feature_order is not None:
             self.feature_order = list(feature_order)
         elif feature_order_path is not None:
-            with open(feature_order_path, "r") as f:
+            with open(feature_order_path) as f:
                 self.feature_order = json.load(f)
         else:
             # Strongly recommended to provide, since the preprocessor was fit on named columns

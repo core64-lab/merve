@@ -56,7 +56,7 @@ api:
   thread_safe_predict: false
   endpoints:
     predict: true
-    # Note: batch_predict removed - /predict handles both single and batch
+    # Note: the former batch endpoint was removed - /predict handles both single and batch
     predict_proba: true
 
 # Build configuration (for containerization)
