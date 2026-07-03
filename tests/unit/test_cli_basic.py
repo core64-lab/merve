@@ -138,8 +138,8 @@ class TestBuildCommandBuildOnce:
 
     def test_multi_classifier_default_builds_commit_image(self, tmp_path):
         _write_multi_config(tmp_path)
-        with patch("mlserver.cli.check_docker_availability", return_value=True), \
-             patch("mlserver.cli.build_container") as mock_build:
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True), \
+             patch("mlserver.cli.build.build_container") as mock_build:
             mock_build.return_value = {"success": True, "tags": ["repo:abc1234", "repo:latest"]}
             result = runner.invoke(app, ["build", "--path", str(tmp_path)])
 
@@ -151,8 +151,8 @@ class TestBuildCommandBuildOnce:
 
     def test_classifier_ignored_for_commit_image(self, tmp_path):
         _write_multi_config(tmp_path)
-        with patch("mlserver.cli.check_docker_availability", return_value=True), \
-             patch("mlserver.cli.build_container") as mock_build:
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True), \
+             patch("mlserver.cli.build.build_container") as mock_build:
             mock_build.return_value = {"success": True, "tags": ["repo:latest"]}
             result = runner.invoke(
                 app, ["build", "--path", str(tmp_path), "--classifier", "sentiment"]
@@ -165,8 +165,8 @@ class TestBuildCommandBuildOnce:
 
     def test_per_classifier_image_requires_classifier(self, tmp_path):
         _write_multi_config(tmp_path)
-        with patch("mlserver.cli.check_docker_availability", return_value=True), \
-             patch("mlserver.cli.build_container") as mock_build:
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True), \
+             patch("mlserver.cli.build.build_container") as mock_build:
             result = runner.invoke(
                 app, ["build", "--path", str(tmp_path), "--per-classifier-image"]
             )
@@ -178,8 +178,8 @@ class TestBuildCommandBuildOnce:
 
     def test_per_classifier_image_with_classifier(self, tmp_path):
         _write_multi_config(tmp_path)
-        with patch("mlserver.cli.check_docker_availability", return_value=True), \
-             patch("mlserver.cli.build_container") as mock_build:
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True), \
+             patch("mlserver.cli.build.build_container") as mock_build:
             mock_build.return_value = {"success": True, "tags": ["repo/sentiment:latest"]}
             result = runner.invoke(app, [
                 "build", "--path", str(tmp_path),
@@ -203,7 +203,7 @@ class TestRunCommandDeployMany:
             captured["cmd"] = cmd
             return MagicMock(returncode=0, stdout="containerid123", stderr="")
 
-        with patch("mlserver.cli.check_docker_availability", return_value=True), \
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True), \
              patch("subprocess.run", side_effect=fake_run):
             result = runner.invoke(app, [
                 "run", "--path", str(tmp_path), "--classifier", "sentiment", "--detach",
@@ -223,7 +223,7 @@ class TestPushCommandAlias:
 
     def test_push_multi_classifier_requires_classifier(self, tmp_path):
         _write_multi_config(tmp_path)
-        with patch("mlserver.cli.check_docker_availability", return_value=True):
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True):
             result = runner.invoke(
                 app, ["push", "--registry", "reg.io", "--path", str(tmp_path)]
             )
@@ -233,8 +233,8 @@ class TestPushCommandAlias:
 
     def test_push_multi_classifier_alias_flow(self, tmp_path):
         _write_multi_config(tmp_path)
-        with patch("mlserver.cli.check_docker_availability", return_value=True), \
-             patch("mlserver.cli.GitVersionManager") as mock_gvm, \
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True), \
+             patch("mlserver.cli.build.GitVersionManager") as mock_gvm, \
              patch("mlserver.container.push_classifier_alias") as mock_alias:
             mgr = mock_gvm.return_value
             mgr.validate_push_readiness.return_value = {"ready": True, "errors": []}
@@ -258,8 +258,8 @@ class TestPushCommandAlias:
 
     def test_push_multi_classifier_validation_failure(self, tmp_path):
         _write_multi_config(tmp_path)
-        with patch("mlserver.cli.check_docker_availability", return_value=True), \
-             patch("mlserver.cli.GitVersionManager") as mock_gvm, \
+        with patch("mlserver.cli.build.check_docker_availability", return_value=True), \
+             patch("mlserver.cli.build.GitVersionManager") as mock_gvm, \
              patch("mlserver.container.push_classifier_alias") as mock_alias:
             mgr = mock_gvm.return_value
             mgr.validate_push_readiness.return_value = {

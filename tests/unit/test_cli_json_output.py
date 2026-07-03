@@ -110,7 +110,9 @@ class TestValidateJson:
 class TestImagesJson:
     def test_images_json_when_docker_unavailable(self, monkeypatch):
         # No daemon assumption: force docker-unavailable and assert structured output.
-        monkeypatch.setattr("mlserver.cli.check_docker_availability", lambda: False)
+        # After the W2.1 CLI split, check_docker_availability is imported into the
+        # container-ops module (mlserver/cli/build.py, which owns `images`).
+        monkeypatch.setattr("mlserver.cli.build.check_docker_availability", lambda: False)
         result = runner.invoke(app, ["images", "--json"])
         # Command must not crash and must emit JSON regardless of daemon state.
         assert result.exit_code in (0, 1)
