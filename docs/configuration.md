@@ -92,18 +92,24 @@ api:
   response_format: "standard"           # Response format type (default: "standard")
                                         # Options:
                                         # - "standard": Traditional format with predictions list
-                                        # - "custom": Flexible format with result field for complex objects
                                         # - "passthrough": Return predictor output unmodified
+                                        # - "custom": DEPRECATED (removal targeted for 1.0) — logs a
+                                        #   warning at load time; return the desired structure from
+                                        #   your predictor and use "standard"/"passthrough" instead
   response_validation: true             # Enable response validation (default: true)
                                         # Set false for complex custom responses
-  extract_values: false                 # For dict responses, extract values to list (default: false)
+  extract_values: false                 # DEPRECATED (removal targeted for 1.0): for dict responses,
+                                        # extract values to list. Logs a warning when true; shape the
+                                        # output in your predictor instead. (default: false)
 
   # Concurrency Control
   thread_safe_predict: false            # Use thread lock during prediction (default: false)
   max_concurrent_predictions: 1         # Max concurrent predictions (default: 1)
                                         # 1 = one prediction at a time (K8s pod protection),
-                                        # overflow requests get HTTP 503 + Retry-After: 5.
+                                        # overflow requests get HTTP 503 + Retry-After header.
                                         # 0 = concurrency limiting disabled entirely.
+  retry_after_seconds: 5                # Value of the Retry-After header (seconds) on 503
+                                        # responses when the limit is reached (default: 5)
 
   # Startup behavior
   warmup_on_start: true                 # Run a dummy prediction at startup to reduce
@@ -396,6 +402,33 @@ predictor:
     custom_param: "value"
 ```
 
+#### Compact string spec
+
+`predictor` also accepts a single `"module:ClassName"` string as shorthand for the mapping above (with empty `init_kwargs`). The two forms are equivalent:
+
+```yaml
+# String form (no init_kwargs)
+predictor: "predictor_name:PredictorClass"
+
+# Mapping form (equivalent)
+predictor:
+  module: predictor_name
+  class_name: PredictorClass
+```
+
+Use the mapping form when you need `init_kwargs`.
+
+#### Predictor contract
+
+A predictor is any Python class exposing `predict(X)` — it never needs to import or subclass anything from this package (the `Predictor` protocol is structural). Optional methods are discovered at runtime:
+
+- `predict(self, X)` — **required**; returns predictions for a 2D feature matrix.
+- `predict_proba(self, X)` — optional; when present, powers `/predict_proba` (otherwise that endpoint returns 501).
+- `load(self)` — optional; called once at startup after `__init__` and before the first prediction. Put expensive artifact loading here so a failure aborts startup instead of failing the first request.
+- `close(self)` — optional; called at shutdown for cleanup.
+
+See [Development Guide → Writing Predictors](./development.md#writing-predictors) for full examples.
+
 #### Module Resolution
 
 The system intelligently resolves module paths:
@@ -443,11 +476,12 @@ api:
   thread_safe_predict: true          # Lock during prediction
   max_concurrent_predictions: 1      # 1 = single prediction at a time (default)
                                      # 0 = disable concurrency limiting
+  retry_after_seconds: 5             # Retry-After header value (seconds) on 503 (default: 5)
 
   # Response format
-  response_format: "standard"         # standard|custom|passthrough
+  response_format: "standard"         # standard|passthrough (custom is deprecated)
   response_validation: true           # Enable/disable validation
-  extract_values: false               # Extract dict values to list
+  extract_values: false               # DEPRECATED — extract dict values to list
 
   # Endpoints control
   endpoints:
@@ -475,7 +509,12 @@ The `response_format` configuration controls how predictions are formatted:
    }
    ```
 
-2. **`custom`**: Flexible format for complex responses
+2. **`passthrough`**: Return predictor output unmodified
+   - No wrapper or metadata
+   - Complete control over response structure
+   - Useful for legacy systems or special requirements
+
+3. **`custom`** (**deprecated**): Flexible format that wraps the output in a `result` field
    ```json
    {
      "result": {
@@ -487,28 +526,19 @@ The `response_format` configuration controls how predictions are formatted:
    }
    ```
 
-3. **`passthrough`**: Return predictor output unmodified
-   - No wrapper or metadata
-   - Complete control over response structure
-   - Useful for legacy systems or special requirements
+> **Deprecated (removal targeted for 1.0):** `response_format: custom` and `extract_values` both log a load-time deprecation warning. Return the exact structure you want from your predictor and use `standard` or `passthrough` instead.
 
 Example configurations:
 
 ```yaml
-# For complex dictionary responses
-api:
-  response_format: "custom"
-  extract_values: false  # Keep dict structure intact
-
 # For legacy compatibility
 api:
   response_format: "passthrough"
   response_validation: false  # Skip validation
 
-# Standard ML classifier (default)
+# Standard ML classifier (default, recommended)
 api:
   response_format: "standard"
-  extract_values: true  # Extract dict values to list
 ```
 
 ### Classifier Metadata
@@ -520,6 +550,8 @@ classifier:
 ```
 
 Everything else (version, repository, commit, deployment time) is auto-detected from git and the environment and surfaced in `/info` and response metadata.
+
+> **`classifier.version` is deprecated.** Git tags are the canonical version source. A `classifier.version` in the config is display-only and logs a deprecation warning; set the version by creating a git tag with `mlserver tag --classifier <name> <patch|minor|major>` instead.
 
 ### Build Configuration
 
@@ -544,7 +576,7 @@ Used by the build/CI tooling (`mlserver build`, `mlserver init-github`) for mult
 deployment:
   strategy: "single"                  # single|multi
   container_naming: "{repository}-{classifier}:{version}"
-  git_tag_format: "{classifier}-v{version}"
+  git_tag_format: "{classifier}-v{version}"   # tag template (see tag-format note below)
   parallel_builds: true
   registry:
     type: "ghcr"                      # ghcr|ecr
@@ -563,6 +595,8 @@ deployment:
     cpu: "1000m"
   health_check: null
 ```
+
+> **Tag format (RFC 0001 D1–D3).** `mlserver tag` creates **canonical** `<classifier>/vX.Y.Z` tags (slash-namespaced) — the MLServer commit is no longer part of the tag name; it lives in the annotated-tag message and the container's OCI labels. Legacy `<classifier>-vX.Y.Z-mlserver-<hash>` tags remain **readable** everywhere (build validation, status, version listing all parse both forms), so existing tags keep working. The `git_tag_format` field above and `classifier.version` are deprecated, as is `push --version-source` — git tags are the canonical version source.
 
 ## Environment Variables
 

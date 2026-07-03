@@ -45,7 +45,7 @@ This index provides a comprehensive overview of all documentation available for 
 ## 🚀 Implementation Guides
 
 ### [Deployment Guide](./deployment.md)
-- **Hierarchical Versioning**: Complete reproducibility with `<classifier>-v<X.X.X>-mlserver-<hash>` tags
+- **Per-classifier Versioning**: Canonical `<classifier>/vX.Y.Z` git tags (legacy `<classifier>-vX.Y.Z-mlserver-<hash>` tags still read)
 - **GitHub Actions Workflows**: CI/CD integration with automatic tag parsing
 - **Kubernetes Strategy**: Pod-based scaling patterns with version-specific deployments
 - **Container Workflow**: Building and pushing images with OCI-compliant labels
@@ -110,12 +110,12 @@ mlserver serve
 # Serve specific classifier
 mlserver serve config.yaml --classifier model-name
 
-# Version management with hierarchical tags
-mlserver tag --classifier sentiment patch  # Create v1.0.1-mlserver-abc123
+# Version management with canonical per-classifier tags
+mlserver tag --classifier sentiment patch  # Create sentiment/v1.0.1
 mlserver tag                               # View status of all classifiers
 
 # Build container with version validation
-mlserver build --classifier sentiment-v1.0.1-mlserver-abc123
+mlserver build --classifier sentiment/v1.0.1
 
 # Version information
 mlserver version --detailed

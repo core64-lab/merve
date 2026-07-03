@@ -106,51 +106,53 @@ mlserver serve mlserver.yaml
 #### Test endpoints (flat URLs — one classifier per server):
 ```bash
 # The served classifier answers at /predict (no classifier name in the URL)
+# Send input keys at the top level (the legacy {"payload": {...}} wrapper is deprecated)
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{
-    "payload": {
-      "records": [{
-        "Pclass": 1,
-        "Sex": "female",
-        "Age": 25,
-        "SibSp": 1,
-        "Parch": 0,
-        "Fare": 100.0,
-        "Embarked": "S",
-        "FamilySize": 2,
-        "IsAlone": 0,
-        "Title": "Mrs"
-      }]
-    }
+    "records": [{
+      "Pclass": 1,
+      "Sex": "female",
+      "Age": 25,
+      "SibSp": 1,
+      "Parch": 0,
+      "Fare": 100.0,
+      "Embarked": "S",
+      "FamilySize": 2,
+      "IsAlone": 0,
+      "Title": "Mrs"
+    }]
   }'
 
 # The RandomForest instance started on port 8001
 curl -X POST http://localhost:8001/predict \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"records": [...]}}'
+  -d '{"records": [...]}'
 ```
 
 ### Step 5: Version Management
 
-Use `mlserver tag` to create hierarchical tags that capture both the classifier version and the MLServer tool commit:
+Use `mlserver tag` to version each classifier from git tags (the canonical version source).
 
 ```
-Tag format: <classifier>-v<version>-mlserver-<hash>
+Canonical tag format (created by `mlserver tag`): <classifier>/vX.Y.Z   (e.g. catboost-survival/v1.0.1)
+Legacy tag format (still read for old tags):      <classifier>-vX.Y.Z-mlserver-<hash>
 ```
+
+`mlserver tag` writes the **canonical** `<classifier>/vX.Y.Z` form; the MLServer commit lives in the annotated-tag message and the container's OCI labels, not the tag name. The **legacy** form is still parsed everywhere (status, build validation, version listing), so tags created before this change keep working.
 
 ```bash
-# Create tags (auto-increments the version, embeds the MLServer commit)
+# Create tags (auto-increments the version from the latest git tag)
 mlserver tag --classifier catboost-survival patch
-# ✓ Created tag: catboost-survival-v1.0.1-mlserver-b5dff2a
+# ✓ Created tag: catboost-survival/v1.0.1
 
 mlserver tag --classifier randomforest-survival minor
-# ✓ Created tag: randomforest-survival-v1.1.0-mlserver-b5dff2a
+# ✓ Created tag: randomforest-survival/v1.1.0
 
 # Push tags
 git push --tags
 
-# View tag status for all classifiers
+# View tag status for all classifiers (add --json for machine-readable output)
 mlserver tag
 ```
 
@@ -162,7 +164,7 @@ mlserver tag
 mlserver build --classifier catboost-survival
 
 # Build an exact tagged version (validates code matches the tag)
-mlserver build --classifier catboost-survival-v1.0.1-mlserver-b5dff2a
+mlserver build --classifier catboost-survival/v1.0.1
 ```
 
 #### Container Naming Convention:
@@ -188,7 +190,9 @@ done
 
 ### Step 7: CI/CD Integration
 
-Use `mlserver init-github` to generate a workflow triggered by hierarchical tag pushes, or write your own:
+Use `mlserver init-github` to generate a workflow triggered by tag pushes, or write your own.
+
+> **CI trigger note:** the generated workflow (and the example below) currently trigger on the legacy pattern `'*-v*-mlserver-*'`. Since `mlserver tag` now writes canonical `<classifier>/vX.Y.Z` tags, use a `'*/v*'` trigger (and matching parsing) to fire on them — aligning the generated workflow with the canonical format is part of the ongoing tag migration.
 
 ```yaml
 name: Build and Deploy Classifier
@@ -196,7 +200,8 @@ name: Build and Deploy Classifier
 on:
   push:
     tags:
-      - '*-v*-mlserver-*'  # Hierarchical tag format
+      - '*/v*'            # Canonical tag format (e.g. sentiment/v1.0.0)
+      - '*-v*-mlserver-*'  # Legacy tag format (still read)
 
 jobs:
   build-and-push:
@@ -276,7 +281,7 @@ Every prediction response includes metadata:
     "predictor_module": "predictor_catboost_v2",
     "config_file": "mlserver.yaml",
     "git_commit": "abc123def",
-    "git_tag": "catboost-survival-v1.0.1-mlserver-b5dff2a",
+    "git_tag": "catboost-survival/v1.0.1",
     "deployed_at": "2025-01-15T10:30:00Z",
     "mlserver_version": "0.3.2",
     "mlserver_api_commit": "b5dff2a",
@@ -300,7 +305,7 @@ Every prediction response includes metadata:
 
 ### 1. Naming Conventions
 - Classifiers: `{model-type}-{purpose}` (e.g. catboost-survival)
-- Git tags: `{classifier}-v{semver}-mlserver-{hash}` (created by `mlserver tag`)
+- Git tags: canonical `{classifier}/v{semver}` (both this and the legacy `{classifier}-v{semver}-mlserver-{hash}` form are read; `mlserver tag` currently writes the legacy form)
 - Containers: `{repo}-{classifier}:{version}`
 
 ### 2. Version Management
@@ -363,11 +368,11 @@ mlserver serve mlserver.yaml --classifier catboost-survival
 # List available classifiers
 mlserver list-classifiers mlserver.yaml
 
-# Tag a release (hierarchical tag with MLServer commit)
+# Tag a release (canonical <classifier>/vX.Y.Z tag)
 mlserver tag --classifier catboost-survival patch
 
 # Build specific version
-git checkout catboost-survival-v1.2.3-mlserver-b5dff2a
+git checkout catboost-survival/v1.2.3
 mlserver build --classifier catboost-survival
 
 # Push to registry

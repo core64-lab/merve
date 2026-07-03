@@ -17,43 +17,39 @@ No versioning or classifier names in paths - clean, unified endpoints. Each depl
 ### Prediction Endpoints
 
 #### `POST /predict`
-Prediction endpoint for single and batch inference requests. Send one record for a single prediction or many records for a batch — there is no separate batch endpoint (the former batch endpoint was folded into `/predict`).
+Prediction endpoint for single and batch inference requests. Send one record for a single prediction or many records for a batch — the same endpoint handles both.
 
-**Request Body** — all requests use the `payload` wrapper:
+**Request Body** — send the input keys at the **top level** of the body:
 ```json
 {
-  "payload": {
-    "records": [...]
-  }
+  "records": [...]
 }
 ```
 
-The key inside `payload` depends on the input format: `records` (or `instances`) for lists of feature objects, `features` for a single feature object, `ndarray` (or `inputs`) for nested arrays.
+The key depends on the input format: `records` (or `instances`) for lists of feature objects, `features` for a single feature object, `ndarray` (or `inputs`) for nested arrays.
+
+> **Deprecated `payload` wrapper:** the legacy `{"payload": {...}}` form is still accepted for backward compatibility but is deprecated — the server logs one deprecation warning per process and the wrapper is targeted for removal in 1.0. Prefer the top-level form shown above. (When both are present the wrapper wins.)
 
 **Input Formats**:
 1. **Records Format** (JSON objects, default adapter):
 ```json
 {
-  "payload": {
-    "records": [
-      {"age": 25, "sex": "male", "fare": 72.5},
-      {"age": 31, "sex": "female", "fare": 15.0}
-    ]
-  }
+  "records": [
+    {"age": 25, "sex": "male", "fare": 72.5},
+    {"age": 31, "sex": "female", "fare": 15.0}
+  ]
 }
 ```
 
 2. **Ndarray Format** (nested arrays, requires `api.adapter: ndarray` or `auto`):
 ```json
 {
-  "payload": {
-    "ndarray": [[25, 1, 72.5]]
-  }
+  "ndarray": [[25, 1, 72.5]]
 }
 ```
 
 3. **Auto-Detection** (only when `api.adapter: auto` is configured):
-- Detects records vs. ndarray based on the payload structure
+- Detects records vs. ndarray based on the body structure
 - The default adapter is `records`; auto-detection is opt-in
 
 **Response**:
@@ -69,7 +65,7 @@ The key inside `payload` depends on the input format: `records` (or `instances`)
     "predictor_module": "predictor_catboost",
     "config_file": "mlserver.yaml",
     "git_commit": "abc123",
-    "git_tag": "catboost-survival-v1.0.0-mlserver-b5dff2a",
+    "git_tag": "catboost-survival/v1.0.0",
     "deployed_at": "2025-01-18T10:00:00Z",
     "mlserver_version": "0.3.2",
     "mlserver_api_commit": "b5dff2a",
@@ -98,6 +94,7 @@ Probability predictions for classification models.
   "probabilities": [[0.8, 0.2]],
   "time_ms": 14.8,
   "classes": null,
+  "predictor_class": "CatBoostPredictor",
   "metadata": {
     "project": "mlserver-repo",
     "classifier": "catboost-survival",
@@ -105,7 +102,7 @@ Probability predictions for classification models.
     "predictor_module": "predictor_catboost",
     "config_file": "mlserver.yaml",
     "git_commit": "abc123",
-    "git_tag": "catboost-survival-v1.0.0-mlserver-b5dff2a",
+    "git_tag": "catboost-survival/v1.0.0",
     "deployed_at": "2025-01-18T10:00:00Z",
     "mlserver_version": "0.3.2",
     "mlserver_api_commit": "b5dff2a",
@@ -135,7 +132,7 @@ Complete model and API metadata.
   "classifier_repository": {
     "repository": "mlserver-models",
     "commit": "abc123def",
-    "tag": "catboost-survival-v1.0.0-mlserver-b5dff2a",
+    "tag": "catboost-survival/v1.0.0",
     "branch": "main",
     "dirty": false
   },
@@ -286,9 +283,10 @@ Configured via `api.max_concurrent_predictions`:
 api:
   max_concurrent_predictions: 1  # Default: one prediction at a time
                                  # 0 disables concurrency limiting entirely
+  retry_after_seconds: 5         # Value of the Retry-After header on 503 (default: 5)
 ```
 
-When the limit is reached, additional prediction requests are rejected immediately with **HTTP 503** and a `Retry-After: 5` header:
+When the limit is reached, additional prediction requests are rejected immediately with **HTTP 503** and a `Retry-After` header (the value comes from `api.retry_after_seconds`, default `5`):
 
 ```json
 {
@@ -302,7 +300,7 @@ This is designed for Kubernetes pod scaling: overloaded pods reject fast so the 
 
 ## Input Adapters
 
-All request bodies use the `payload` wrapper regardless of adapter.
+Send the input keys at the top level of the body (the legacy `payload` wrapper is deprecated — see [`POST /predict`](#post-predict)).
 
 ### Records Adapter (Default)
 Expects JSON objects with named features:
@@ -314,7 +312,7 @@ api:
 ```
 
 ```json
-{"payload": {"records": [{"age": 25, "sex": "male", "fare": 72.5}]}}
+{"records": [{"age": 25, "sex": "male", "fare": 72.5}]}
 ```
 
 ### Ndarray Adapter
@@ -326,7 +324,7 @@ api:
 ```
 
 ```json
-{"payload": {"ndarray": [[25, 1, 72.5]]}}
+{"ndarray": [[25, 1, 72.5]]}
 ```
 
 ### Auto Adapter
@@ -338,8 +336,8 @@ api:
 ```
 
 ```json
-{"payload": {"records": [{"age": 25}]}}
-{"payload": {"ndarray": [[25, 1]]}}
+{"records": [{"age": 25}]}
+{"ndarray": [[25, 1]]}
 ```
 
 ---
@@ -365,6 +363,7 @@ api:
   ],
   "time_ms": 14.8,
   "classes": null,
+  "predictor_class": "CatBoostPredictor",
   "metadata": { "...": "see metadata fields below" }
 }
 ```
@@ -391,6 +390,8 @@ Every prediction response can include a `metadata` object with these fields:
 
 With `api.response_format: custom`, the prediction output is returned in a flexible `result` field; with `passthrough`, the predictor output is returned unmodified (no wrapper, no metadata). See the [Configuration Guide](./configuration.md#response-formats).
 
+> **Deprecated:** `response_format: custom` (and the `api.extract_values` option) are deprecated and targeted for removal in 1.0 — they log a load-time deprecation warning. Use `standard` (default) or `passthrough`, and return the exact structure you want directly from your predictor.
+
 ---
 
 ## Security
@@ -408,7 +409,7 @@ server:
 
 ### Request Validation
 
-- Type validation via Pydantic (`payload` must be a JSON object)
+- The request body must be a JSON object (when the legacy `payload` wrapper is used, `payload` must itself be an object)
 - Optional feature validation against `api.feature_order` (missing/extra features produce clear 400 errors)
 
 ---
@@ -439,14 +440,10 @@ curl -H "Connection: keep-alive" http://localhost:8000/predict
 ```python
 import requests
 
-# Single prediction
+# Single prediction (top-level keys)
 response = requests.post(
     "http://localhost:8000/predict",
-    json={
-        "payload": {
-            "records": [{"age": 25, "sex": "male", "fare": 72.5}]
-        }
-    }
+    json={"records": [{"age": 25, "sex": "male", "fare": 72.5}]}
 )
 print(response.json()["predictions"])
 
@@ -454,12 +451,10 @@ print(response.json()["predictions"])
 response = requests.post(
     "http://localhost:8000/predict",
     json={
-        "payload": {
-            "records": [
-                {"age": 25, "sex": "male", "fare": 72.5},
-                {"age": 30, "sex": "female", "fare": 15.0}
-            ]
-        }
+        "records": [
+            {"age": 25, "sex": "male", "fare": 72.5},
+            {"age": 30, "sex": "female", "fare": 15.0}
+        ]
     }
 )
 print(response.json()["predictions"])
@@ -472,15 +467,15 @@ print(response.json()["classifier"])
 ### cURL Examples
 
 ```bash
-# Single prediction
+# Single prediction (top-level keys)
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"records": [{"age": 25, "sex": "male", "fare": 72.5}]}}'
+  -d '{"records": [{"age": 25, "sex": "male", "fare": 72.5}]}'
 
 # Probability prediction
 curl -X POST http://localhost:8000/predict_proba \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"records": [{"age": 25, "sex": "male", "fare": 72.5}]}}'
+  -d '{"records": [{"age": 25, "sex": "male", "fare": 72.5}]}'
 
 # Model info
 curl http://localhost:8000/info
@@ -498,14 +493,12 @@ curl http://localhost:8000/metrics
 ### JavaScript/TypeScript
 
 ```typescript
-// Single prediction
+// Single prediction (top-level keys)
 const response = await fetch('http://localhost:8000/predict', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    payload: {
-      records: [{ age: 25, sex: 'male', fare: 72.5 }]
-    }
+    records: [{ age: 25, sex: 'male', fare: 72.5 }]
   })
 });
 const result = await response.json();
@@ -524,16 +517,16 @@ console.log(result.predictions);
 - Verify server is running
 
 **400 Bad Request**
-- Ensure the body uses the `payload` wrapper: `{"payload": {"records": [...]}}`
+- Send input keys at the top level: `{"records": [...]}` (the `payload` wrapper still works but is deprecated)
 - Check feature names match model expectations
 - Ensure data format matches adapter configuration (`records` vs `ndarray`)
 
 **422 Unprocessable Entity**
-- The request body is not valid JSON or `payload` is missing/not an object
+- The request body is not valid JSON, or (with the legacy wrapper) `payload` is present but not an object
 
 **501 Not Implemented**
 - `/predict_proba` was called but the predictor does not implement `predict_proba`
 
 **503 Service Unavailable**
 - Another prediction is in flight and `api.max_concurrent_predictions` is reached
-- Honor the `Retry-After: 5` header and retry, check `/status`, add replicas, or set `max_concurrent_predictions: 0` to disable limiting
+- Honor the `Retry-After` header (value from `api.retry_after_seconds`, default `5`) and retry, check `/status`, add replicas, or set `max_concurrent_predictions: 0` to disable limiting

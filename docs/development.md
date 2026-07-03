@@ -53,7 +53,8 @@ merve/  (package: mlserver-fastapi-wrapper)
 │   ├── config.py          # Configuration management (AppConfig)
 │   ├── schemas.py         # Request/response models
 │   ├── adapters.py        # Input adapters (records/ndarray/auto)
-│   ├── predictor_loader.py # Dynamic predictor loading
+│   ├── predictor.py        # Predictor protocol/contract (RFC 0001 D13)
+│   ├── predictor_loader.py # Dynamic predictor loading (isolated file imports)
 │   ├── concurrency_limiter.py # Prediction concurrency control
 │   ├── metrics.py         # Prometheus metrics
 │   ├── logging_conf.py    # Structured logging + correlation IDs
@@ -66,7 +67,7 @@ merve/  (package: mlserver-fastapi-wrapper)
 │   ├── validation.py      # `mlserver validate` checks
 │   ├── doctor.py          # `mlserver doctor` diagnostics
 │   ├── schema_generator.py # `mlserver schema` JSON schema
-│   └── settings.py        # Global tool settings
+│   └── defaults.py        # Package-wide default constants (env-overridable)
 ├── tests/                 # Test suite
 │   ├── unit/             # Unit tests
 │   ├── integration/      # Integration tests
@@ -80,23 +81,41 @@ merve/  (package: mlserver-fastapi-wrapper)
 
 ## Writing Predictors
 
+### The Predictor Contract
+
+A predictor is **any Python class that exposes `predict(X)`** — it never needs to import or subclass anything from this package. MLServer defines a structural `Predictor` protocol (`mlserver/predictor.py`, RFC 0001 D13) purely to document the contract:
+
+| Method | Required? | Purpose |
+|--------|-----------|---------|
+| `predict(self, X)` | **Yes** | Return predictions for a 2D feature matrix `X`. |
+| `predict_proba(self, X)` | Optional | Per-class probabilities; when present, powers `/predict_proba` (otherwise that endpoint returns 501). |
+| `load(self)` | Optional | Called **once at startup**, after `__init__` and before the first prediction (including warmup). Put expensive artifact loading here so failures abort startup instead of failing the first request. |
+| `close(self)` | Optional | Called at shutdown for resource cleanup. |
+
+Optional methods are discovered at runtime via `hasattr`, so you only implement what you need.
+
 ### Basic Predictor Interface
 
 ```python
 # predictor.py
 class MyPredictor:
-    """Custom ML predictor."""
+    """Custom ML predictor. No mlserver import or base class required."""
 
     def __init__(self, model_path: str, **kwargs):
-        """Initialize with model artifacts."""
-        self.model = self.load_model(model_path)
+        """Cheap construction — keep heavy loading in load()."""
+        self.model_path = model_path
+        self.model = None
+
+    def load(self):
+        """Optional: called once at startup before serving."""
+        self.model = self.load_model(self.model_path)
 
     def predict(self, X):
-        """Make predictions."""
+        """Required: make predictions."""
         return self.model.predict(X)
 
     def predict_proba(self, X):
-        """Optional: Return probabilities."""
+        """Optional: return probabilities (enables /predict_proba)."""
         return self.model.predict_proba(X)
 
     def load_model(self, path: str):
@@ -105,6 +124,24 @@ class MyPredictor:
         with open(path, 'rb') as f:
             return pickle.load(f)
 ```
+
+### Referencing the predictor from config
+
+Point `mlserver.yaml` at the class with either the mapping form or the compact `"module:ClassName"` string:
+
+```yaml
+# Mapping form (use when you need init_kwargs)
+predictor:
+  module: predictor
+  class_name: MyPredictor
+  init_kwargs:
+    model_path: "./model.pkl"
+
+# Compact string form (no init_kwargs)
+predictor: "predictor:MyPredictor"
+```
+
+File-based predictor modules are imported in isolation (under the internal `merve._user.*` namespace) — a predictor file may safely be named `types.py`, `json.py`, etc. without shadowing the stdlib, and `sys.path` is never mutated.
 
 ### Advanced Predictor Features
 
@@ -187,9 +224,10 @@ def client():
     return TestClient(app)
 
 def test_predict_endpoint(client):
+    # Send input keys at the top level (the legacy "payload" wrapper is deprecated)
     response = client.post(
         "/predict",
-        json={"payload": {"records": [{"feature1": 1, "feature2": 2}]}}
+        json={"records": [{"feature1": 1, "feature2": 2}]}
     )
     assert response.status_code == 200
     assert "predictions" in response.json()
@@ -212,7 +250,7 @@ class MLServerUser(HttpUser):
     def predict(self):
         self.client.post(
             "/predict",
-            json={"payload": {"records": [{"age": 25, "fare": 50}]}}
+            json={"records": [{"age": 25, "fare": 50}]}
         )
 
     @task(2)
@@ -391,17 +429,15 @@ git push origin feature/your-feature-name
 
 ### Version Management in Development
 
-#### Understanding Hierarchical Tags
+#### Understanding Version Tags
 
-MLServer uses hierarchical tags for complete reproducibility:
+`mlserver tag` creates **canonical** per-classifier git tags:
 ```
-<classifier-name>-v<X.X.X>-mlserver-<commit-hash>
-Example: sentiment-v2.3.1-mlserver-b5dff2a
+<classifier>/vX.Y.Z
+Example: sentiment/v2.3.1
 ```
 
-This format captures:
-- **Classifier version**: Semantic version of your classifier code
-- **MLServer commit**: Exact version of the MLServer tool used
+The classifier version comes from the tag; the MLServer commit used is recorded in the annotated-tag message and in the built container's OCI labels (it is no longer part of the tag name). Legacy `<classifier>-vX.Y.Z-mlserver-<hash>` tags remain readable, so tags created before this change keep working.
 
 #### Creating Versions During Development
 
@@ -434,10 +470,10 @@ Before creating a PR, verify your build is reproducible:
 # 1. Create a tag for your changes
 mlserver tag --classifier sentiment patch
 
-# 2. Note the created tag (e.g., sentiment-v1.0.1-mlserver-b5dff2a)
+# 2. Note the created tag (e.g., sentiment/v1.0.1)
 
 # 3. Build container with the tag
-mlserver build --classifier sentiment-v1.0.1-mlserver-b5dff2a
+mlserver build --classifier sentiment/v1.0.1
 
 # 4. Verify container labels include version info
 docker inspect sentiment:latest | grep -A 20 Labels

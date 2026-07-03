@@ -31,10 +31,10 @@ class MyPredictor:
 # Start server
 mlserver serve
 
-# Test prediction
+# Test prediction (send input keys at the top level)
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"ndarray": [[1, 2, 3, 4]]}}'
+  -d '{"ndarray": [[1, 2, 3, 4]]}'
 ```
 
 ## Titanic Survival Example
@@ -258,18 +258,16 @@ mlserver serve mlserver.yaml
 # Or serve specific classifier from multi-config
 mlserver serve mlserver_multi_classifier_simple.yaml --classifier catboost-survival
 
-# Test prediction
+# Test prediction (send input keys at the top level; the "payload" wrapper is deprecated)
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
   -d '{
-    "payload": {
-      "records": [{
-        "age": 25,
-        "sex": "male",
-        "fare": 72.5,
-        "pclass": 1
-      }]
-    }
+    "records": [{
+      "age": 25,
+      "sex": "male",
+      "fare": 72.5,
+      "pclass": 1
+    }]
   }'
 
 # Response
@@ -315,7 +313,7 @@ class TitanicPredictionUser(HttpUser):
         """Test single prediction endpoint."""
         self.client.post(
             "/predict",
-            json={"payload": {"records": [self.generate_passenger()]}}
+            json={"records": [self.generate_passenger()]}
         )
 
     @task(5)
@@ -324,7 +322,7 @@ class TitanicPredictionUser(HttpUser):
         passengers = [self.generate_passenger() for _ in range(10)]
         self.client.post(
             "/predict",
-            json={"payload": {"records": passengers}}
+            json={"records": passengers}
         )
 
     @task(2)
@@ -332,7 +330,7 @@ class TitanicPredictionUser(HttpUser):
         """Test probability predictions."""
         self.client.post(
             "/predict_proba",
-            json={"payload": {"records": [self.generate_passenger()]}}
+            json={"records": [self.generate_passenger()]}
         )
 
     @task(1)
@@ -390,14 +388,12 @@ class LoadTester:
             response = await session.post(
                 f"{self.base_url}/predict",
                 json={
-                    "payload": {
-                        "records": [{
-                            "age": 25,
-                            "sex": "male",
-                            "fare": 50,
-                            "pclass": 2
-                        }]
-                    }
+                    "records": [{
+                        "age": 25,
+                        "sex": "male",
+                        "fare": 50,
+                        "pclass": 2
+                    }]
                 }
             )
             response.raise_for_status()
@@ -656,7 +652,7 @@ demo-test:
 	@echo "Testing single prediction..."
 	curl -X POST http://localhost:8000/predict \
 		-H "Content-Type: application/json" \
-		-d '{"payload": {"records": [{"age": 25, "sex": "male", "fare": 50, "pclass": 2}]}}'
+		-d '{"records": [{"age": 25, "sex": "male", "fare": 50, "pclass": 2}]}'
 
 # Run load test
 demo-load:
