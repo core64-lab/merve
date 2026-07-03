@@ -16,7 +16,7 @@ monitoring:
   prometheus_port: 9090
   grafana_host: "localhost"
   grafana_port: 3000
-  grafana_credentials: "admin/admin123"
+  grafana_credentials: "admin/changeme"
   metrics_endpoint: "/metrics"
 
 container:
@@ -50,7 +50,7 @@ files:
   server_pid_file: "server.pid"
   global_config_file: "global_config.yaml"
   venv_path: ".venv"
-  ml_server_path: ".venv/bin/mlserver"
+  ml_server_path: "mlserver"
 
 development:
   # Development and testing settings

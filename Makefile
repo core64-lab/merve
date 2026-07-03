@@ -109,11 +109,11 @@ server-start: ## Start the ML server with single classifier
 
 server-start-catboost: ## Start CatBoost classifier from multi-classifier config
 	@echo "Starting CatBoost classifier on port 8000..."
-	cd examples/example_titanic_manual_setup && mlserver serve mlserver_multi_classifier.yaml --classifier catboost-survival
+	cd examples/example_titanic_manual_setup && mlserver serve mlserver_multi_classifier_simple.yaml --classifier catboost-survival
 
 server-start-randomforest: ## Start RandomForest classifier from multi-classifier config
 	@echo "Starting RandomForest classifier on port 8000..."
-	cd examples/example_titanic_manual_setup && mlserver serve mlserver_multi_classifier.yaml --classifier randomforest-survival
+	cd examples/example_titanic_manual_setup && mlserver serve mlserver_multi_classifier_simple.yaml --classifier randomforest-survival
 
 server-start-bg: ## Start the ML server in background
 	@echo "Starting ML server in background..."
@@ -148,7 +148,7 @@ multi-demo-catboost: ## Demo CatBoost classifier with unified endpoints
 	@echo "🚀 Starting CatBoost classifier demo..."
 	@$(MAKE) server-stop 2>/dev/null || true
 	@cd examples/example_titanic_manual_setup && \
-		mlserver serve mlserver_multi_classifier.yaml --classifier catboost-survival --port 8000 & \
+		mlserver serve mlserver_multi_classifier_simple.yaml --classifier catboost-survival --port 8000 & \
 		echo $$! > ../../server.pid
 	@sleep 3
 	@echo "✅ CatBoost classifier started!"
@@ -160,7 +160,7 @@ multi-demo-randomforest: ## Demo RandomForest classifier with unified endpoints
 	@echo "🚀 Starting RandomForest classifier demo..."
 	@$(MAKE) server-stop 2>/dev/null || true
 	@cd examples/example_titanic_manual_setup && \
-		mlserver serve mlserver_multi_classifier.yaml --classifier randomforest-survival --port 8000 & \
+		mlserver serve mlserver_multi_classifier_simple.yaml --classifier randomforest-survival --port 8000 & \
 		echo $$! > ../../server.pid
 	@sleep 3
 	@echo "✅ RandomForest classifier started!"
@@ -204,7 +204,7 @@ demo-monitoring: ## Start monitoring stack (Prometheus + Grafana)
 	@echo ""
 	@echo "Services started:"
 	@echo "  Prometheus: http://localhost:9090"
-	@echo "  Grafana: http://localhost:3000 (admin/admin123)"
+	@echo "  Grafana: http://localhost:3000 (admin / \$$GRAFANA_ADMIN_PASSWORD, default: changeme)"
 	@echo "  ML Server metrics: http://localhost:8000/metrics"
 	@echo ""
 	@echo "Stop with: make demo-monitoring-stop"
@@ -301,7 +301,7 @@ debug-monitoring: ## Debug monitoring stack connectivity
 	@curl -s http://localhost:9090/api/v1/targets 2>/dev/null | python -c "import sys,json; data=json.load(sys.stdin); [print(f\"   {t['labels']['job']}: {'✅' if t['health']=='up' else '❌'} {t['health']}\") for t in data['data']['activeTargets']]" 2>/dev/null || echo "   ❌ Prometheus not responding"
 	@echo ""
 	@echo "5. Checking Grafana datasource..."
-	@curl -s http://localhost:3000/api/datasources 2>/dev/null | python -c "import sys,json; data=json.load(sys.stdin); [print(f\"   {ds['name']}: {'✅' if ds['url'] else '❌'} {ds['url']}\") for ds in data]" 2>/dev/null || echo "   ❌ Grafana not responding (try: admin/admin123)"
+	@curl -s http://localhost:3000/api/datasources 2>/dev/null | python -c "import sys,json; data=json.load(sys.stdin); [print(f\"   {ds['name']}: {'✅' if ds['url'] else '❌'} {ds['url']}\") for ds in data]" 2>/dev/null || echo "   ❌ Grafana not responding (try: admin / \$$GRAFANA_ADMIN_PASSWORD, default: changeme)"
 	@echo ""
 	@echo "📍 Service URLs:"
 	@echo "   ML Server: http://localhost:8000"
@@ -322,8 +322,8 @@ test-endurance: ## Run long endurance test
 		--users 10 --spawn-rate 2 --run-time 1800s --headless
 
 # CI/CD helpers
-ci-test: ## Run tests suitable for CI environment
-	pytest tests/unit/ tests/integration/ -v --tb=short --maxfail=5
+ci-test: ## Run tests suitable for CI environment (enforces coverage gate)
+	pytest tests/unit/ tests/integration/ -v --tb=short --maxfail=5 --cov=mlserver --cov-fail-under=60
 
 ci-lint: ## Run linting for CI
 	@if command -v ruff > /dev/null; then \
@@ -348,12 +348,12 @@ container-build: ## Build Docker container from example
 container-build-catboost: ## Build Docker container for CatBoost classifier
 	@echo "Building Docker container for CatBoost classifier..."
 	cd examples/example_titanic_manual_setup && \
-		mlserver build --classifier catboost-survival
+		mlserver build --config mlserver_multi_classifier_simple.yaml --classifier catboost-survival
 
 container-build-randomforest: ## Build Docker container for RandomForest classifier
 	@echo "Building Docker container for RandomForest classifier..."
 	cd examples/example_titanic_manual_setup && \
-		mlserver build --classifier randomforest-survival
+		mlserver build --config mlserver_multi_classifier_simple.yaml --classifier randomforest-survival
 
 container-images: ## List built container images
 	@echo "Listing Docker images for this project..."

@@ -6,12 +6,12 @@ This script analyzes test coverage and provides detailed metrics and recommendat
 for improving test coverage in the MLServer FastAPI wrapper project.
 """
 
-import json
 import argparse
+import json
 import sys
-from pathlib import Path
-from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -22,7 +22,7 @@ class CoverageMetrics:
     missing_statements: int
     coverage_percent: float
     branch_coverage: float
-    file_coverage: Dict[str, Dict[str, Any]]
+    file_coverage: dict[str, dict[str, Any]]
 
 
 class CoverageAnalyzer:
@@ -42,7 +42,7 @@ class CoverageAnalyzer:
             return False
 
         try:
-            with open(self.coverage_json_path, 'r') as f:
+            with open(self.coverage_json_path) as f:
                 self.coverage_data = json.load(f)
             return True
         except json.JSONDecodeError as e:
@@ -173,7 +173,7 @@ class CoverageAnalyzer:
         if printed_files == 0:
             print(f"✅ All files have coverage above {min_coverage:.1f}%")
 
-    def identify_coverage_gaps(self) -> List[Tuple[str, Dict[str, Any]]]:
+    def identify_coverage_gaps(self) -> list[tuple[str, dict[str, Any]]]:
         """Identify files with low coverage that need attention."""
         if not self.metrics:
             return []
@@ -195,7 +195,7 @@ class CoverageAnalyzer:
         gaps.sort(key=lambda x: x[1]['coverage'])
         return gaps
 
-    def generate_recommendations(self) -> List[str]:
+    def generate_recommendations(self) -> list[str]:
         """Generate recommendations for improving coverage."""
         if not self.metrics:
             return ["No metrics available for recommendations."]
@@ -205,15 +205,27 @@ class CoverageAnalyzer:
 
         # Overall coverage recommendations
         if coverage < 50:
-            recommendations.append("🚨 CRITICAL: Coverage is very low. Focus on basic unit tests for core functionality.")
+            recommendations.append(
+                "🚨 CRITICAL: Coverage is very low. "
+                "Focus on basic unit tests for core functionality."
+            )
         elif coverage < 70:
-            recommendations.append("⚠️  Coverage needs significant improvement. Add tests for main code paths.")
+            recommendations.append(
+                "⚠️  Coverage needs significant improvement. Add tests for main code paths."
+            )
         elif coverage < 80:
-            recommendations.append("📈 Coverage is approaching good levels. Focus on edge cases and error conditions.")
+            recommendations.append(
+                "📈 Coverage is approaching good levels. "
+                "Focus on edge cases and error conditions."
+            )
         elif coverage < 90:
-            recommendations.append("✅ Good coverage! Add tests for remaining untested lines and branches.")
+            recommendations.append(
+                "✅ Good coverage! Add tests for remaining untested lines and branches."
+            )
         else:
-            recommendations.append("🎯 Excellent coverage! Focus on maintaining quality and testing edge cases.")
+            recommendations.append(
+                "🎯 Excellent coverage! Focus on maintaining quality and testing edge cases."
+            )
 
         # Specific file recommendations
         gaps = self.identify_coverage_gaps()
@@ -233,7 +245,7 @@ class CoverageAnalyzer:
 
         return recommendations
 
-    def _get_module_recommendations(self) -> List[str]:
+    def _get_module_recommendations(self) -> list[str]:
         """Get module-specific testing recommendations."""
         if not self.metrics:
             return []
@@ -246,21 +258,31 @@ class CoverageAnalyzer:
         if cli_files:
             cli_coverage = files[cli_files[0]].get('summary', {}).get('percent_covered', 0)
             if cli_coverage < 60:
-                recommendations.append("\n🔧 CLI Module: Add tests for command parsing and error handling")
+                recommendations.append(
+                    "\n🔧 CLI Module: Add tests for command parsing and error handling"
+                )
 
         # Check container module
         container_files = [f for f in files.keys() if 'container.py' in f]
         if container_files:
-            container_coverage = files[container_files[0]].get('summary', {}).get('percent_covered', 0)
+            container_coverage = (
+                files[container_files[0]].get('summary', {}).get('percent_covered', 0)
+            )
             if container_coverage < 60:
-                recommendations.append("🐳 Container Module: Add tests for Docker build process and file detection")
+                recommendations.append(
+                    "🐳 Container Module: Add tests for Docker build process and file detection"
+                )
 
         # Check version module
         version_files = [f for f in files.keys() if 'version.py' in f]
         if version_files:
-            version_coverage = files[version_files[0]].get('summary', {}).get('percent_covered', 0)
+            version_coverage = (
+                files[version_files[0]].get('summary', {}).get('percent_covered', 0)
+            )
             if version_coverage < 60:
-                recommendations.append("🏷️  Version Module: Add tests for git info extraction and version validation")
+                recommendations.append(
+                    "🏷️  Version Module: Add tests for git info extraction and version validation"
+                )
 
         return recommendations
 
@@ -362,12 +384,18 @@ def main():
     # Check threshold and exit with appropriate code
     if args.check_threshold:
         if metrics.coverage_percent < args.check_threshold:
-            print(f"\n❌ Coverage {metrics.coverage_percent:.1f}% is below threshold {args.check_threshold:.1f}%")
+            print(
+                f"\n❌ Coverage {metrics.coverage_percent:.1f}% "
+                f"is below threshold {args.check_threshold:.1f}%"
+            )
             sys.exit(1)
         else:
-            print(f"\n✅ Coverage {metrics.coverage_percent:.1f}% meets threshold {args.check_threshold:.1f}%")
+            print(
+                f"\n✅ Coverage {metrics.coverage_percent:.1f}% "
+                f"meets threshold {args.check_threshold:.1f}%"
+            )
 
-    print(f"\n📊 Coverage analysis complete!")
+    print("\n📊 Coverage analysis complete!")
 
 
 if __name__ == "__main__":

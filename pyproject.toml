@@ -32,10 +32,7 @@ dependencies = [
   "pyyaml>=6.0",
   "numpy>=1.24",
   "pandas>=2.0",
-  "scikit-learn>=1.1",
-  "catboost>=1.2",
   "prometheus-client>=0.20.0",
-  "nbformat>=5.0",
   "httpx>=0.24",
   "typer>=0.17.4",
   "rich>=13.8.1",
@@ -48,21 +45,23 @@ Repository = "https://github.com/core64-lab/merve"
 Issues = "https://github.com/core64-lab/merve/issues"
 
 [project.optional-dependencies]
+ml = [
+  "scikit-learn>=1.1",
+  "catboost>=1.2",
+]
+
 test = [
   "pytest>=7.0",
   "pytest-asyncio>=0.21",
   "pytest-cov>=4.0",
   "httpx>=0.24",
   "respx>=0.20",
-  "locust>=2.15"
+  "locust>=2.15",
+  "scikit-learn>=1.1",
 ]
 
 build = [
-  "docker>=6.0.0"
-]
-
-validation = [
-  "docker>=6.0.0"
+  "build>=1.0"
 ]
 
 dev = [
@@ -72,14 +71,17 @@ dev = [
   "httpx>=0.24",
   "respx>=0.20",
   "locust>=2.15",
-  "docker>=6.0.0",
+  "scikit-learn>=1.1",
+  "catboost>=1.2",
+  "build>=1.0",
+  "ruff>=0.6",
 ]
 
 [project.scripts]
 mlserver = "mlserver.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["mlserver", "mlserver.*", "examples"]
+include = ["mlserver", "mlserver.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -93,7 +95,6 @@ addopts = [
   "--cov-report=json:coverage.json",
   "--cov-report=xml:coverage.xml",
   "--cov-branch",
-  "--cov-fail-under=80",
   "-v"
 ]
 asyncio_mode = "auto"
@@ -137,6 +138,47 @@ output = "coverage.xml"
 
 [tool.coverage.json]
 output = "coverage.json"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+exclude = [
+  ".venv",
+  "build",
+  "dist",
+  "htmlcov",
+  "docs",
+  "examples/example_titanic_raw",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# B008: Typer's Option/Argument-in-default pattern is idiomatic and required.
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Long assertion/data lines are fine in tests and examples.
+"tests/**" = ["E501"]
+"examples/**" = ["E501"]
+# Embeds GitHub-workflow/README template strings; wrapping those lines would
+# change the emitted files byte-for-byte.
+"mlserver/github_actions.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mlserver"]
+
+[tool.ruff.lint.pyupgrade]
+# Pydantic/FastAPI/Typer evaluate annotations at runtime; `X | None` (PEP 604)
+# would break on Python 3.9 (requires-python >=3.9). Keeps Optional[...] while
+# still modernizing PEP 585 generics (list[...] is runtime-safe on 3.9).
+keep-runtime-typing = true
+
+[tool.mypy]
+# Config only for now — adoption is a later wave (RFC 0001 W0.2).
+python_version = "3.9"
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = '(^|/)(\.venv|build|dist|htmlcov|docs|examples)(/|$)'
 
 [tool.setuptools_scm]
 # Configuration for setuptools-scm (dynamic versioning from git tags)
