@@ -4,7 +4,7 @@ Designed for Kubernetes pod deployment where scaling happens across pods.
 """
 import asyncio
 import threading
-from typing import Optional
+
 from fastapi import HTTPException
 
 
@@ -63,7 +63,10 @@ class PredictionLimiter:
     """
 
     def __init__(self, semaphore: PredictionSemaphore,
-                 rejection_message: str = "Server is currently processing another prediction. Please retry later."):
+                 rejection_message: str = (
+                     "Server is currently processing another prediction. "
+                     "Please retry later."
+                 )):
         self._semaphore = semaphore
         self._rejection_message = rejection_message
         self._acquired = False
@@ -92,7 +95,10 @@ class AsyncPredictionLimiter:
     """
 
     def __init__(self, semaphore: asyncio.Semaphore, max_concurrent: int = 1,
-                 rejection_message: str = "Server is currently processing another prediction. Please retry later."):
+                 rejection_message: str = (
+                     "Server is currently processing another prediction. "
+                     "Please retry later."
+                 )):
         self._semaphore = semaphore
         self._max_concurrent = max_concurrent
         self._rejection_message = rejection_message

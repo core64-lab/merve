@@ -1,42 +1,32 @@
 """Modern CLI for ML Server using Typer."""
 
+import json
 import os
 import sys
-import json
-from pathlib import Path
-from typing import Optional, List
 from enum import Enum
+from pathlib import Path
+from typing import Optional
 
 import typer
-import yaml
 import uvicorn
-from rich import print as rprint
+import yaml
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from .config import AppConfig
-from .server import create_app
+from .container import build_container, check_docker_availability, list_images, remove_images
 from .logging_conf import configure_logging
-from .version import get_version_info
-from .container import (
-    build_container,
-    list_images,
-    remove_images,
-    check_docker_availability
-)
-from .version_control import (
-    GitVersionManager,
-    safe_push_container,
-    VersionControlError
-)
 from .multi_classifier import (
-    load_multi_classifier_config,
-    extract_single_classifier_config,
     detect_multi_classifier_config,
+    extract_single_classifier_config,
+    get_default_classifier,
     list_available_classifiers,
-    get_default_classifier
+    load_multi_classifier_config,
 )
+from .server import create_app
+from .version import get_version_info
+from .version_control import GitVersionManager, VersionControlError, safe_push_container
 
 # Create the main app
 app = typer.Typer(
@@ -50,9 +40,6 @@ app = typer.Typer(
 
 console = Console()
 
-
-#import typer.core
-#typer.core.rich = None  # force plain Click help formatting
 
 class LogLevel(str, Enum):
     """Log level options."""
@@ -104,13 +91,23 @@ def _resolve_path(path: str, config_dir: str) -> str:
     return os.path.abspath(os.path.join(config_dir, path))
 
 
-def detect_config_file(config_path: Optional[Path]) -> Path:
-    """Detect which config file to use."""
+def detect_config_file(config_path: Optional[Path], base_dir: Optional[Path] = None) -> Path:
+    """Detect which config file to use.
+
+    Args:
+        config_path: Explicit config file path provided by the user (used as-is)
+        base_dir: Directory to search for the default mlserver.yaml. When
+                  provided, the returned path is absolute so callers can use it
+                  regardless of their working directory. Defaults to CWD.
+    """
     if config_path and config_path.exists():
         return config_path
 
-    # Check default location
-    default_config = Path("mlserver.yaml")
+    # Check default location (inside base_dir when provided)
+    if base_dir:
+        default_config = Path(base_dir).resolve() / "mlserver.yaml"
+    else:
+        default_config = Path("mlserver.yaml")
     if default_config.exists():
         return default_config
 
@@ -118,7 +115,9 @@ def detect_config_file(config_path: Optional[Path]) -> Path:
     if config_path:
         raise typer.BadParameter(f"Config file not found: {config_path}")
 
-    raise typer.BadParameter("No config file found. Please specify with --config or create mlserver.yaml")
+    raise typer.BadParameter(
+        "No config file found. Please specify with --config or create mlserver.yaml"
+    )
 
 
 @app.command()
@@ -153,10 +152,10 @@ def serve(
         "--reload",
         help="Enable auto-reload for development"
     ),
-    log_level: LogLevel = typer.Option(
-        LogLevel.INFO,
+    log_level: Optional[LogLevel] = typer.Option(
+        None,
         "--log-level", "-l",
-        help="Set log level"
+        help="Set log level (defaults to server.log_level from config)"
     ),
 ):
     """🚀 Launch ML FastAPI server from YAML config."""
@@ -181,11 +180,16 @@ def serve(
                 classifier = get_default_classifier(str(config_file))
                 if not classifier:
                     available = list_available_classifiers(str(config_file))
-                    console.print("[red]✗[/red] No classifier specified and no default configured", style="bold red")
+                    console.print(
+                        "[red]✗[/red] No classifier specified and no default configured",
+                        style="bold red",
+                    )
                     console.print(f"Available classifiers: {', '.join(available)}")
                     console.print("Use [cyan]--classifier <name>[/cyan] to select one")
                     raise typer.Exit(1)
-                console.print(f"[yellow]→[/yellow] Using default classifier: [cyan]{classifier}[/cyan]")
+                console.print(
+                    f"[yellow]→[/yellow] Using default classifier: [cyan]{classifier}[/cyan]"
+                )
             else:
                 console.print(f"[green]→[/green] Using classifier: [cyan]{classifier}[/cyan]")
 
@@ -198,14 +202,14 @@ def serve(
                     import traceback
                     console.print("[yellow]Full traceback:[/yellow]")
                     console.print(traceback.format_exc())
-                raise typer.Exit(1)
+                raise typer.Exit(1) from e
             except Exception as e:
                 console.print(f"[red]✗[/red] Unexpected error: {e}", style="bold red")
                 if log_level == LogLevel.DEBUG:
                     import traceback
                     console.print("[yellow]Full traceback:[/yellow]")
                     console.print(traceback.format_exc())
-                raise typer.Exit(1)
+                raise typer.Exit(1) from e
 
             # Resolve paths
             if cfg.predictor.init_kwargs:
@@ -214,7 +218,7 @@ def serve(
                 )
         else:
             # Single classifier configuration
-            with open(config_file, "r") as f:
+            with open(config_file) as f:
                 raw = yaml.safe_load(f)
 
             # Resolve relative paths
@@ -236,8 +240,10 @@ def serve(
         if workers:
             cfg.server.workers = workers
 
-        # Override log level if specified
-        cfg.server.log_level = log_level.value
+        # Override log level only when explicitly provided on the CLI;
+        # otherwise the config's server.log_level applies
+        if log_level is not None:
+            cfg.server.log_level = log_level.value
 
         # Configure logging with the new logger settings
         logger_config = cfg.server.logger if cfg.server.logger else None
@@ -270,48 +276,53 @@ def serve(
         ))
 
         # Run the server
-        # For multi-worker support, we need to use the factory function
-        if cfg.server.workers > 1 and not reload:
+        # Multi-worker and reload modes require an import string (uvicorn
+        # cannot use an app instance for those), so use the factory function
+        if cfg.server.workers > 1 or reload:
             # Set environment variables for the factory function
-            import os
             os.environ['MLSERVER_CONFIG_PATH'] = str(config_file)
             if classifier:
                 os.environ['MLSERVER_CLASSIFIER'] = classifier
 
             uvicorn.run(
-                "mlserver.server:app",  # Now we can use the factory function
+                "mlserver.server:app",  # Factory function (reads env vars above)
                 host=cfg.server.host,
                 port=cfg.server.port,
                 log_level=cfg.server.log_level.lower(),
-                workers=cfg.server.workers,
+                workers=1 if reload else cfg.server.workers,
+                reload=reload,
                 factory=True,  # Tell uvicorn this is a factory function
             )
         else:
-            # Single worker or reload mode - use the app instance directly
+            # Single worker - use the app instance directly
             uvicorn.run(
                 fastapi_app,
                 host=cfg.server.host,
                 port=cfg.server.port,
                 log_level=cfg.server.log_level.lower(),
                 workers=1,
-                reload=reload,
-                app_dir=str(config_dir) if reload else None,
             )
 
     except KeyboardInterrupt:
         console.print("\n[yellow]⚠[/yellow] Server stopped by user")
-        raise typer.Exit(0)
+        raise typer.Exit(0) from None
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]✗[/red] Error: {e}", style="bold red")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
 def version(
     path: str = typer.Option(".", "--path", "-p", help="Path to classifier project"),
-    classifier: Optional[str] = typer.Option(None, "--classifier", "-c", help="Classifier name (for multi-classifier configs)"),
+    classifier: Optional[str] = typer.Option(
+        None, "--classifier", "-c", help="Classifier name (for multi-classifier configs)"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
-    detailed: bool = typer.Option(False, "--detailed", help="Show detailed MLServer tool information"),
+    detailed: bool = typer.Option(
+        False, "--detailed", help="Show detailed MLServer tool information"
+    ),
 ):
     """📦 Display version information for the classifier project.
 
@@ -325,18 +336,23 @@ def version(
         error_msg = version_info['error']
         if "mlserver.yaml not found" in error_msg:
             # No classifier project - show MLServer tool version only
-            from .version_control import get_mlserver_commit_hash
             import mlserver as mlserver_module
 
+            from .version_control import get_mlserver_commit_hash
+
             mlserver_commit = get_mlserver_commit_hash()
-            mlserver_version = mlserver_module.__version__ if hasattr(mlserver_module, '__version__') else "unknown"
+            mlserver_version = (
+                mlserver_module.__version__ if hasattr(mlserver_module, '__version__')
+                else "unknown"
+            )
             mlserver_location = Path(mlserver_module.__file__).parent
 
             # Determine installation type
             install_type = "unknown"
             if (mlserver_location.parent / '.git').exists():
                 install_type = "git (editable)"
-            elif mlserver_location.parent.name.endswith('.egg-info') or mlserver_location.parent.name.endswith('.dist-info'):
+            elif (mlserver_location.parent.name.endswith('.egg-info')
+                  or mlserver_location.parent.name.endswith('.dist-info')):
                 install_type = "package"
             elif 'site-packages' in str(mlserver_location):
                 install_type = "pip"
@@ -355,7 +371,9 @@ def version(
                 console.print("[yellow]ℹ[/yellow] No classifier project found in current directory")
                 console.print()
 
-                table = Table(title="📦 MLServer Tool Version", show_header=False, title_style="bold cyan")
+                table = Table(
+                    title="📦 MLServer Tool Version", show_header=False, title_style="bold cyan"
+                )
                 table.add_column("Property", style="yellow")
                 table.add_column("Value", style="cyan")
 
@@ -366,7 +384,10 @@ def version(
 
                 console.print(table)
                 console.print()
-                console.print("[dim]To see classifier project version, run this command from a directory with mlserver.yaml[/dim]")
+                console.print(
+                    "[dim]To see classifier project version, "
+                    "run this command from a directory with mlserver.yaml[/dim]"
+                )
 
             return
         else:
@@ -379,7 +400,9 @@ def version(
         if json_output:
             print(json.dumps(version_info, indent=2))
         else:
-            table = Table(title="Multi-Classifier Project", show_header=True, title_style="bold cyan")
+            table = Table(
+                title="Multi-Classifier Project", show_header=True, title_style="bold cyan"
+            )
             table.add_column("Classifier", style="yellow")
             table.add_column("Version", style="cyan")
             table.add_column("Description", style="dim")
@@ -393,17 +416,23 @@ def version(
             if git:
                 console.print(f"\n[dim]Git: {git['commit'][:7]} ({git['branch']})[/dim]")
 
-            console.print(f"\n[dim]Use --classifier <name> to see details for a specific classifier[/dim]")
+            console.print(
+                "\n[dim]Use --classifier <name> to see details for a specific classifier[/dim]"
+            )
         return
 
     if json_output:
         # Add mlserver tool info to JSON output if detailed
         if detailed:
-            from .version_control import get_mlserver_commit_hash
             import mlserver as mlserver_module
+
+            from .version_control import get_mlserver_commit_hash
             mlserver_commit = get_mlserver_commit_hash()
             version_info["mlserver_tool"] = {
-                "version": mlserver_module.__version__ if hasattr(mlserver_module, '__version__') else "unknown",
+                "version": (
+                    mlserver_module.__version__ if hasattr(mlserver_module, '__version__')
+                    else "unknown"
+                ),
                 "commit": mlserver_commit,
                 "install_location": str(Path(mlserver_module.__file__).parent)
             }
@@ -434,18 +463,23 @@ def version(
 
         # Add MLServer tool information if --detailed
         if detailed:
-            from .version_control import get_mlserver_commit_hash
             import mlserver as mlserver_module
 
+            from .version_control import get_mlserver_commit_hash
+
             mlserver_commit = get_mlserver_commit_hash()
-            mlserver_version = mlserver_module.__version__ if hasattr(mlserver_module, '__version__') else "unknown"
+            mlserver_version = (
+                mlserver_module.__version__ if hasattr(mlserver_module, '__version__')
+                else "unknown"
+            )
             mlserver_location = Path(mlserver_module.__file__).parent
 
             # Determine installation type
             install_type = "unknown"
             if (mlserver_location.parent / '.git').exists():
                 install_type = "git (editable)"
-            elif mlserver_location.parent.name.endswith('.egg-info') or mlserver_location.parent.name.endswith('.dist-info'):
+            elif (mlserver_location.parent.name.endswith('.egg-info')
+                  or mlserver_location.parent.name.endswith('.dist-info')):
                 install_type = "package"
             elif 'site-packages' in str(mlserver_location):
                 install_type = "pip"
@@ -468,7 +502,7 @@ def version(
         # Validation issues
         if issues:
             console.print("\n[bold yellow]⚠️  Validation Issues:[/bold yellow]")
-            for key, issue in issues.items():
+            for issue in issues.values():
                 console.print(f"  [red]✗[/red] {issue}")
 
 
@@ -499,7 +533,7 @@ def build(
         "--tag-prefix",
         help="Tag prefix for container names"
     ),
-    build_arg: Optional[List[str]] = typer.Option(
+    build_arg: Optional[list[str]] = typer.Option(
         None,
         "--build-arg",
         help="Build arguments (key=value)"
@@ -538,13 +572,20 @@ def build(
     # Parse classifier name (handles both simple names and full tags)
     original_input = classifier
     if classifier:
-        from .version_control import extract_classifier_name, parse_hierarchical_tag, get_tag_commits, get_mlserver_commit_hash
         from .version import get_git_info
+        from .version_control import (
+            extract_classifier_name,
+            get_mlserver_commit_hash,
+            get_tag_commits,
+            parse_hierarchical_tag,
+        )
 
         # Extract classifier name from full tag if provided
         classifier_name = extract_classifier_name(classifier)
         if not classifier_name:
-            console.print(f"[red]✗[/red] Invalid classifier name format: {classifier}", style="bold red")
+            console.print(
+                f"[red]✗[/red] Invalid classifier name format: {classifier}", style="bold red"
+            )
             raise typer.Exit(1)
 
         # If full tag was provided, validate commits
@@ -573,23 +614,47 @@ def build(
             current_mlserver_commit_short = normalize_commit(current_mlserver_commit)
 
             # Check for mismatches
-            classifier_mismatch = (expected_classifier_commit_short and current_classifier_commit_short and
-                                 expected_classifier_commit_short != current_classifier_commit_short)
-            mlserver_mismatch = (expected_mlserver_commit_short and current_mlserver_commit_short and
-                               expected_mlserver_commit_short != current_mlserver_commit_short)
+            classifier_mismatch = (
+                expected_classifier_commit_short
+                and current_classifier_commit_short
+                and expected_classifier_commit_short != current_classifier_commit_short
+            )
+            mlserver_mismatch = (
+                expected_mlserver_commit_short
+                and current_mlserver_commit_short
+                and expected_mlserver_commit_short != current_mlserver_commit_short
+            )
 
             if classifier_mismatch or mlserver_mismatch:
-                console.print("[yellow]⚠️  Warning: Current code doesn't match tag specifications[/yellow]")
+                console.print(
+                    "[yellow]⚠️  Warning: Current code doesn't match tag specifications[/yellow]"
+                )
                 console.print()
                 console.print("[dim]Tag specifies:[/dim]")
-                console.print(f"  Classifier commit: {expected_classifier_commit_short or 'unknown'}")
+                console.print(
+                    f"  Classifier commit: {expected_classifier_commit_short or 'unknown'}"
+                )
                 console.print(f"  MLServer commit:   {expected_mlserver_commit_short}")
                 console.print()
                 console.print("[dim]Current working directory:[/dim]")
-                console.print(f"  Classifier commit: {current_classifier_commit_short or 'unknown'} {'[red]⚠️  MISMATCH[/red]' if classifier_mismatch else '[green]✓[/green]'}")
-                console.print(f"  MLServer commit:   {current_mlserver_commit_short or 'unknown'} {'[red]⚠️  MISMATCH[/red]' if mlserver_mismatch else '[green]✓[/green]'}")
+                classifier_marker = (
+                    '[red]⚠️  MISMATCH[/red]' if classifier_mismatch else '[green]✓[/green]'
+                )
+                mlserver_marker = (
+                    '[red]⚠️  MISMATCH[/red]' if mlserver_mismatch else '[green]✓[/green]'
+                )
+                console.print(
+                    f"  Classifier commit: {current_classifier_commit_short or 'unknown'} "
+                    f"{classifier_marker}"
+                )
+                console.print(
+                    f"  MLServer commit:   {current_mlserver_commit_short or 'unknown'} "
+                    f"{mlserver_marker}"
+                )
                 console.print()
-                console.print("[yellow]Building with CURRENT code.[/yellow] To build exact tagged version:")
+                console.print(
+                    "[yellow]Building with CURRENT code.[/yellow] To build exact tagged version:"
+                )
                 console.print(f"  [cyan]git checkout {original_input}[/cyan]")
                 console.print()
 
@@ -604,8 +669,8 @@ def build(
         # Use extracted classifier name for the rest of the build
         classifier = classifier_name
 
-    # Detect config file
-    config_file = detect_config_file(config)
+    # Detect config file (inside the project directory)
+    config_file = detect_config_file(config, base_dir=Path(path))
 
     # Check if multi-classifier config
     from .multi_classifier import detect_multi_classifier_config, list_available_classifiers
@@ -615,9 +680,13 @@ def build(
         available = list_available_classifiers(str(config_file))
 
         if not classifier:
-            console.print(f"[red]✗[/red] Multi-classifier config detected. Please specify which classifier to build:", style="bold red")
+            console.print(
+                "[red]✗[/red] Multi-classifier config detected. "
+                "Please specify which classifier to build:",
+                style="bold red",
+            )
             console.print(f"Available classifiers: {', '.join(available)}")
-            console.print(f"Usage: mlserver build --classifier <name>")
+            console.print("Usage: mlserver build --classifier <name>")
             raise typer.Exit(1)
 
         if classifier not in available:
@@ -629,13 +698,27 @@ def build(
         # This is handled by build_container internally
         console.print(f"[yellow]→[/yellow] Building for classifier: {classifier}")
 
+    # Parse --build-arg values (must be KEY=value)
+    parsed_build_args = None
+    if build_arg:
+        parsed_build_args = {}
+        for arg in build_arg:
+            if '=' not in arg:
+                console.print(
+                    f"[red]✗[/red] Invalid --build-arg '{arg}': expected format KEY=value",
+                    style="bold red",
+                )
+                raise typer.Exit(1)
+            key, value = arg.split('=', 1)
+            parsed_build_args[key] = value
+
     result = build_container(
         project_path=str(path),
         config_file=str(config_file),
         classifier_name=classifier,
         tag_prefix=tag_prefix,
         registry=registry,
-        build_args=dict(arg.split('=', 1) for arg in build_arg) if build_arg else None,
+        build_args=parsed_build_args,
         no_cache=no_cache,
         mlserver_source_path=None  # Auto-detect
     )
@@ -689,6 +772,16 @@ def push(
         console.print("[red]✗[/red] Docker is not available or not running", style="bold red")
         raise typer.Exit(1)
 
+    # Validate --version-source (see version_control.get_version_for_push)
+    allowed_version_sources = ("git-tag", "config", "auto")
+    if version_source not in allowed_version_sources:
+        console.print(
+            f"[red]✗[/red] Invalid --version-source '{version_source}'. "
+            f"Allowed values: {', '.join(allowed_version_sources)}",
+            style="bold red"
+        )
+        raise typer.Exit(1)
+
     console.print(f"[cyan]📤 Validating and pushing to {registry}...[/cyan]")
     if classifier:
         console.print(f"[yellow]→[/yellow] Classifier: {classifier}")
@@ -704,20 +797,23 @@ def push(
     )
 
     if result["success"]:
-        console.print(f"[green]✓[/green] Successfully pushed images")
-        console.print(f"  [yellow]→[/yellow] Version: {result['version_used']} (from {result['version_source']})")
+        console.print("[green]✓[/green] Successfully pushed images")
+        console.print(
+            f"  [yellow]→[/yellow] Version: {result['version_used']} "
+            f"(from {result['version_source']})"
+        )
         if result.get("pushed_tags"):
             for tag in result["pushed_tags"]:
                 console.print(f"  [yellow]→[/yellow] {tag}")
     else:
-        console.print(f"[red]✗[/red] Push failed: {result['error']}", style="bold red")
+        error_msg = result.get("error") or "Some images failed to push"
+        console.print(f"[red]✗[/red] Push failed: {error_msg}", style="bold red")
         if result.get("validation_errors"):
             for error in result["validation_errors"]:
                 console.print(f"  [red]→[/red] {error}")
-        raise typer.Exit(1)
 
     if result.get("validation_warnings"):
-        console.print(f"\n[yellow]⚠️  Warnings:[/yellow]")
+        console.print("\n[yellow]⚠️  Warnings:[/yellow]")
         for warning in result["validation_warnings"]:
             console.print(f"  [yellow]→[/yellow] {warning}")
 
@@ -725,6 +821,10 @@ def push(
         console.print(f"\n[yellow]⚠️  Failed to push {len(result['failed_tags'])} images:[/yellow]")
         for error in result["failed_tags"]:
             console.print(f"  [red]✗[/red] {error}")
+
+    # Any failure - including partially failed pushes - must exit nonzero
+    if not result["success"] or result.get("failed_tags"):
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -809,8 +909,8 @@ def tag(
 
         # If no bump_type, show status table
         if not bump_type:
-            # Detect config file
-            config_file = detect_config_file(config)
+            # Detect config file (inside the project directory)
+            config_file = detect_config_file(config, base_dir=Path(path))
 
             # Get status for all classifiers
             classifiers_status = git_mgr.get_all_classifiers_tag_status(str(config_file))
@@ -924,7 +1024,10 @@ def tag(
 
         # Version info
         if tag_info['previous_version']:
-            console.print(f"  [yellow]📝 Version:[/yellow] {tag_info['previous_version']} → {tag_info['version']} ({bump_type.value} bump)")
+            console.print(
+                f"  [yellow]📝 Version:[/yellow] {tag_info['previous_version']} → "
+                f"{tag_info['version']} ({bump_type.value} bump)"
+            )
         else:
             console.print(f"  [yellow]📝 Version:[/yellow] {tag_info['version']} (initial release)")
 
@@ -945,7 +1048,9 @@ def tag(
         workflow_valid = True
         workflow_warnings = []
         if github_actions_configured:
-            workflow_valid, workflow_warnings, workflow_details = validate_workflow_comprehensive(path)
+            workflow_valid, workflow_warnings, workflow_details = (
+                validate_workflow_comprehensive(path)
+            )
 
             if not workflow_valid or workflow_warnings:
                 console.print()
@@ -953,50 +1058,75 @@ def tag(
                 for warning in workflow_warnings:
                     console.print(f"  [yellow]•[/yellow] {warning}")
                 console.print()
-                console.print("[bold red]⚠️  IMPORTANT: Regenerate workflow before pushing tags![/bold red]")
+                console.print(
+                    "[bold red]⚠️  IMPORTANT: Regenerate workflow before pushing tags![/bold red]"
+                )
                 console.print("  Run: [cyan]mlserver init-github --force[/cyan]")
-                console.print("  Then: [cyan]git add .github && git commit -m 'Update workflow' && git push[/cyan]")
+                console.print(
+                    "  Then: [cyan]git add .github && "
+                    "git commit -m 'Update workflow' && git push[/cyan]"
+                )
                 console.print()
 
         console.print("\n[cyan]Next steps:[/cyan]")
         if github_actions_configured and workflow_valid:
             console.print("  1. Push tags to remote: [cyan]git push --tags[/cyan]")
-            console.print("  2. GitHub Actions will automatically build and publish your container!")
+            console.print(
+                "  2. GitHub Actions will automatically build and publish your container!"
+            )
             console.print()
             console.print("[dim]💡 Or build manually:[/dim]")
             console.print(f"  - Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
-            console.print(f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]")
+            console.print(
+                f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]"
+            )
         elif github_actions_configured and not workflow_valid:
             # Workflow exists but is outdated/invalid
-            console.print("  [bold]1. Regenerate workflow:[/bold] [cyan]mlserver init-github --force[/cyan]")
-            console.print("  2. Commit and push: [cyan]git add .github && git commit -m 'Update workflow' && git push[/cyan]")
+            console.print(
+                "  [bold]1. Regenerate workflow:[/bold] [cyan]mlserver init-github --force[/cyan]"
+            )
+            console.print(
+                "  2. Commit and push: [cyan]git add .github && "
+                "git commit -m 'Update workflow' && git push[/cyan]"
+            )
             console.print("  3. Push tags: [cyan]git push --tags[/cyan]")
             console.print()
             console.print("[dim]💡 Or build manually:[/dim]")
             console.print(f"  - Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
-            console.print(f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]")
+            console.print(
+                f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]"
+            )
         else:
             # No workflow at all
             console.print("  [yellow]⚠[/yellow] [bold]GitHub Actions not configured![/bold]")
             console.print()
-            console.print("  [dim]You need to set up CI/CD before pushing tags. Choose one option:[/dim]")
+            console.print(
+                "  [dim]You need to set up CI/CD before pushing tags. Choose one option:[/dim]"
+            )
             console.print()
             console.print("  [dim]Option 1: Add CI/CD workflow (recommended)[/dim]")
             console.print("  1. Add workflow: [cyan]mlserver init-github[/cyan]")
-            console.print("  2. Commit and push: [cyan]git add .github && git commit -m 'Add CI/CD' && git push[/cyan]")
+            console.print(
+                "  2. Commit and push: [cyan]git add .github && "
+                "git commit -m 'Add CI/CD' && git push[/cyan]"
+            )
             console.print("  3. Push tags: [cyan]git push --tags[/cyan]")
             console.print()
             console.print("  [dim]Option 2: Build and push manually[/dim]")
             console.print("  1. Push tags: [cyan]git push --tags[/cyan]")
             console.print(f"  2. Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
-            console.print(f"  3. Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]")
+            console.print(
+                f"  3. Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]"
+            )
 
     except VersionControlError as e:
         console.print(f"[red]✗[/red] {e}", style="bold red")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]✗[/red] Unexpected error: {e}", style="bold red")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -1047,7 +1177,7 @@ def clean(
         raise typer.Exit(1)
 
     if result.get("errors"):
-        console.print(f"\n[yellow]⚠️  Removal errors:[/yellow]")
+        console.print("\n[yellow]⚠️  Removal errors:[/yellow]")
         for error in result["errors"]:
             console.print(f"  [red]✗[/red] {error}")
 
@@ -1084,12 +1214,12 @@ def run(
         "--name",
         help="Container name"
     ),
-    env: Optional[List[str]] = typer.Option(
+    env: Optional[list[str]] = typer.Option(
         None,
         "--env", "-e",
         help="Environment variables (KEY=value)"
     ),
-    volume: Optional[List[str]] = typer.Option(
+    volume: Optional[list[str]] = typer.Option(
         None,
         "--volume", "-v",
         help="Volume mounts (host:container)"
@@ -1100,8 +1230,8 @@ def run(
         console.print("[red]✗[/red] Docker is not available or not running", style="bold red")
         raise typer.Exit(1)
 
-    # Detect config file
-    config_file = detect_config_file(None)
+    # Detect config file (inside the project directory)
+    config_file = detect_config_file(None, base_dir=Path(path))
 
     # Check if multi-classifier config
     from .multi_classifier import detect_multi_classifier_config, list_available_classifiers
@@ -1111,9 +1241,13 @@ def run(
         available = list_available_classifiers(str(config_file))
 
         if not classifier:
-            console.print(f"[red]✗[/red] Multi-classifier config detected. Please specify which classifier to run:", style="bold red")
+            console.print(
+                "[red]✗[/red] Multi-classifier config detected. "
+                "Please specify which classifier to run:",
+                style="bold red",
+            )
             console.print(f"Available classifiers: {', '.join(available)}")
-            console.print(f"Usage: mlserver run --classifier <name>")
+            console.print("Usage: mlserver run --classifier <name>")
             raise typer.Exit(1)
 
         if classifier not in available:
@@ -1147,8 +1281,15 @@ def run(
     else:
         docker_cmd.append("-it")
 
-    # Add port mapping
-    docker_cmd.extend(["-p", f"{port}:8000"])
+    # Add port mapping (host port -> the container's configured server port)
+    container_port = 8000
+    try:
+        with open(config_file) as f:
+            raw_run_config = yaml.safe_load(f) or {}
+        container_port = int(raw_run_config.get("server", {}).get("port", container_port))
+    except Exception:
+        pass
+    docker_cmd.extend(["-p", f"{port}:{container_port}"])
 
     # Add container name if specified
     if name:
@@ -1182,7 +1323,7 @@ def run(
 
         if result.returncode == 0:
             container_id = result.stdout.strip()
-            console.print(f"[green]✓[/green] Container started in background")
+            console.print("[green]✓[/green] Container started in background")
             console.print(f"[yellow]→[/yellow] Container ID: {container_id[:12]}")
             console.print(f"[yellow]→[/yellow] Access at: http://localhost:{port}")
             console.print(f"[yellow]→[/yellow] Stop with: docker stop {container_id[:12]}")
@@ -1204,16 +1345,21 @@ def run(
                 result = subprocess.run(docker_cmd)
 
             if result.returncode == 0:
-                console.print(f"[green]✓[/green] Container stopped")
+                console.print("[green]✓[/green] Container stopped")
             else:
-                console.print(f"[red]✗[/red] Container exited with error code: {result.returncode}", style="bold red")
+                console.print(
+                    f"[red]✗[/red] Container exited with error code: {result.returncode}",
+                    style="bold red",
+                )
                 raise typer.Exit(1)
         except KeyboardInterrupt:
             console.print("\n[yellow]→[/yellow] Container interrupted")
-            raise typer.Exit(0)
+            raise typer.Exit(0) from None
+        except typer.Exit:
+            raise
         except Exception as e:
             console.print(f"[red]✗[/red] Failed to run container: {e}", style="bold red")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
 
 
 
@@ -1250,7 +1396,7 @@ def list_classifiers(
 
     except Exception as e:
         console.print(f"[red]✗[/red] Error: {e}", style="bold red")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -1262,7 +1408,9 @@ def status():
 
     # Check Docker
     docker_available = check_docker_availability()
-    docker_status = "[green]✓ Available[/green]" if docker_available else "[red]✗ Not available[/red]"
+    docker_status = (
+        "[green]✓ Available[/green]" if docker_available else "[red]✗ Not available[/red]"
+    )
     table.add_row("Docker", docker_status)
 
     # Check for config files
@@ -1274,7 +1422,6 @@ def status():
     table.add_row("Config Files", config_status)
 
     # Python version
-    import sys
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     table.add_row("Python Version", python_version)
 
@@ -1286,7 +1433,10 @@ def status():
     # Check for GitHub Actions setup
     from .github_actions import check_github_actions_setup
     github_actions_setup = check_github_actions_setup(".")
-    github_status = "[green]✓ Configured[/green]" if github_actions_setup else "[yellow]Not configured[/yellow]"
+    github_status = (
+        "[green]✓ Configured[/green]" if github_actions_setup
+        else "[yellow]Not configured[/yellow]"
+    )
     table.add_row("GitHub Actions", github_status)
 
     console.print(table)
@@ -1356,7 +1506,7 @@ def init(
     if success:
         if files:
             console.print("[green]✓[/green] Created files:")
-            for file_type, file_path in files.items():
+            for file_path in files.values():
                 console.print(f"  [yellow]→[/yellow] {file_path}")
             console.print()
 
@@ -1374,8 +1524,12 @@ def init(
         console.print("  1. Implement your predictor: Edit the generated Python file")
         console.print("  2. Configure settings: Review and update [cyan]mlserver.yaml[/cyan]")
         console.print("  3. Test locally: [cyan]mlserver serve[/cyan]")
-        console.print("  4. Commit changes: [cyan]git add . && git commit -m 'Initial setup'[/cyan]")
-        console.print("  5. Create version tag: [cyan]mlserver tag patch --classifier <name>[/cyan]")
+        console.print(
+            "  4. Commit changes: [cyan]git add . && git commit -m 'Initial setup'[/cyan]"
+        )
+        console.print(
+            "  5. Create version tag: [cyan]mlserver tag patch --classifier <name>[/cyan]"
+        )
         console.print("  6. Push to trigger CI/CD: [cyan]git push --tags[/cyan]")
     else:
         console.print(f"[red]✗[/red] {message}", style="bold red")
@@ -1441,19 +1595,29 @@ def init_github(
         # Show created files
         if files:
             console.print("[bold]Created files:[/bold]")
-            for file_type, file_path in files.items():
+            for file_path in files.values():
                 console.print(f"  [yellow]→[/yellow] {file_path}")
             console.print()
 
         # Show next steps
         console.print("[bold cyan]Next steps:[/bold cyan]")
-        console.print("  1. Review workflow: [cyan].github/workflows/ml-classifier-container-build.yml[/cyan]")
-        console.print("  2. Commit changes: [cyan]git add .github && git commit -m 'Add CI/CD workflow'[/cyan]")
+        console.print(
+            "  1. Review workflow: "
+            "[cyan].github/workflows/ml-classifier-container-build.yml[/cyan]"
+        )
+        console.print(
+            "  2. Commit changes: "
+            "[cyan]git add .github && git commit -m 'Add CI/CD workflow'[/cyan]"
+        )
         console.print("  3. Push to GitHub: [cyan]git push[/cyan]")
-        console.print("  4. Create version tag: [cyan]mlserver tag patch --classifier <name>[/cyan]")
+        console.print(
+            "  4. Create version tag: [cyan]mlserver tag patch --classifier <name>[/cyan]"
+        )
         console.print("  5. Push tag: [cyan]git push --tags[/cyan]")
         console.print()
-        console.print("[dim]The workflow will automatically build and publish your container to GHCR![/dim]")
+        console.print(
+            "[dim]The workflow will automatically build and publish your container to GHCR![/dim]"
+        )
     else:
         console.print(f"[red]✗[/red] {message}", style="bold red")
         raise typer.Exit(1)
@@ -1461,9 +1625,13 @@ def init_github(
 
 @app.command()
 def validate(
-    config: Optional[Path] = typer.Argument(None, help="Path to config file (default: auto-detect)"),
+    config: Optional[Path] = typer.Argument(
+        None, help="Path to config file (default: auto-detect)"
+    ),
     strict: bool = typer.Option(False, "--strict", "-s", help="Fail on warnings"),
-    check_imports: bool = typer.Option(True, "--check-imports/--no-check-imports", help="Check predictor imports"),
+    check_imports: bool = typer.Option(
+        True, "--check-imports/--no-check-imports", help="Check predictor imports"
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
 ):
     """Validate configuration without starting the server.
@@ -1480,18 +1648,20 @@ def validate(
         mlserver validate --strict
         mlserver validate mlserver.yaml --no-check-imports
     """
-    from .doctor import run_validation_checks, CheckStatus
+    from .doctor import CheckStatus, run_validation_checks
 
     try:
         config_file = detect_config_file(config)
         project_path = str(config_file.parent)
     except typer.BadParameter as e:
         console.print(f"[red]✗[/red] {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     console.print(f"\n[bold]Validating[/bold] {config_file.name}...\n")
 
-    report = run_validation_checks(project_path, check_imports=check_imports)
+    report = run_validation_checks(
+        project_path, check_imports=check_imports, config_file=config_file
+    )
 
     has_errors = False
     has_warnings = False
@@ -1544,7 +1714,7 @@ def doctor(
         mlserver doctor --verbose
         mlserver doctor --path ./my-project
     """
-    from .doctor import run_all_checks, CheckStatus
+    from .doctor import run_all_checks
 
     console.print("\n[bold]MLServer Doctor[/bold] - Diagnosing your environment...\n")
 
@@ -1592,7 +1762,10 @@ def _display_check_result(check, verbose: bool = False):
     from .doctor import CheckStatus
 
     if check.status == CheckStatus.PASSED:
-        console.print(f"  [green]✓[/green] {check.name}" + (f": {check.message}" if check.message and verbose else ""))
+        console.print(
+            f"  [green]✓[/green] {check.name}"
+            + (f": {check.message}" if check.message and verbose else "")
+        )
     elif check.status == CheckStatus.WARNING:
         console.print(f"  [yellow]⚠[/yellow] {check.name}: {check.message}")
         if check.suggestion:
@@ -1625,11 +1798,7 @@ def test(
     import json
     import time
 
-    try:
-        import httpx
-    except ImportError:
-        console.print("[red]✗[/red] httpx not installed. Run: pip install httpx")
-        raise typer.Exit(1)
+    import httpx
 
     # Prepare request data
     if data:
@@ -1637,17 +1806,17 @@ def test(
             payload_data = json.loads(data)
         except json.JSONDecodeError as e:
             console.print(f"[red]✗[/red] Invalid JSON data: {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     elif file:
         if not file.exists():
             console.print(f"[red]✗[/red] File not found: {file}")
             raise typer.Exit(1)
         try:
-            with open(file, 'r') as f:
+            with open(file) as f:
                 payload_data = json.load(f)
         except json.JSONDecodeError as e:
             console.print(f"[red]✗[/red] Invalid JSON in file: {e}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from e
     else:
         console.print("[red]✗[/red] Either --data or --file is required")
         console.print("\n[dim]Examples:")
@@ -1658,7 +1827,9 @@ def test(
     # Wrap in payload format if needed
     if "payload" not in payload_data and "instances" not in payload_data:
         # Auto-wrap as records
-        if isinstance(payload_data, dict) and not any(k in payload_data for k in ["records", "ndarray"]):
+        if isinstance(payload_data, dict) and not any(
+            k in payload_data for k in ["records", "ndarray"]
+        ):
             payload_data = {"payload": {"records": [payload_data]}}
         elif isinstance(payload_data, list):
             payload_data = {"payload": {"records": payload_data}}
@@ -1666,7 +1837,7 @@ def test(
     # Build URL
     full_url = f"{url.rstrip('/')}{endpoint}"
 
-    console.print(f"\n[bold]Testing prediction...[/bold]")
+    console.print("\n[bold]Testing prediction...[/bold]")
     console.print(f"  Server: [cyan]{url}[/cyan]")
     console.print(f"  Endpoint: [cyan]{endpoint}[/cyan]")
     console.print()
@@ -1679,7 +1850,11 @@ def test(
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
         status_color = "green" if response.status_code == 200 else "red"
-        console.print(f"[bold]Response[/bold] ([{status_color}]{response.status_code} {response.reason_phrase}[/{status_color}], {elapsed_ms:.0f}ms):")
+        console.print(
+            f"[bold]Response[/bold] "
+            f"([{status_color}]{response.status_code} {response.reason_phrase}[/{status_color}], "
+            f"{elapsed_ms:.0f}ms):"
+        )
 
         try:
             response_data = response.json()
@@ -1695,14 +1870,16 @@ def test(
 
     except httpx.ConnectError:
         console.print(f"[red]✗[/red] Cannot connect to {url}")
-        console.print(f"  [dim]→ Is the server running? Try: mlserver serve[/dim]")
-        raise typer.Exit(1)
+        console.print("  [dim]→ Is the server running? Try: mlserver serve[/dim]")
+        raise typer.Exit(1) from None
     except httpx.TimeoutException:
-        console.print(f"[red]✗[/red] Request timed out")
-        raise typer.Exit(1)
+        console.print("[red]✗[/red] Request timed out")
+        raise typer.Exit(1) from None
+    except typer.Exit:
+        raise
     except Exception as e:
         console.print(f"[red]✗[/red] Request failed: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
@@ -1743,11 +1920,12 @@ def schema(
         mlserver schema -o .mlserver/schema.json --vscode --setup
     """
     import json
+
     from .schema_generator import (
         get_schema_for_config_type,
-        save_schema,
         get_vscode_settings_snippet,
         print_schema_setup_instructions,
+        save_schema,
     )
 
     # Validate config_type
@@ -1799,7 +1977,7 @@ def schema(
 
     except Exception as e:
         console.print(f"[red]✗[/red] Failed to generate schema: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.callback()

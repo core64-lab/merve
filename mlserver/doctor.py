@@ -9,14 +9,13 @@ Provides checks for:
 
 Used by `mlserver doctor` and `mlserver validate` commands.
 """
+import shutil
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Callable
-import subprocess
-import sys
-import os
-import shutil
+from typing import Any, Optional
 
 
 class CheckStatus(Enum):
@@ -34,7 +33,7 @@ class CheckResult:
     status: CheckStatus
     message: Optional[str] = None
     suggestion: Optional[str] = None
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -52,8 +51,8 @@ class CheckResult:
 @dataclass
 class DiagnosticReport:
     """Collection of diagnostic check results."""
-    checks: List[CheckResult] = field(default_factory=list)
-    recommendations: List[str] = field(default_factory=list)
+    checks: list[CheckResult] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
 
     @property
     def has_errors(self) -> bool:
@@ -138,7 +137,10 @@ def check_docker(verbose: bool = False) -> CheckResult:
                 name="Docker",
                 status=CheckStatus.WARNING,
                 message="Docker installed but daemon not running",
-                suggestion="Start Docker daemon: 'open -a Docker' (macOS) or 'sudo systemctl start docker' (Linux)"
+                suggestion=(
+                    "Start Docker daemon: 'open -a Docker' (macOS) "
+                    "or 'sudo systemctl start docker' (Linux)"
+                )
             )
     except subprocess.TimeoutExpired:
         return CheckResult(
@@ -201,35 +203,43 @@ def check_git(verbose: bool = False) -> CheckResult:
 # Project Checks
 # =============================================================================
 
-def check_config_file(project_path: str = ".", verbose: bool = False) -> CheckResult:
-    """Check if mlserver.yaml exists and is valid YAML."""
-    config_file = Path(project_path) / "mlserver.yaml"
+def _resolve_config_file(project_path: str, config_file: Optional[Path]) -> Path:
+    """Resolve the config file to check (defaults to <project>/mlserver.yaml)."""
+    if config_file is None:
+        return Path(project_path) / "mlserver.yaml"
+    return Path(config_file)
+
+
+def check_config_file(project_path: str = ".", verbose: bool = False,
+                      config_file: Optional[Path] = None) -> CheckResult:
+    """Check if the config file exists and is valid YAML."""
+    config_file = _resolve_config_file(project_path, config_file)
 
     if not config_file.exists():
         return CheckResult(
             name="Configuration file",
             status=CheckStatus.FAILED,
-            message="mlserver.yaml not found",
+            message=f"{config_file.name} not found",
             suggestion="Run 'mlserver init' to create a configuration file"
         )
 
     try:
         import yaml
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             config = yaml.safe_load(f)
 
         if config is None:
             return CheckResult(
                 name="Configuration file",
                 status=CheckStatus.FAILED,
-                message="mlserver.yaml is empty",
-                suggestion="Add configuration to mlserver.yaml or run 'mlserver init'"
+                message=f"{config_file.name} is empty",
+                suggestion=f"Add configuration to {config_file.name} or run 'mlserver init'"
             )
 
         return CheckResult(
             name="Configuration file",
             status=CheckStatus.PASSED,
-            message="mlserver.yaml found and valid YAML",
+            message=f"{config_file.name} found and valid YAML",
             details={"path": str(config_file), "keys": list(config.keys()) if config else []}
         )
     except yaml.YAMLError as e:
@@ -247,9 +257,10 @@ def check_config_file(project_path: str = ".", verbose: bool = False) -> CheckRe
         )
 
 
-def check_config_schema(project_path: str = ".", verbose: bool = False) -> CheckResult:
-    """Check if mlserver.yaml has valid schema."""
-    config_file = Path(project_path) / "mlserver.yaml"
+def check_config_schema(project_path: str = ".", verbose: bool = False,
+                        config_file: Optional[Path] = None) -> CheckResult:
+    """Check if the config file has valid schema."""
+    config_file = _resolve_config_file(project_path, config_file)
 
     if not config_file.exists():
         return CheckResult(
@@ -260,7 +271,7 @@ def check_config_schema(project_path: str = ".", verbose: bool = False) -> Check
 
     try:
         import yaml
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             raw_config = yaml.safe_load(f)
 
         # Detect config format and validate accordingly
@@ -310,9 +321,10 @@ def check_config_schema(project_path: str = ".", verbose: bool = False) -> Check
         )
 
 
-def check_predictor_import(project_path: str = ".", verbose: bool = False) -> CheckResult:
+def check_predictor_import(project_path: str = ".", verbose: bool = False,
+                           config_file: Optional[Path] = None) -> CheckResult:
     """Check if predictor module can be imported."""
-    config_file = Path(project_path) / "mlserver.yaml"
+    config_file = _resolve_config_file(project_path, config_file)
 
     if not config_file.exists():
         return CheckResult(
@@ -323,7 +335,7 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False) -> Ch
 
     try:
         import yaml
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             config = yaml.safe_load(f)
 
         # Handle both single and multi-classifier formats
@@ -360,8 +372,9 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False) -> Ch
             )
 
         # Try to resolve and import the module
-        from .predictor_loader import resolve_module_path
         import importlib
+
+        from .predictor_loader import resolve_module_path
 
         resolved_module = resolve_module_path(module_name, project_path)
 
@@ -414,9 +427,10 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False) -> Ch
         )
 
 
-def check_model_files(project_path: str = ".", verbose: bool = False) -> CheckResult:
+def check_model_files(project_path: str = ".", verbose: bool = False,
+                      config_file: Optional[Path] = None) -> CheckResult:
     """Check if model files referenced in config exist."""
-    config_file = Path(project_path) / "mlserver.yaml"
+    config_file = _resolve_config_file(project_path, config_file)
 
     if not config_file.exists():
         return CheckResult(
@@ -427,7 +441,7 @@ def check_model_files(project_path: str = ".", verbose: bool = False) -> CheckRe
 
     try:
         import yaml
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             config = yaml.safe_load(f)
 
         # Handle both single and multi-classifier formats
@@ -495,9 +509,10 @@ def check_model_files(project_path: str = ".", verbose: bool = False) -> CheckRe
         )
 
 
-def check_feature_order_file(project_path: str = ".", verbose: bool = False) -> CheckResult:
+def check_feature_order_file(project_path: str = ".", verbose: bool = False,
+                             config_file: Optional[Path] = None) -> CheckResult:
     """Check if feature_order file exists if configured."""
-    config_file = Path(project_path) / "mlserver.yaml"
+    config_file = _resolve_config_file(project_path, config_file)
 
     if not config_file.exists():
         return CheckResult(
@@ -508,7 +523,7 @@ def check_feature_order_file(project_path: str = ".", verbose: bool = False) -> 
 
     try:
         import yaml
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             config = yaml.safe_load(f)
 
         # Handle both single and multi-classifier formats
@@ -545,7 +560,7 @@ def check_feature_order_file(project_path: str = ".", verbose: bool = False) -> 
         feature_file = Path(project_path) / feature_order
         if feature_file.exists():
             import json
-            with open(feature_file, 'r') as f:
+            with open(feature_file) as f:
                 features = json.load(f)
             return CheckResult(
                 name="Feature order file",
@@ -631,7 +646,7 @@ def check_gitignore(project_path: str = ".", verbose: bool = False) -> CheckResu
         )
 
     try:
-        with open(gitignore_path, 'r') as f:
+        with open(gitignore_path) as f:
             content = f.read()
 
         missing = []
@@ -643,7 +658,7 @@ def check_gitignore(project_path: str = ".", verbose: bool = False) -> CheckResu
             return CheckResult(
                 name="Gitignore",
                 status=CheckStatus.WARNING,
-                message=f".gitignore missing recommended patterns",
+                message=".gitignore missing recommended patterns",
                 suggestion=f"Add to .gitignore: {', '.join(missing)}",
                 details={"missing_patterns": missing}
             )
@@ -681,7 +696,7 @@ def check_dependencies(project_path: str = ".", verbose: bool = False) -> CheckR
     missing_required = []
     missing_optional = []
 
-    for dep, desc in required_deps.items():
+    for dep in required_deps:
         try:
             __import__(dep.replace("-", "_"))
         except ImportError:
@@ -737,7 +752,7 @@ def check_port_available(port: int = 8000, verbose: bool = False) -> CheckResult
                     status=CheckStatus.PASSED,
                     message=f"Port {port} is available"
                 )
-    except Exception as e:
+    except Exception:
         return CheckResult(
             name=f"Port {port}",
             status=CheckStatus.PASSED,
@@ -802,18 +817,26 @@ def run_all_checks(project_path: str = ".", verbose: bool = False) -> Diagnostic
     return report
 
 
-def run_validation_checks(project_path: str = ".", check_imports: bool = True) -> DiagnosticReport:
-    """Run validation checks (for mlserver validate command)."""
+def run_validation_checks(project_path: str = ".", check_imports: bool = True,
+                          config_file: Optional[Path] = None) -> DiagnosticReport:
+    """Run validation checks (for mlserver validate command).
+
+    Args:
+        project_path: Project directory (used to resolve relative artifacts)
+        check_imports: Whether to check predictor imports
+        config_file: Explicit config file to validate
+                     (defaults to <project_path>/mlserver.yaml)
+    """
     report = DiagnosticReport()
 
     # Essential validation checks
-    report.add(check_config_file(project_path))
-    report.add(check_config_schema(project_path))
+    report.add(check_config_file(project_path, config_file=config_file))
+    report.add(check_config_schema(project_path, config_file=config_file))
 
     if check_imports:
-        report.add(check_predictor_import(project_path))
+        report.add(check_predictor_import(project_path, config_file=config_file))
 
-    report.add(check_model_files(project_path))
-    report.add(check_feature_order_file(project_path))
+    report.add(check_model_files(project_path, config_file=config_file))
+    report.add(check_feature_order_file(project_path, config_file=config_file))
 
     return report

@@ -1,9 +1,18 @@
 from __future__ import annotations
+
 import threading
-import time
-from typing import Optional, Any, Union
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST, REGISTRY, CollectorRegistry
+from typing import Any, Optional
+
 from fastapi import Request, Response
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 
 def count_samples(data: Any) -> int:
@@ -74,8 +83,11 @@ def count_samples(data: Any) -> int:
 
 
 class MetricsCollector:
-    def __init__(self, model_name: Optional[str] = None, registry: Optional[CollectorRegistry] = None):
+    def __init__(self, model_name: Optional[str] = None,
+                 registry: Optional[CollectorRegistry] = None,
+                 model_version: Optional[str] = None):
         self.model_name = model_name or "unknown"
+        self.model_version = model_version or "unknown"
         self._registry = registry or REGISTRY
 
         # Request metrics
@@ -142,7 +154,7 @@ class MetricsCollector:
             ["model", "version"],
             registry=self._registry
         )
-        self.model_info.labels(model=self.model_name, version="1.0").set(1)
+        self.model_info.labels(model=self.model_name, version=self.model_version).set(1)
 
     def track_request(self, request: Request, response: Response, duration: float):
         """Track general request metrics"""
@@ -206,7 +218,7 @@ class MetricsCollector:
 
     def generate_metrics(self) -> str:
         """Generate Prometheus metrics in text format"""
-        return generate_latest()
+        return generate_latest(self._registry)
 
     def get_content_type(self) -> str:
         """Get the content type for metrics response"""
@@ -218,7 +230,8 @@ _metrics_collector: Optional[MetricsCollector] = None
 _metrics_lock = threading.Lock()
 
 
-def init_metrics(model_name: Optional[str] = None) -> MetricsCollector:
+def init_metrics(model_name: Optional[str] = None,
+                 model_version: Optional[str] = None) -> MetricsCollector:
     """Initialize global metrics collector (thread-safe singleton).
 
     Uses double-checked locking pattern to ensure thread safety while
@@ -232,7 +245,7 @@ def init_metrics(model_name: Optional[str] = None) -> MetricsCollector:
     with _metrics_lock:
         # Double-check inside lock to prevent race condition
         if _metrics_collector is None:
-            _metrics_collector = MetricsCollector(model_name)
+            _metrics_collector = MetricsCollector(model_name, model_version=model_version)
         return _metrics_collector
 
 

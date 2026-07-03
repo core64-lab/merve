@@ -1,10 +1,10 @@
 
-import logging
 import json
+import logging
 import uuid
-from datetime import datetime
-from typing import Any, Dict, Optional
 from contextvars import ContextVar
+from datetime import datetime, timezone
+from typing import Optional
 
 DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
@@ -33,7 +33,7 @@ class StructuredFormatter(logging.Formatter):
 
         # Conditionally add timestamp
         if self.include_timestamp:
-            log_entry["timestamp"] = datetime.utcnow().isoformat() + "Z"
+            log_entry["timestamp"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         # Add correlation ID if available
         correlation_id = correlation_id_var.get()
@@ -41,17 +41,30 @@ class StructuredFormatter(logging.Formatter):
             log_entry["correlation_id"] = correlation_id
 
         # Add extra fields from record
+        # exc_info/exc_text/stack_info are excluded: exc_info is a traceback
+        # tuple that json.dumps cannot serialize (handled explicitly below)
         for key, value in record.__dict__.items():
             if key not in ["name", "msg", "args", "levelname", "levelno", "pathname",
                           "filename", "module", "lineno", "funcName", "created",
                           "msecs", "relativeCreated", "thread", "threadName",
-                          "processName", "process", "getMessage"]:
+                          "processName", "process", "getMessage",
+                          "exc_info", "exc_text", "stack_info"]:
                 # Skip taskName if show_tasks is False
                 if key == "taskName" and not self.show_tasks:
                     continue
                 log_entry[key] = value
 
-        return json.dumps(log_entry)
+        # Include formatted exception traceback when exc_info is set
+        # (e.g. logging.error("...", exc_info=True))
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        # Include formatted stack info when requested (stack_info=True)
+        if record.stack_info:
+            log_entry["stack_info"] = self.formatStack(record.stack_info)
+
+        # default=str: never lose a log line to a non-serializable extra field
+        return json.dumps(log_entry, default=str)
 
 
 def configure_logging(level: str = "INFO", structured: bool = True,

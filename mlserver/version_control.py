@@ -1,10 +1,11 @@
 """
 Enhanced version control utilities for safe container versioning and registry management.
 """
-import subprocess
 import re
-from typing import Optional, Tuple, Literal, Dict, Any
+import subprocess
 from pathlib import Path
+from typing import Any, Literal, Optional
+
 import semver
 
 from .errors import VersionControlError
@@ -23,15 +24,10 @@ def get_mlserver_commit_hash() -> Optional[str]:
         7-character short commit hash, or None if not from git
     """
     try:
-        # First, try to read from _version_info.py (embedded at build time)
-        try:
-            from mlserver import _version_info
-            if _version_info.GIT_COMMIT:
-                return _version_info.GIT_COMMIT[:7]  # Ensure 7 characters
-        except (ImportError, AttributeError):
-            pass
-
-        # Fallback: Try to find git repository for editable installs
+        # First, prefer live git information when the installed package sits
+        # inside a git checkout (editable installs). The committed
+        # _version_info.py is generated at build time and is typically one
+        # commit stale, so live git must win when available.
         import mlserver
         mlserver_file = Path(mlserver.__file__)
 
@@ -39,7 +35,8 @@ def get_mlserver_commit_hash() -> Optional[str]:
         # For editable installs: /path/to/mlserver/mlserver/__init__.py -> /path/to/mlserver
         # For package installs: /path/to/site-packages/mlserver/__init__.py -> need to go up more
         search_paths = [
-            mlserver_file.parent.parent,  # Standard editable: mlserver/mlserver/__init__.py -> mlserver/
+            # Standard editable: mlserver/mlserver/__init__.py -> mlserver/
+            mlserver_file.parent.parent,
             mlserver_file.parent.parent.parent,  # Some installs might have extra nesting
         ]
 
@@ -60,13 +57,22 @@ def get_mlserver_commit_hash() -> Optional[str]:
                 except subprocess.CalledProcessError:
                     continue
 
+        # Fallback for non-git (wheel/pip) installs: read from
+        # _version_info.py (embedded at build time)
+        try:
+            from mlserver import _version_info
+            if _version_info.GIT_COMMIT:
+                return _version_info.GIT_COMMIT[:7]  # Ensure 7 characters
+        except (ImportError, AttributeError):
+            pass
+
         return None
 
     except Exception:
         return None
 
 
-def parse_hierarchical_tag(tag: str) -> Dict[str, Optional[str]]:
+def parse_hierarchical_tag(tag: str) -> dict[str, Optional[str]]:
     """Parse hierarchical tag into its components.
 
     Parses tags in the format: <classifier-name>-v<X.X.X>-mlserver-<commit-hash>
@@ -83,7 +89,8 @@ def parse_hierarchical_tag(tag: str) -> Dict[str, Optional[str]]:
 
     Examples:
         >>> parse_hierarchical_tag("sentiment-v1.0.0-mlserver-b5dff2a")
-        {'classifier': 'sentiment', 'version': '1.0.0', 'mlserver_commit': 'b5dff2a', 'format': 'valid'}
+        {'classifier': 'sentiment', 'version': '1.0.0', 'mlserver_commit': 'b5dff2a',
+         'format': 'valid'}
 
         >>> parse_hierarchical_tag("invalid-tag")
         {'classifier': None, 'version': None, 'mlserver_commit': None, 'format': 'invalid'}
@@ -148,7 +155,7 @@ def extract_classifier_name(name_or_tag: str) -> Optional[str]:
     return None
 
 
-def get_tag_commits(tag: str, project_path: str = ".") -> Dict[str, Optional[str]]:
+def get_tag_commits(tag: str, project_path: str = ".") -> dict[str, Optional[str]]:
     """Get git commit hashes from a hierarchical tag.
 
     Given a hierarchical tag, returns:
@@ -224,7 +231,8 @@ class GitVersionManager:
         Returns just the version part: 1.0.0
 
         Args:
-            classifier_name: If provided, looks for classifier-specific tags (e.g., 'sentiment-v1.0.0-mlserver-b5dff2a')
+            classifier_name: If provided, looks for classifier-specific tags
+                (e.g., 'sentiment-v1.0.0-mlserver-b5dff2a')
         """
         try:
             if classifier_name:
@@ -271,7 +279,7 @@ class GitVersionManager:
         except Exception:
             return None
 
-    def get_latest_tag_info(self, classifier_name: Optional[str] = None) -> Dict[str, Any]:
+    def get_latest_tag_info(self, classifier_name: Optional[str] = None) -> dict[str, Any]:
         """Get information about the latest tag.
 
         Args:
@@ -362,7 +370,7 @@ class GitVersionManager:
                 "error": str(e)
             }
 
-    def check_working_directory_clean(self) -> Tuple[bool, Optional[str]]:
+    def check_working_directory_clean(self) -> tuple[bool, Optional[str]]:
         """
         Check if working directory has uncommitted changes to tracked files.
 
@@ -401,27 +409,32 @@ class GitVersionManager:
         classifier_name: str,
         message: Optional[str] = None,
         allow_missing_mlserver: bool = False
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Create a new version tag for a specific classifier with mlserver commit hash.
 
         Args:
             bump_type: Type of version bump
             classifier_name: Name of the classifier to tag
             message: Optional tag message
-            allow_missing_mlserver: If True, allow tagging even if mlserver commit cannot be determined (dev/testing only)
+            allow_missing_mlserver: If True, allow tagging even if mlserver commit
+                cannot be determined (dev/testing only)
 
         Returns:
             Dict with keys: 'version', 'tag_name', 'mlserver_commit', 'previous_version'
 
         Raises:
-            VersionControlError: If working directory is not clean or mlserver commit cannot be determined
+            VersionControlError: If working directory is not clean or mlserver
+                commit cannot be determined
         """
         # Check working directory is clean
         is_clean, error_msg = self.check_working_directory_clean()
         if not is_clean:
             raise VersionControlError(
                 message=f"Cannot tag version: {error_msg}",
-                suggestion="Commit or stash your changes first: git add . && git commit -m 'your message'"
+                suggestion=(
+                    "Commit or stash your changes first: "
+                    "git add . && git commit -m 'your message'"
+                )
             )
 
         # Get mlserver commit hash
@@ -430,12 +443,18 @@ class GitVersionManager:
             if not allow_missing_mlserver:
                 raise VersionControlError(
                     message="Could not determine mlserver commit hash",
-                    suggestion="Ensure mlserver-fastapi-wrapper is installed from git, or use --allow-missing-mlserver flag for development"
+                    suggestion=(
+                        "Ensure mlserver-fastapi-wrapper is installed from git, "
+                        "or use --allow-missing-mlserver flag for development"
+                    )
                 )
             else:
                 # Use placeholder for development
                 mlserver_commit = "dev"
-                print("⚠️  Warning: Using 'dev' as mlserver commit (--allow-missing-mlserver enabled)")
+                print(
+                    "⚠️  Warning: Using 'dev' as mlserver commit "
+                    "(--allow-missing-mlserver enabled)"
+                )
 
         # Get current version for this classifier
         current_version = self.get_current_version(classifier_name)
@@ -452,14 +471,22 @@ class GitVersionManager:
                     new_version = str(version_info.bump_patch())
             except ValueError:
                 # Current tag doesn't follow semver, start fresh
-                new_version = "1.0.0" if bump_type == "major" else "0.1.0" if bump_type == "minor" else "0.0.1"
+                new_version = (
+                    "1.0.0" if bump_type == "major"
+                    else "0.1.0" if bump_type == "minor" else "0.0.1"
+                )
         else:
             # No previous tags for this classifier
-            new_version = "1.0.0" if bump_type == "major" else "0.1.0" if bump_type == "minor" else "0.0.1"
+            new_version = (
+                "1.0.0" if bump_type == "major"
+                else "0.1.0" if bump_type == "minor" else "0.0.1"
+            )
 
         # Create hierarchical tag with mlserver commit
         tag_name = f"{classifier_name}-v{new_version}-mlserver-{mlserver_commit}"
-        tag_message = message or f"Release {classifier_name} {new_version} (mlserver {mlserver_commit})"
+        tag_message = (
+            message or f"Release {classifier_name} {new_version} (mlserver {mlserver_commit})"
+        )
 
         try:
             # Create annotated tag
@@ -479,8 +506,11 @@ class GitVersionManager:
         except subprocess.CalledProcessError as e:
             raise VersionControlError(
                 message=f"Failed to create git tag: {e}",
-                suggestion="Ensure you have write access to the repository and the tag doesn't already exist"
-            )
+                suggestion=(
+                    "Ensure you have write access to the repository "
+                    "and the tag doesn't already exist"
+                )
+            ) from e
 
     def check_registry_tag_exists(
         self,
@@ -492,38 +522,29 @@ class GitVersionManager:
         full_image = f"{registry}/{repository}:{tag}"
 
         try:
-            # Try to pull just the manifest (lightweight check)
+            # Inspect just the manifest (lightweight check, no image download)
             result = subprocess.run(
                 ["docker", "manifest", "inspect", full_image],
                 capture_output=True,
-                check=False,
-                stderr=subprocess.DEVNULL
+                check=False
             )
 
             return result.returncode == 0
 
         except Exception:
-            # If docker manifest doesn't work, try alternative approach
-            try:
-                result = subprocess.run(
-                    ["docker", "pull", "--disable-content-trust", full_image],
-                    capture_output=True,
-                    check=False
-                )
-                return "Downloaded newer image" in result.stdout.decode() or "Image is up to date" in result.stdout.decode()
-            except Exception:
-                # Assume it doesn't exist if we can't check
-                return False
+            # Assume it doesn't exist if we can't check
+            return False
 
-    def get_all_classifiers_tag_status(self, config_path: str) -> Dict[str, Dict[str, Any]]:
+    def get_all_classifiers_tag_status(self, config_path: str) -> dict[str, dict[str, Any]]:
         """Get tag status for all classifiers in a configuration.
 
         Returns:
             Dict mapping classifier names to their tag status
         """
-        from .multi_classifier import detect_multi_classifier_config, list_available_classifiers
-        from .config import AppConfig
         import yaml
+
+        from .config import AppConfig
+        from .multi_classifier import detect_multi_classifier_config, list_available_classifiers
 
         classifiers_status = {}
 
@@ -533,7 +554,7 @@ class GitVersionManager:
             classifier_names = list_available_classifiers(config_path)
         else:
             # Single classifier config
-            with open(config_path, 'r') as f:
+            with open(config_path) as f:
                 config_data = yaml.safe_load(f)
 
             try:
@@ -558,10 +579,14 @@ class GitVersionManager:
             else:
                 if tag_info["tag"]:
                     status = f"{tag_info['commits_since_tag']} commits behind"
-                    recommendation = f"mlserver tag --classifier {classifier_name} <major|minor|patch>"
+                    recommendation = (
+                        f"mlserver tag --classifier {classifier_name} <major|minor|patch>"
+                    )
                 else:
                     status = "No tags"
-                    recommendation = f"mlserver tag --classifier {classifier_name} <major|minor|patch>"
+                    recommendation = (
+                        f"mlserver tag --classifier {classifier_name} <major|minor|patch>"
+                    )
 
             classifiers_status[classifier_name] = {
                 "current_version": current_version,
@@ -574,7 +599,9 @@ class GitVersionManager:
 
         return classifiers_status
 
-    def validate_push_readiness(self, classifier_name: Optional[str] = None, force: bool = False) -> Dict[str, Any]:
+    def validate_push_readiness(
+        self, classifier_name: Optional[str] = None, force: bool = False
+    ) -> dict[str, Any]:
         """Validate if the repository is ready for pushing to registry."""
         validation_result = {
             "ready": True,
@@ -600,9 +627,15 @@ class GitVersionManager:
             if tag_info["tag"]:
                 commits_since = tag_info.get("commits_since_tag", "unknown")
                 if classifier_name:
-                    error = f"Classifier '{classifier_name}' not on a tagged commit. Latest tag '{tag_info['tag']}' is {commits_since} commits behind."
+                    error = (
+                        f"Classifier '{classifier_name}' not on a tagged commit. "
+                        f"Latest tag '{tag_info['tag']}' is {commits_since} commits behind."
+                    )
                 else:
-                    error = f"Not on a tagged commit. Latest tag '{tag_info['tag']}' is {commits_since} commits behind."
+                    error = (
+                        f"Not on a tagged commit. "
+                        f"Latest tag '{tag_info['tag']}' is {commits_since} commits behind."
+                    )
             else:
                 if classifier_name:
                     error = f"No version tags found for classifier '{classifier_name}'."
@@ -613,9 +646,15 @@ class GitVersionManager:
             validation_result["errors"].append(error)
 
             if classifier_name:
-                validation_result["errors"].append(f"Please tag your release with 'mlserver tag --classifier {classifier_name} <major|minor|patch>' before pushing.")
+                validation_result["errors"].append(
+                    f"Please tag your release with 'mlserver tag --classifier "
+                    f"{classifier_name} <major|minor|patch>' before pushing."
+                )
             else:
-                validation_result["errors"].append("Please tag your release with 'mlserver tag <major|minor|patch>' before pushing.")
+                validation_result["errors"].append(
+                    "Please tag your release with "
+                    "'mlserver tag <major|minor|patch>' before pushing."
+                )
 
         return validation_result
 
@@ -623,8 +662,9 @@ class GitVersionManager:
 def get_version_for_push(
     project_path: str = ".",
     classifier_name: Optional[str] = None,
-    version_source: Literal["git-tag", "config", "auto"] = "auto"
-) -> Tuple[str, str]:
+    version_source: Literal["git-tag", "config", "auto"] = "auto",
+    metadata: Optional[Any] = None
+) -> tuple[str, str]:
     """
     Get the version to use for container push.
 
@@ -632,11 +672,20 @@ def get_version_for_push(
         project_path: Path to project
         classifier_name: Optional classifier name for hierarchical tags
         version_source: Source of version ("git-tag", "config", "auto")
+        metadata: Optional pre-resolved ClassifierMetadata (used for the
+                  "config" source; avoids re-loading, which would fail for
+                  multi-classifier configs)
 
     Returns:
         Tuple of (version, source_description)
     """
     git_mgr = GitVersionManager(project_path)
+
+    def _config_version() -> str:
+        if metadata is not None:
+            return metadata.classifier.version
+        from .version import load_classifier_metadata
+        return load_classifier_metadata(project_path).classifier.version
 
     if version_source == "git-tag":
         version = git_mgr.get_current_version(classifier_name)
@@ -644,7 +693,10 @@ def get_version_for_push(
             if classifier_name:
                 raise VersionControlError(
                     message=f"No git tags found for classifier '{classifier_name}'",
-                    suggestion=f"Create a release tag first: mlserver tag --classifier {classifier_name}"
+                    suggestion=(
+                        f"Create a release tag first: "
+                        f"mlserver tag --classifier {classifier_name}"
+                    )
                 )
             else:
                 raise VersionControlError(
@@ -655,9 +707,7 @@ def get_version_for_push(
 
     elif version_source == "config":
         # Load from config file
-        from .version import load_classifier_metadata
-        metadata = load_classifier_metadata(project_path)
-        return metadata.classifier.version, "config"
+        return _config_version(), "config"
 
     else:  # auto
         # Prefer git tag if on tagged commit
@@ -678,9 +728,58 @@ def get_version_for_push(
             return version, f"git-tag ({tag})"
 
         # Fall back to config
-        from .version import load_classifier_metadata
-        metadata = load_classifier_metadata(project_path)
-        return metadata.classifier.version, f"config (not on tagged commit for {classifier_name})" if classifier_name else "config (not on tagged commit)"
+        return _config_version(), (
+            f"config (not on tagged commit for {classifier_name})"
+            if classifier_name else "config (not on tagged commit)"
+        )
+
+
+def resolve_push_metadata(project_path: str, classifier_name: Optional[str] = None):
+    """Resolve classifier metadata for a push (multi-classifier aware).
+
+    Single-classifier configs are loaded directly from mlserver.yaml.
+    Multi-classifier configs require a specific classifier to be selected
+    via classifier_name.
+
+    Returns:
+        ClassifierMetadata for the selected classifier
+
+    Raises:
+        ConfigurationError: If the config is missing/invalid, or if a
+            multi-classifier config is used without (or with an unknown)
+            classifier_name
+    """
+    from .errors import ConfigurationError
+    from .multi_classifier import (
+        detect_multi_classifier_config,
+        extract_single_classifier_config,
+        load_multi_classifier_config,
+    )
+    from .version import load_classifier_metadata
+
+    config_path = str(Path(project_path) / "mlserver.yaml")
+
+    if not detect_multi_classifier_config(config_path):
+        return load_classifier_metadata(project_path)
+
+    multi_config = load_multi_classifier_config(config_path)
+    available = list(multi_config.classifiers.keys())
+
+    if not classifier_name:
+        raise ConfigurationError(
+            message="Multi-classifier configuration detected but no classifier specified",
+            suggestion=f"Select one with --classifier <name>. Available: {', '.join(available)}"
+        )
+
+    if classifier_name not in multi_config.classifiers:
+        raise ConfigurationError(
+            message=f"Classifier '{classifier_name}' not found in configuration",
+            suggestion=f"Available classifiers: {', '.join(available)}"
+        )
+
+    app_config = extract_single_classifier_config(multi_config, classifier_name)
+    from .container import _prepare_container_metadata
+    return _prepare_container_metadata(app_config, project_path)
 
 
 def safe_push_container(
@@ -690,7 +789,7 @@ def safe_push_container(
     tag_prefix: Optional[str] = None,
     force: bool = False,
     version_source: Literal["git-tag", "config", "auto"] = "auto"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Safely push container to registry with version validation.
 
@@ -705,7 +804,24 @@ def safe_push_container(
     Returns:
         Push result dictionary
     """
+    from .errors import ConfigurationError
+    from .multi_classifier import detect_multi_classifier_config
+
     git_mgr = GitVersionManager(project_path)
+
+    # For multi-classifier configs, resolve the classifier selection up front
+    # so a missing/unknown --classifier produces a clear configuration error
+    # (instead of a misleading git-tag validation failure or a raw traceback)
+    metadata = None
+    config_path = Path(project_path) / "mlserver.yaml"
+    if config_path.exists() and detect_multi_classifier_config(str(config_path)):
+        try:
+            metadata = resolve_push_metadata(project_path, classifier_name)
+        except (ConfigurationError, ValueError) as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     # Validate push readiness
     validation = git_mgr.validate_push_readiness(classifier_name, force)
@@ -717,42 +833,62 @@ def safe_push_container(
             "validation_errors": validation["errors"]
         }
 
+    # Resolve metadata for single-classifier configs (after git validation so
+    # repository-state problems are reported first)
+    if metadata is None:
+        try:
+            metadata = resolve_push_metadata(project_path, classifier_name)
+        except (ConfigurationError, ValueError) as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
     # Get version for push
     try:
-        version, version_source_desc = get_version_for_push(project_path, classifier_name, version_source)
+        version, version_source_desc = get_version_for_push(
+            project_path, classifier_name, version_source, metadata=metadata
+        )
     except VersionControlError as e:
         return {
             "success": False,
             "error": str(e)
         }
 
-    # Load metadata for repository name
-    from .version import load_classifier_metadata, get_git_info
-    metadata = load_classifier_metadata(project_path)
-    git_info = get_git_info(project_path)
-
-    # Build repository path
-    repository = metadata.classifier.repository if hasattr(metadata.classifier, 'repository') else 'mlserver'
+    # Build the repository path the same way the actual push does
+    # (container.push_container -> generate_container_tags), so the registry
+    # check and the pushed tags agree
+    from .version import get_repository_name
+    repository = get_repository_name(project_path)
+    if classifier_name:
+        repository = f"{repository}/{classifier_name}"
     if tag_prefix:
         repository = f"{tag_prefix}/{repository}"
 
-    # Check if tag exists in registry
-    tag_exists = git_mgr.check_registry_tag_exists(registry, repository, version)
+    # Check if tag exists in registry (pushed version tags carry a 'v' prefix)
+    tag_exists = git_mgr.check_registry_tag_exists(registry, repository, f"v{version}")
 
     if tag_exists and not force:
         return {
             "success": False,
-            "error": f"Tag '{version}' already exists in registry",
-            "details": f"Image {registry}/{repository}:{version} already exists. Use --force to overwrite."
+            "error": f"Tag 'v{version}' already exists in registry",
+            "details": (
+                f"Image {registry}/{repository}:v{version} already exists. "
+                f"Use --force to overwrite."
+            )
         }
 
-    # Proceed with push using existing push_container function
+    # Proceed with push using existing push_container function, forwarding
+    # the validated version and classifier so pushed tags match what the
+    # validation above approved
     from .container import push_container
 
     result = push_container(
         project_path=project_path,
         registry=registry,
-        tag_prefix=tag_prefix
+        tag_prefix=tag_prefix,
+        classifier_name=classifier_name,
+        version=version
     )
 
     # Add version info to result

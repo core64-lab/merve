@@ -1,10 +1,9 @@
 """
 Project initialization for MLServer classifier projects.
 """
-import os
 import re
 from pathlib import Path
-from typing import Dict, Tuple, Optional, List
+from typing import Optional
 
 
 def sanitize_name(name: str) -> str:
@@ -17,6 +16,23 @@ def sanitize_name(name: str) -> str:
     if name and name[0].isdigit():
         name = '_' + name
     return name.lower()
+
+
+def _module_spec_to_path(project_path: Path, module_spec: str) -> Path:
+    """Map a predictor module spec to its expected file path.
+
+    Handles plain module names ("my_predictor" -> my_predictor.py) as well
+    as dotted module specs ("pkg.sub.predictor" -> pkg/sub/predictor.py).
+    """
+    if "." in module_spec and not module_spec.endswith(".py"):
+        return (project_path / Path(*module_spec.split("."))).with_suffix(".py")
+    return project_path / f"{module_spec}.py"
+
+
+def _find_predictor_file(project_path: Path, module_spec: str) -> Optional[Path]:
+    """Locate the Python file for a predictor module spec, if it exists."""
+    candidate = _module_spec_to_path(project_path, module_spec)
+    return candidate if candidate.exists() else None
 
 
 def generate_mlserver_yaml(
@@ -89,6 +105,7 @@ def generate_predictor_skeleton(
 ) -> str:
     """Generate skeleton predictor class."""
 
+    records_example = '[{"feature1": value1, "feature2": value2}, ...]'
     template = f'''"""
 {classifier_name} predictor implementation.
 """
@@ -128,7 +145,7 @@ class {class_name}:
 
         Args:
             data: Input data in one of two formats:
-                  - List of dictionaries (records format): [{{"feature1": value1, "feature2": value2}}, ...]
+                  - List of dictionaries (records format): {records_example}
                   - NumPy array (ndarray format): shape (n_samples, n_features)
 
         Returns:
@@ -264,7 +281,7 @@ def init_mlserver_project(
     predictor_class: Optional[str] = None,
     include_github_actions: bool = True,
     force: bool = False
-) -> Tuple[bool, str, Dict[str, str]]:
+) -> tuple[bool, str, dict[str, str]]:
     """
     Initialize a new MLServer classifier project.
 
@@ -301,7 +318,9 @@ def init_mlserver_project(
 
     if not predictor_class:
         # Convert to PascalCase for class name
-        predictor_class = ''.join(word.capitalize() for word in classifier_name_clean.split('_')) + 'Predictor'
+        predictor_class = ''.join(
+            word.capitalize() for word in classifier_name_clean.split('_')
+        ) + 'Predictor'
 
     predictor_file_clean = sanitize_name(predictor_file)
     predictor_py_path = project_path / f"{predictor_file_clean}.py"
@@ -314,14 +333,15 @@ def init_mlserver_project(
         # If mlserver.yaml exists, check what predictor it references
         try:
             import yaml
-            with open(mlserver_yaml_path, 'r') as f:
+            with open(mlserver_yaml_path) as f:
                 existing_config = yaml.safe_load(f)
 
             existing_predictor_module = existing_config.get('predictor', {}).get('module')
             if existing_predictor_module:
-                # Use the predictor module from existing config
+                # Use the predictor module from existing config (dotted specs
+                # map to nested paths: pkg.predictor -> pkg/predictor.py)
                 predictor_file_clean = existing_predictor_module
-                predictor_py_path = project_path / f"{predictor_file_clean}.py"
+                predictor_py_path = _module_spec_to_path(project_path, existing_predictor_module)
         except Exception:
             # If we can't read it, use the default we calculated
             pass
@@ -345,6 +365,7 @@ def init_mlserver_project(
             class_name=predictor_class,
             classifier_name=classifier_name
         )
+        predictor_py_path.parent.mkdir(parents=True, exist_ok=True)
         with open(predictor_py_path, 'w') as f:
             f.write(predictor_content)
         files_created["predictor"] = str(predictor_py_path.relative_to(project_path))
@@ -373,7 +394,9 @@ def init_mlserver_project(
         if gh_success:
             files_created.update(gh_files)
         elif "already exists" in gh_message.lower():
-            files_skipped.append(".github/workflows/ml-classifier-container-build.yml (already exists)")
+            files_skipped.append(
+                ".github/workflows/ml-classifier-container-build.yml (already exists)"
+            )
 
     # Build success message
     if not files_created and files_skipped:
@@ -382,7 +405,7 @@ def init_mlserver_project(
         message = "✓ Project initialized successfully!"
 
     if files_skipped:
-        message += f"\n\nSkipped (already exist):\n" + "\n".join(f"  - {f}" for f in files_skipped)
+        message += "\n\nSkipped (already exist):\n" + "\n".join(f"  - {f}" for f in files_skipped)
 
     return True, message, files_created
 
@@ -390,7 +413,7 @@ def init_mlserver_project(
 def check_project_files(
     project_path: str = ".",
     classifier_name: Optional[str] = None
-) -> Tuple[bool, List[str]]:
+) -> tuple[bool, list[str]]:
     """
     Check if all required files exist for a classifier project.
 
@@ -414,33 +437,55 @@ def check_project_files(
     # Parse mlserver.yaml to get predictor module
     try:
         import yaml
-        with open(mlserver_yaml, 'r') as f:
+        with open(mlserver_yaml) as f:
             config = yaml.safe_load(f)
 
         # Check if multi-classifier config
         if 'classifiers' in config:
             # Multi-classifier format
             if classifier_name and classifier_name in config['classifiers']:
-                predictor_module = config['classifiers'][classifier_name].get('predictor', {}).get('module')
-                if predictor_module:
-                    predictor_file = project_path / f"{predictor_module}.py"
-                    if not predictor_file.exists():
-                        missing_files.append(f"{predictor_module}.py (predictor file)")
+                predictor_module = (
+                    config['classifiers'][classifier_name].get('predictor', {}).get('module')
+                )
+                _check_predictor_module_file(project_path, predictor_module, missing_files)
             # For multi-classifier, we don't fail if no classifier_name provided
         else:
             # Single-classifier format
             predictor_module = config.get('predictor', {}).get('module')
-            if predictor_module:
-                predictor_file = project_path / f"{predictor_module}.py"
-                if not predictor_file.exists():
-                    missing_files.append(f"{predictor_module}.py (predictor file)")
+            _check_predictor_module_file(project_path, predictor_module, missing_files)
     except Exception:
         # If we can't parse, just warn about checking manually
         pass
 
-    # Check for GitHub Actions workflow
-    gh_workflow = project_path / ".github" / "workflows" / "ml-classifier-container-build.yml"
-    if not gh_workflow.exists():
-        missing_files.append(".github/workflows/ml-classifier-container-build.yml")
+    # Note: the GitHub Actions workflow is intentionally NOT hard-required
+    # here ('mlserver init --no-github' is a supported setup); a missing
+    # workflow is reported as a warning by
+    # validation.GitHubActionsConfiguredValidator instead.
 
     return len(missing_files) == 0, missing_files
+
+
+def _check_predictor_module_file(
+    project_path: Path,
+    predictor_module: Optional[str],
+    missing_files: list[str]
+) -> None:
+    """Check that the predictor module's file exists, appending to missing_files.
+
+    Dotted module specs (e.g. "examples.model.predictor") are resolved as
+    nested paths (examples/model/predictor.py). If a dotted spec's file is not
+    found in the project, the check is skipped rather than failed - the module
+    may be provided by an installed package (imports are validated elsewhere).
+    """
+    if not predictor_module:
+        return
+
+    if _find_predictor_file(project_path, predictor_module) is not None:
+        return
+
+    if "." in predictor_module and not predictor_module.endswith(".py"):
+        # Dotted spec not found as a project file - may be an installed
+        # module, so skip the file-existence requirement
+        return
+
+    missing_files.append(f"{predictor_module}.py (predictor file)")

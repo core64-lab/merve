@@ -1,33 +1,95 @@
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional, Union
-from pathlib import Path
+
 import json
 import logging
-from pydantic import BaseModel, Field, field_validator
+from pathlib import Path
+from typing import Any, Optional, Union, get_args
 
-from .version import ClassifierMetadata, load_classifier_metadata
-from .settings import get_settings
+from pydantic import BaseModel, Field, field_validator, model_validator
+
 from .errors import ConfigurationError
+from .settings import get_settings
+from .version import ClassifierMetadata, load_classifier_metadata
 
 logger = logging.getLogger(__name__)
 
 
+# Free-form dict fields whose contents are user-defined and must NOT be
+# checked for unknown keys (see _warn_unknown_config_keys)
+_FREE_FORM_CONFIG_FIELDS = {
+    "classifier", "model", "init_kwargs", "endpoints",
+    "resource_limits", "health_check",
+}
+
+
+def _extract_nested_model_class(annotation: Any) -> Optional[type]:
+    """Extract a BaseModel subclass from a field annotation.
+
+    Handles plain model annotations (ServerConfig) as well as
+    Optional[Model] / Union[...] annotations.
+    """
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    for arg in get_args(annotation):
+        if isinstance(arg, type) and issubclass(arg, BaseModel):
+            return arg
+    return None
+
+
+def _warn_unknown_config_keys(data: Any, model_cls: type, prefix: str = "") -> None:
+    """Recursively warn about raw config keys that match no declared model field.
+
+    Pydantic silently drops unknown keys, so typos like 'porrt' would
+    otherwise be ignored and defaults used. This only warns - it never rejects.
+    Free-form dict fields (classifier, model, init_kwargs, ...) are not
+    descended into.
+    """
+    if not isinstance(data, dict):
+        return
+
+    fields = model_cls.model_fields
+    for key, value in data.items():
+        path = f"{prefix}{key}"
+        if key not in fields:
+            logger.warning(f"Unknown config key '{path}' — ignored (check for typos)")
+            continue
+        if key in _FREE_FORM_CONFIG_FIELDS:
+            continue
+        nested_cls = _extract_nested_model_class(fields[key].annotation)
+        if nested_cls is not None and isinstance(value, dict):
+            _warn_unknown_config_keys(value, nested_cls, prefix=f"{path}.")
+
+
 
 class CORSConfig(BaseModel):
-    # Security: Default to no CORS instead of wildcard. Require explicit configuration for production.
-    allow_origins: List[str] = Field(default_factory=list, description="Allowed origins (empty = CORS disabled)")
-    allow_methods: List[str] = Field(default_factory=lambda: ["GET", "POST"], description="Allowed HTTP methods")
-    allow_headers: List[str] = Field(default_factory=lambda: ["Content-Type"], description="Allowed headers")
+    # Security: Default to no CORS instead of wildcard. Require explicit
+    # configuration for production.
+    allow_origins: list[str] = Field(
+        default_factory=list, description="Allowed origins (empty = CORS disabled)"
+    )
+    allow_methods: list[str] = Field(
+        default_factory=lambda: ["GET", "POST"], description="Allowed HTTP methods"
+    )
+    allow_headers: list[str] = Field(
+        default_factory=lambda: ["Content-Type"], description="Allowed headers"
+    )
     allow_credentials: bool = Field(default=False, description="Allow credentials in CORS requests")
 
 
 class LoggerConfig(BaseModel):
     """Logger configuration for structured logging."""
-    timestamp: bool = Field(default=False, description="Include timestamps in logs (default: false for container environments)")
+    timestamp: bool = Field(
+        default=False,
+        description="Include timestamps in logs (default: false for container environments)"
+    )
     structured: bool = Field(default=True, description="Use structured JSON logging")
-    show_tasks: bool = Field(default=False, description="Show async task names (Task-1, Task-2) in logs")
-    format: Optional[str] = Field(default=None, description="Custom log format string (overrides other settings)")
+    show_tasks: bool = Field(
+        default=False, description="Show async task names (Task-1, Task-2) in logs"
+    )
+    format: Optional[str] = Field(
+        default=None, description="Custom log format string (overrides other settings)"
+    )
 
 
 class ServerConfig(BaseModel):
@@ -35,7 +97,12 @@ class ServerConfig(BaseModel):
     host: str = Field(default_factory=lambda: get_settings().server.default_host)
     port: int = Field(default_factory=lambda: get_settings().server.default_port)
     log_level: str = Field(default_factory=lambda: get_settings().server.default_log_level)
-    workers: int = Field(default_factory=lambda: get_settings().server.default_workers if hasattr(get_settings().server, 'default_workers') else 1)
+    workers: int = Field(
+        default_factory=lambda: (
+            get_settings().server.default_workers
+            if hasattr(get_settings().server, 'default_workers') else 1
+        )
+    )
     cors: Optional[CORSConfig] = None
     logger: Optional[LoggerConfig] = Field(default=None, description="Logger configuration")
 
@@ -57,7 +124,7 @@ class ServerConfig(BaseModel):
 class PredictorConfig(BaseModel):
     module: str  # e.g., "examples.predictor_catboost"
     class_name: str  # e.g., "CatBoostPredictor"
-    init_kwargs: Dict[str, Any] = Field(default_factory=dict)
+    init_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator('module', 'class_name')
     @classmethod
@@ -72,7 +139,9 @@ class ObservabilityConfig(BaseModel):
     metrics_endpoint: str = Field(default="/metrics", description="Metrics endpoint path")
     structured_logging: bool = Field(default=True, description="Enable structured JSON logging")
     log_payloads: bool = Field(default=False, description="Log request/response payloads")
-    correlation_ids: bool = Field(default=True, description="Generate correlation IDs for request tracing")
+    correlation_ids: bool = Field(
+        default=True, description="Generate correlation IDs for request tracing"
+    )
 
 
 
@@ -80,7 +149,7 @@ class ObservabilityConfig(BaseModel):
 class ApiConfig(BaseModel):
     """Unified API configuration from mlserver.yaml"""
     version: str = Field(default="v1", description="API version for metadata tracking")
-    endpoints: Dict[str, bool] = Field(
+    endpoints: dict[str, bool] = Field(
         default_factory=lambda: {
             "predict": True,
             # Note: batch_predict removed - /predict handles both single and batch
@@ -89,18 +158,24 @@ class ApiConfig(BaseModel):
         description="Enabled endpoints"
     )
     adapter: str = Field(default="records", description="records|ndarray|auto")
-    feature_order: Optional[Union[List[str], str]] = None  # Can be List[str] or str (file path)
-    _resolved_feature_order: Optional[List[str]] = None  # Cached resolved value
+    feature_order: Optional[Union[list[str], str]] = None  # Can be list[str] or str (file path)
+    _resolved_feature_order: Optional[list[str]] = None  # Cached resolved value
     thread_safe_predict: bool = False
     max_concurrent_predictions: int = Field(
         default=1,
-        description="Maximum concurrent predictions (1 for single model protection in K8s)",
-        ge=1
+        description=(
+            "Maximum concurrent predictions (1 for single model protection in K8s, "
+            "0 disables concurrency limiting)"
+        ),
+        ge=0
     )
     # Response format configuration
     response_format: str = Field(
         default="standard",
-        description="Response format: 'standard' (default), 'custom' (flexible), or 'passthrough' (unmodified)"
+        description=(
+            "Response format: 'standard' (default), 'custom' (flexible), "
+            "or 'passthrough' (unmodified)"
+        )
     )
     response_validation: bool = Field(
         default=True,
@@ -113,10 +188,13 @@ class ApiConfig(BaseModel):
     # Warmup configuration
     warmup_on_start: bool = Field(
         default=True,
-        description="Run a warmup prediction at startup to initialize model internals and reduce first-request latency"
+        description=(
+            "Run a warmup prediction at startup to initialize model internals "
+            "and reduce first-request latency"
+        )
     )
 
-    def get_resolved_feature_order(self, base_path: Optional[Path] = None) -> Optional[List[str]]:
+    def get_resolved_feature_order(self, base_path: Optional[Path] = None) -> Optional[list[str]]:
         """Resolve feature_order, loading from file if it's a path.
 
         Args:
@@ -154,12 +232,15 @@ class ApiConfig(BaseModel):
                     # Ensure resolved path is within the base directory
                     try:
                         file_path.relative_to(resolved_base)
-                    except ValueError:
+                    except ValueError as e:
                         raise ConfigurationError(
                             message=f"Security error: feature_order path '{self.feature_order}' "
                             f"resolves to '{file_path}' which is outside the project directory.",
-                            suggestion="Use a relative path within your project directory, like 'features.json' or 'config/features.json'",
-                        )
+                            suggestion=(
+                                "Use a relative path within your project directory, "
+                                "like 'features.json' or 'config/features.json'"
+                            ),
+                        ) from e
                 else:
                     file_path = Path(self.feature_order).resolve()
 
@@ -172,12 +253,14 @@ class ApiConfig(BaseModel):
                     return None
 
                 # Load JSON file
-                with open(file_path, 'r') as f:
+                with open(file_path) as f:
                     features = json.load(f)
 
                 # Validate it's a list of strings
                 if not isinstance(features, list):
-                    raise ValueError(f"Feature order file must contain a JSON array, got {type(features)}")
+                    raise ValueError(
+                        f"Feature order file must contain a JSON array, got {type(features)}"
+                    )
 
                 # Validate all items are strings
                 non_strings = [i for i, f in enumerate(features) if not isinstance(f, str)]
@@ -207,22 +290,33 @@ class ApiConfig(BaseModel):
 
 class BuildConfig(BaseModel):
     """Container build configuration"""
-    base_image: str = Field(default_factory=lambda: get_settings().container.default_base_image, description="Base Docker image")
+    base_image: str = Field(
+        default_factory=lambda: get_settings().container.default_base_image,
+        description="Base Docker image"
+    )
     registry: Optional[str] = Field(default=None, description="Container registry URL")
     tag_prefix: Optional[str] = Field(default=None, description="Tag prefix for container names")
-    include_files: Optional[List[str]] = Field(default=None, description="Explicit files to include")
-    exclude_patterns: Optional[List[str]] = Field(default=None, description="Patterns to exclude")
+    include_files: Optional[list[str]] = Field(
+        default=None, description="Explicit files to include"
+    )
+    exclude_patterns: Optional[list[str]] = Field(default=None, description="Patterns to exclude")
 
 
 class GitHubVariablesConfig(BaseModel):
     """GitHub repository variables configuration for CI/CD workflows."""
     aws_role_arn_var: str = Field(
         default="AWS_RUNNER_ROLE_ARN",
-        description="Name of GitHub repository variable containing AWS IAM role ARN for OIDC authentication"
+        description=(
+            "Name of GitHub repository variable containing AWS IAM role ARN "
+            "for OIDC authentication"
+        )
     )
     aws_role_arn_value: Optional[str] = Field(
         default=None,
-        description="Direct AWS role ARN value to bake into workflow (alternative to variable, less secure)"
+        description=(
+            "Direct AWS role ARN value to bake into workflow "
+            "(alternative to variable, less secure)"
+        )
     )
 
 
@@ -245,7 +339,10 @@ class RegistryConfig(BaseModel):
     """Container registry configuration for deployments."""
     type: str = Field(
         default="ghcr",
-        description="Registry type: 'ghcr' (GitHub Container Registry) or 'ecr' (AWS Elastic Container Registry)"
+        description=(
+            "Registry type: 'ghcr' (GitHub Container Registry) "
+            "or 'ecr' (AWS Elastic Container Registry)"
+        )
     )
     url: Optional[str] = Field(
         default=None,
@@ -291,11 +388,11 @@ class DeploymentConfig(BaseModel):
         default_factory=RegistryConfig,
         description="Container registry configuration"
     )
-    resource_limits: Optional[Dict[str, Any]] = Field(
+    resource_limits: Optional[dict[str, Any]] = Field(
         default=None,
         description="Resource limits for Kubernetes deployments"
     )
-    health_check: Optional[Dict[str, Any]] = Field(
+    health_check: Optional[dict[str, Any]] = Field(
         default=None,
         description="Health check configuration"
     )
@@ -307,11 +404,14 @@ class AppConfig(BaseModel):
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
 
     # Modern format (mlserver.yaml) - now optional with smart defaults
-    classifier: Optional[Dict[str, Any]] = Field(
+    classifier: Optional[dict[str, Any]] = Field(
         default=None,
-        description="Classifier metadata (name, version, description). Auto-generated if not provided."
+        description=(
+            "Classifier metadata (name, version, description). "
+            "Auto-generated if not provided."
+        )
     )
-    model: Optional[Dict[str, Any]] = Field(default=None)  # Model metadata dict
+    model: Optional[dict[str, Any]] = Field(default=None)  # Model metadata dict
     api: Optional[ApiConfig] = Field(
         default=None,
         description="API configuration. Uses sensible defaults if not provided."
@@ -322,6 +422,18 @@ class AppConfig(BaseModel):
     # Internal state
     classifier_metadata_internal: Optional[ClassifierMetadata] = Field(default=None, exclude=True)
     project_path_internal: Optional[str] = Field(default=None, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _warn_on_unknown_keys(cls, data: Any) -> Any:
+        """Warn (but never reject) when the raw config contains unknown keys.
+
+        Catches typos like 'porrt: 9999' that pydantic would otherwise
+        silently drop, replacing the intended value with a default.
+        """
+        if isinstance(data, dict):
+            _warn_unknown_config_keys(data, cls)
+        return data
 
     def model_post_init(self, __context) -> None:
         """Post-initialization processing for modern config format."""

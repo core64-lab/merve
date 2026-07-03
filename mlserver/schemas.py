@@ -1,7 +1,9 @@
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, ConfigDict
+
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthResponse(BaseModel):
@@ -17,9 +19,12 @@ class PredictRequest(BaseModel):
     - ndarray adapter: {"ndarray": [[value1, value2], [value3, value4], ...]}
     """
     # Fully flexible payload — we parse inside route
-    payload: Dict[str, Any] = Field(
+    payload: dict[str, Any] = Field(
         default_factory=dict,
-        description="Prediction input data. Format depends on adapter: 'records' (list of dicts) or 'ndarray' (2D array)"
+        description=(
+            "Prediction input data. Format depends on adapter: "
+            "'records' (list of dicts) or 'ndarray' (2D array)"
+        )
     )
 
     model_config = ConfigDict(
@@ -83,10 +88,12 @@ class ClassifierMetadataResponse(BaseModel):
 
 class PredictResponse(BaseModel):
     """Response from prediction endpoints."""
-    predictions: List[Any] = Field(description="Model predictions for each input record")
+    predictions: list[Any] = Field(description="Model predictions for each input record")
     time_ms: float = Field(description="Time taken for prediction in milliseconds")
     predictor_class: Optional[str] = Field(None, description="Name of the predictor class used")
-    metadata: Optional[ClassifierMetadataResponse] = Field(None, description="Comprehensive classifier metadata")
+    metadata: Optional[ClassifierMetadataResponse] = Field(
+        None, description="Comprehensive classifier metadata"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -94,18 +101,19 @@ class PredictResponse(BaseModel):
                 {
                     "predictions": [0, 1, 0],
                     "time_ms": 12.5,
-                    "model": "catboost-survival",
+                    "predictor_class": "CatBoostPredictor",
                     "metadata": {
-                        "repository": "mlserver-repo",
+                        "project": "mlserver-repo",
                         "classifier": "catboost-survival",
-                        "version": "1.0.0",
-                        "api_version": "v1"
+                        "predictor_class": "CatBoostPredictor",
+                        "git_commit": "abc1234",
+                        "mlserver_version": "0.3.0"
                     }
                 },
                 {
                     "predictions": ["class_a", "class_b", "class_a"],
                     "time_ms": 8.3,
-                    "model": "text-classifier"
+                    "predictor_class": "TextClassifierPredictor"
                 }
             ]
         }
@@ -114,10 +122,16 @@ class PredictResponse(BaseModel):
 
 class ProbaResponse(BaseModel):
     """Response from predict_proba endpoints."""
-    probabilities: List[List[float]] = Field(description="Class probabilities for each input record")
+    probabilities: list[list[float]] = Field(
+        description="Class probabilities for each input record"
+    )
     time_ms: float = Field(description="Time taken for prediction in milliseconds")
-    classes: Optional[List[str]] = Field(None, description="Class labels corresponding to probability columns")
-    metadata: Optional[ClassifierMetadataResponse] = Field(None, description="Comprehensive classifier metadata")
+    classes: Optional[list[str]] = Field(
+        None, description="Class labels corresponding to probability columns"
+    )
+    metadata: Optional[ClassifierMetadataResponse] = Field(
+        None, description="Comprehensive classifier metadata"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -129,8 +143,7 @@ class ProbaResponse(BaseModel):
                         [0.60, 0.40]
                     ],
                     "time_ms": 15.2,
-                    "classes": ["negative", "positive"],
-                    "model": "catboost-survival"
+                    "classes": ["negative", "positive"]
                 }
             ]
         }
@@ -140,7 +153,7 @@ class ProbaResponse(BaseModel):
 class CustomPredictResponse(BaseModel):
     """Flexible response supporting arbitrary structures for custom predictors."""
     result: Any = Field(description="Prediction result (any JSON-serializable structure)")
-    predictions: Optional[List[Any]] = Field(
+    predictions: Optional[list[Any]] = Field(
         None,
         description="Optional extracted predictions for compatibility"
     )
@@ -163,7 +176,7 @@ class CustomPredictResponse(BaseModel):
                         }
                     },
                     "time_ms": 16.4,
-                    "model": "CustomPredictor"
+                    "predictor_class": "CustomPredictor"
                 },
                 {
                     "result": {
@@ -172,43 +185,13 @@ class CustomPredictResponse(BaseModel):
                         "features_used": ["feature1", "feature2", "feature3"]
                     },
                     "time_ms": 12.5,
-                    "model": "AdvancedClassifier",
+                    "predictor_class": "AdvancedClassifier",
                     "metadata": {
-                        "repository": "mlserver-repo",
+                        "project": "mlserver-repo",
                         "classifier": "advanced-classifier",
-                        "version": "2.0.0",
-                        "api_version": "v1"
-                    }
-                }
-            ]
-        }
-    )
-
-
-class SinglePredictRequest(BaseModel):
-    """Request for single record prediction with clear semantics."""
-    payload: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Single record input. Use 'record' for dict format or 'ndarray' for array format"
-    )
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [
-                {
-                    "description": "Single record format",
-                    "value": {
-                        "payload": {
-                            "record": {"feature1": 1.5, "feature2": 2.3, "feature3": 0.8}
-                        }
-                    }
-                },
-                {
-                    "description": "Single array format",
-                    "value": {
-                        "payload": {
-                            "ndarray": [1.5, 2.3, 0.8]
-                        }
+                        "predictor_class": "AdvancedClassifier",
+                        "git_commit": "abc1234",
+                        "mlserver_version": "0.3.0"
                     }
                 }
             ]

@@ -7,13 +7,13 @@ Phase 6: IDE Support Implementation
 """
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, Literal
+from typing import Any, Literal
 
-from .config import AppConfig, ServerConfig, PredictorConfig, ApiConfig, ObservabilityConfig
+from .config import AppConfig
 from .multi_classifier import MultiClassifierConfig
 
 
-def generate_config_schema() -> Dict[str, Any]:
+def generate_config_schema() -> dict[str, Any]:
     """Generate JSON schema for single-classifier AppConfig.
 
     Returns:
@@ -32,7 +32,7 @@ def generate_config_schema() -> Dict[str, Any]:
     return schema
 
 
-def generate_multi_classifier_schema() -> Dict[str, Any]:
+def generate_multi_classifier_schema() -> dict[str, Any]:
     """Generate JSON schema for multi-classifier configuration.
 
     Returns:
@@ -51,7 +51,7 @@ def generate_multi_classifier_schema() -> Dict[str, Any]:
     return schema
 
 
-def generate_combined_schema() -> Dict[str, Any]:
+def generate_combined_schema() -> dict[str, Any]:
     """Generate a combined schema supporting both single and multi-classifier configs.
 
     Returns:
@@ -96,7 +96,7 @@ def generate_combined_schema() -> Dict[str, Any]:
 
 def get_schema_for_config_type(
     config_type: Literal["single", "multi", "auto"] = "auto"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get JSON schema for the specified configuration type.
 
     Args:
@@ -116,7 +116,7 @@ def get_schema_for_config_type(
         return generate_combined_schema()
 
 
-def save_schema(schema: Dict[str, Any], output_path: str) -> None:
+def save_schema(schema: dict[str, Any], output_path: str) -> None:
     """Save JSON schema to a file.
 
     Args:
@@ -145,7 +145,7 @@ def get_vscode_yaml_comment(schema_path: str = ".mlserver/schema.json") -> str:
     return f"# yaml-language-server: $schema={schema_path}"
 
 
-def get_vscode_settings_snippet(schema_path: str = ".mlserver/schema.json") -> Dict[str, Any]:
+def get_vscode_settings_snippet(schema_path: str = ".mlserver/schema.json") -> dict[str, Any]:
     """Get VSCode settings.json snippet for automatic schema association.
 
     Args:

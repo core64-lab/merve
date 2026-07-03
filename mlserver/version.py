@@ -4,13 +4,13 @@ Version management utilities for ML server classifier projects.
 import os
 import re
 import subprocess
-from typing import Optional, Dict, Any
-from pathlib import Path
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
 
 import yaml
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from .errors import ConfigurationError
 
@@ -26,28 +26,41 @@ class GitInfo:
 
 class ClassifierVersion(BaseModel):
     """Classifier version metadata schema."""
-    repository: Optional[str] = Field(None, description="Repository name (auto-detected if not provided)")
+    repository: Optional[str] = Field(
+        None, description="Repository name (auto-detected if not provided)"
+    )
     name: str = Field(..., description="Classifier name (used in URLs)")
-    version: Optional[str] = Field("1.0.0", description="Semantic version (auto-detected from git tags if not provided)")
+    version: Optional[str] = Field(
+        "1.0.0", description="Semantic version (auto-detected from git tags if not provided)"
+    )
     description: str = Field("", description="Classifier description")
 
-    @validator('repository')
+    @field_validator('repository')
+    @classmethod
     def validate_repository(cls, v):
         if v is None:
             return v
         # Ensure repository name is valid for Docker tags
         if not re.match(r'^[a-z0-9][a-z0-9-_.]*$', v):
-            raise ValueError('Repository must start with alphanumeric and contain only lowercase letters, numbers, hyphens, underscores, and periods')
+            raise ValueError(
+                'Repository must start with alphanumeric and contain only lowercase '
+                'letters, numbers, hyphens, underscores, and periods'
+            )
         return v
 
-    @validator('name')
+    @field_validator('name')
+    @classmethod
     def validate_name(cls, v):
         # Ensure name is URL-safe (allow underscores for compatibility)
         if not re.match(r'^[a-z0-9][a-z0-9_-]*$', v):
-            raise ValueError('Name must start with lowercase letter or number, and contain only lowercase letters, numbers, underscores, and hyphens')
+            raise ValueError(
+                'Name must start with lowercase letter or number, and contain only '
+                'lowercase letters, numbers, underscores, and hyphens'
+            )
         return v
 
-    @validator('version')
+    @field_validator('version')
+    @classmethod
     def validate_version(cls, v):
         if v is None:
             return "1.0.0"  # Default version
@@ -59,15 +72,19 @@ class ClassifierVersion(BaseModel):
 
 class ModelVersion(BaseModel):
     """Model artifact version metadata."""
-    version: Optional[str] = Field("1.0.0", description="Model version (auto-detected from git tags if not provided)")
+    version: Optional[str] = Field(
+        "1.0.0", description="Model version (auto-detected from git tags if not provided)"
+    )
     trained_at: Optional[str] = Field(None, description="Training timestamp (ISO format)")
-    metrics: Dict[str, float] = Field(default_factory=dict, description="Model performance metrics")
+    metrics: dict[str, float] = Field(
+        default_factory=dict, description="Model performance metrics"
+    )
 
 
 class ApiVersion(BaseModel):
     """API versioning configuration."""
     version: str = Field("v1", description="API version (v1, v2, etc.)")
-    endpoints: Dict[str, bool] = Field(
+    endpoints: dict[str, bool] = Field(
         default_factory=lambda: {
             "predict": True,
             # Note: batch_predict removed - /predict handles both single and batch
@@ -76,7 +93,8 @@ class ApiVersion(BaseModel):
         description="Enabled endpoints"
     )
 
-    @validator('version')
+    @field_validator('version')
+    @classmethod
     def validate_api_version(cls, v):
         if not re.match(r'^v\d+$', v):
             raise ValueError('API version must be in format v1, v2, etc.')
@@ -88,7 +106,7 @@ class ClassifierMetadata(BaseModel):
     classifier: ClassifierVersion
     model: ModelVersion
     api: ApiVersion = Field(default_factory=ApiVersion)
-    build: Dict[str, Any] = Field(default_factory=dict, description="Build configuration")
+    build: dict[str, Any] = Field(default_factory=dict, description="Build configuration")
 
 
 def get_git_info(project_path: str) -> Optional[GitInfo]:
@@ -155,17 +173,20 @@ def load_classifier_metadata(project_path: str) -> ClassifierMetadata:
     if not mlserver_file.exists():
         raise ConfigurationError(
             message=f"mlserver.yaml not found in {project_path}",
-            suggestion="Run 'mlserver init' to create a new project, or check you're in the correct directory"
+            suggestion=(
+                "Run 'mlserver init' to create a new project, "
+                "or check you're in the correct directory"
+            )
         )
 
     try:
-        with open(mlserver_file, 'r') as f:
+        with open(mlserver_file) as f:
             full_config = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ConfigurationError(
             message=f"Invalid YAML syntax in mlserver.yaml: {e}",
             suggestion="Check your mlserver.yaml for syntax errors (indentation, colons, quotes)"
-        )
+        ) from e
 
     # Extract classifier metadata from unified config
     if 'classifier' not in full_config:
@@ -188,7 +209,10 @@ def save_classifier_metadata(metadata: ClassifierMetadata, project_path: str):
     mlserver_file = Path(project_path) / "mlserver.yaml"
 
     with open(mlserver_file, 'w') as f:
-        yaml.dump(metadata.model_dump(exclude_unset=True), f, default_flow_style=False, sort_keys=False)
+        yaml.dump(
+            metadata.model_dump(exclude_unset=True), f,
+            default_flow_style=False, sort_keys=False
+        )
 
 
 def generate_container_tags(metadata: ClassifierMetadata, git_info: Optional[GitInfo] = None,
@@ -240,16 +264,37 @@ def generate_container_tags(metadata: ClassifierMetadata, git_info: Optional[Git
     return tags
 
 
-def validate_version_consistency(metadata: ClassifierMetadata, project_path: str) -> Dict[str, str]:
+def validate_version_consistency(
+    metadata: ClassifierMetadata, project_path: str
+) -> dict[str, str]:
     """Validate version consistency across project files."""
+    # Imported here to avoid any risk of an import cycle with version_control
+    from .version_control import parse_hierarchical_tag
+
     issues = {}
 
     # Check git tag consistency
     git_info = get_git_info(project_path)
     if git_info and git_info.tag:
-        expected_tag = f"v{metadata.classifier.version}"
-        if git_info.tag != expected_tag:
-            issues['git_tag'] = f"Git tag '{git_info.tag}' doesn't match classifier version 'v{metadata.classifier.version}'"
+        tag = git_info.tag
+        parsed = parse_hierarchical_tag(tag)
+
+        if parsed["format"] == "valid":
+            # Hierarchical tag created by 'mlserver tag'
+            # (<classifier>-v<X.Y.Z>-mlserver-<hash>): compare the version
+            # segment, but only for tags belonging to this classifier
+            if (parsed["classifier"] == metadata.classifier.name and
+                    parsed["version"] != metadata.classifier.version):
+                issues['git_tag'] = (
+                    f"Git tag '{tag}' version 'v{parsed['version']}' doesn't match "
+                    f"classifier version 'v{metadata.classifier.version}'"
+                )
+        elif tag != f"v{metadata.classifier.version}":
+            # Plain version tags (v1.2.3) must match exactly
+            issues['git_tag'] = (
+                f"Git tag '{tag}' doesn't match classifier version "
+                f"'v{metadata.classifier.version}'"
+            )
 
     # Check if working directory is dirty
     if git_info and git_info.is_dirty:
@@ -258,7 +303,9 @@ def validate_version_consistency(metadata: ClassifierMetadata, project_path: str
     return issues
 
 
-def get_version_info(project_path: str = ".", classifier_name: Optional[str] = None) -> Dict[str, Any]:
+def get_version_info(
+    project_path: str = ".", classifier_name: Optional[str] = None
+) -> dict[str, Any]:
     """Get comprehensive version information for a classifier project.
 
     Args:
@@ -274,14 +321,17 @@ def get_version_info(project_path: str = ".", classifier_name: Optional[str] = N
 
         from .config import AppConfig
 
-        with open(mlserver_config_path, 'r') as f:
+        with open(mlserver_config_path) as f:
             raw_config = yaml.safe_load(f)
 
         # Check if this is a multi-classifier config
         is_multi_classifier = "classifiers" in raw_config
 
         if is_multi_classifier:
-            from .multi_classifier import load_multi_classifier_config, extract_single_classifier_config
+            from .multi_classifier import (
+                extract_single_classifier_config,
+                load_multi_classifier_config,
+            )
 
             multi_config = load_multi_classifier_config(mlserver_config_path)
             available_classifiers = list(multi_config.classifiers.keys())
@@ -289,7 +339,12 @@ def get_version_info(project_path: str = ".", classifier_name: Optional[str] = N
             if classifier_name:
                 # Get info for specific classifier
                 if classifier_name not in multi_config.classifiers:
-                    return {"error": f"Classifier '{classifier_name}' not found. Available: {available_classifiers}"}
+                    return {
+                        "error": (
+                            f"Classifier '{classifier_name}' not found. "
+                            f"Available: {available_classifiers}"
+                        )
+                    }
 
                 config = extract_single_classifier_config(multi_config, classifier_name)
             else:
@@ -308,7 +363,9 @@ def get_version_info(project_path: str = ".", classifier_name: Optional[str] = N
                 return {
                     "multi_classifier": True,
                     "classifiers": classifiers_info,
-                    "default_classifier": multi_config.default_classifier or (available_classifiers[0] if available_classifiers else None),
+                    "default_classifier": multi_config.default_classifier or (
+                        available_classifiers[0] if available_classifiers else None
+                    ),
                     "git": git_info.__dict__ if git_info else None,
                     "timestamp": datetime.now().isoformat(),
                     "config_source": "mlserver.yaml"

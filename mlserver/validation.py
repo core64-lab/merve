@@ -10,8 +10,11 @@ Includes:
 - Validation suites for common workflows
 """
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from .config import AppConfig
 
 
 @dataclass
@@ -19,7 +22,7 @@ class ValidationResult:
     """Result of a validation check."""
     passed: bool
     error_message: Optional[str] = None
-    warnings: List[str] = None
+    warnings: list[str] = None
     details: dict = None
 
     def __post_init__(self):
@@ -33,9 +36,9 @@ class ValidationResult:
 class FeatureValidationResult:
     """Result of feature validation for a single record or batch."""
     valid: bool
-    missing_features: List[str] = field(default_factory=list)
-    extra_features: List[str] = field(default_factory=list)
-    type_errors: List[Dict[str, Any]] = field(default_factory=list)
+    missing_features: list[str] = field(default_factory=list)
+    extra_features: list[str] = field(default_factory=list)
+    type_errors: list[dict[str, Any]] = field(default_factory=list)
     record_index: Optional[int] = None
 
     def to_error_message(self) -> str:
@@ -78,7 +81,7 @@ class FeatureSchemaValidator:
 
     def __init__(
         self,
-        feature_order: List[str],
+        feature_order: list[str],
         strict: bool = False,
         allow_extra_features: bool = True
     ):
@@ -91,11 +94,11 @@ class FeatureSchemaValidator:
             allow_extra_features: If True, extra features in input are warnings, not errors.
         """
         self.feature_order = feature_order
-        self.feature_set: Set[str] = set(feature_order)
+        self.feature_set: set[str] = set(feature_order)
         self.strict = strict
         self.allow_extra_features = allow_extra_features
 
-    def validate_record(self, record: Dict[str, Any]) -> FeatureValidationResult:
+    def validate_record(self, record: dict[str, Any]) -> FeatureValidationResult:
         """
         Validate a single record against the expected schema.
 
@@ -123,7 +126,9 @@ class FeatureSchemaValidator:
             extra_features=sorted(extra) if not self.allow_extra_features else []
         )
 
-    def validate_records(self, records: List[Dict[str, Any]]) -> Tuple[bool, List[FeatureValidationResult]]:
+    def validate_records(
+        self, records: list[dict[str, Any]]
+    ) -> tuple[bool, list[FeatureValidationResult]]:
         """
         Validate multiple records against the expected schema.
 
@@ -145,7 +150,7 @@ class FeatureSchemaValidator:
 
         return all_valid, results
 
-    def get_validation_summary(self, results: List[FeatureValidationResult]) -> str:
+    def get_validation_summary(self, results: list[FeatureValidationResult]) -> str:
         """
         Generate a summary of validation results.
 
@@ -225,7 +230,9 @@ class ProjectInitializedValidator(Validator):
             description="Verify all required project files exist"
         )
 
-    def validate(self, project_path: str = ".", classifier_name: Optional[str] = None, **kwargs) -> ValidationResult:
+    def validate(
+        self, project_path: str = ".", classifier_name: Optional[str] = None, **kwargs
+    ) -> ValidationResult:
         """
         Check if all required files exist for a classifier project.
 
@@ -265,7 +272,9 @@ class GitWorkingDirectoryCleanValidator(Validator):
     def __init__(self):
         super().__init__(
             name="git_working_directory_clean",
-            description="Verify no uncommitted changes to tracked files (untracked files are allowed)"
+            description=(
+                "Verify no uncommitted changes to tracked files (untracked files are allowed)"
+            )
         )
 
     def validate(self, project_path: str = ".", **kwargs) -> ValidationResult:
@@ -347,7 +356,9 @@ class ConfigurationValidValidator(Validator):
             description="Verify mlserver.yaml is valid"
         )
 
-    def validate(self, project_path: str = ".", classifier_name: Optional[str] = None, **kwargs) -> ValidationResult:
+    def validate(
+        self, project_path: str = ".", classifier_name: Optional[str] = None, **kwargs
+    ) -> ValidationResult:
         """
         Check if mlserver.yaml exists and is valid.
 
@@ -370,11 +381,16 @@ class ConfigurationValidValidator(Validator):
             )
 
         try:
-            from .config import AppConfig
-            from .multi_classifier import detect_multi_classifier_config, extract_single_classifier_config, load_multi_classifier_config
             import yaml
 
-            with open(mlserver_yaml, 'r') as f:
+            from .config import AppConfig
+            from .multi_classifier import (
+                detect_multi_classifier_config,
+                extract_single_classifier_config,
+                load_multi_classifier_config,
+            )
+
+            with open(mlserver_yaml) as f:
                 raw_config = yaml.safe_load(f)
 
             # Check if this is a multi-classifier config
@@ -386,14 +402,22 @@ class ConfigurationValidValidator(Validator):
                 if classifier_name:
                     try:
                         # Extract and validate the specific classifier config
-                        single_config = extract_single_classifier_config(multi_config, classifier_name)
+                        extract_single_classifier_config(multi_config, classifier_name)
                         # Validation passed if we got here
                         return ValidationResult(passed=True)
                     except (ValueError, KeyError) as e:
                         return ValidationResult(
                             passed=False,
-                            error_message=f"Classifier '{classifier_name}' not found or invalid in multi-classifier config: {str(e)}",
-                            details={"solution": "Check classifier name or run 'mlserver init' to recreate configuration"}
+                            error_message=(
+                                f"Classifier '{classifier_name}' not found or invalid "
+                                f"in multi-classifier config: {str(e)}"
+                            ),
+                            details={
+                                "solution": (
+                                    "Check classifier name or run 'mlserver init' "
+                                    "to recreate configuration"
+                                )
+                            }
                         )
                 else:
                     # No classifier specified - just validate the multi-config structure
@@ -460,7 +484,10 @@ class GitHubActionsConfiguredValidator(Validator):
                     # Strict mode - fail validation
                     return ValidationResult(
                         passed=False,
-                        error_message="GitHub Actions workflow is incompatible with current MLServer version",
+                        error_message=(
+                            "GitHub Actions workflow is incompatible "
+                            "with current MLServer version"
+                        ),
                         details=details
                     )
                 else:
@@ -485,7 +512,7 @@ class GitHubActionsConfiguredValidator(Validator):
 class ValidationSuite:
     """A collection of validators that can be run together."""
 
-    def __init__(self, name: str, validators: List[Validator]):
+    def __init__(self, name: str, validators: list[Validator]):
         """
         Initialize validation suite.
 
@@ -496,7 +523,7 @@ class ValidationSuite:
         self.name = name
         self.validators = validators
 
-    def validate(self, **kwargs) -> Tuple[bool, List[ValidationResult]]:
+    def validate(self, **kwargs) -> tuple[bool, list[ValidationResult]]:
         """
         Run all validators in the suite.
 

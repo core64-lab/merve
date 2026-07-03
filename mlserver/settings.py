@@ -6,9 +6,11 @@ in the project, allowing global settings to be configured from a single place.
 """
 
 from __future__ import annotations
+
 import os
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Optional
+
 import yaml
 from pydantic import BaseModel, Field
 
@@ -29,16 +31,27 @@ class MonitoringSettings(BaseModel):
     prometheus_port: int = Field(default=9090, description="Prometheus port")
     grafana_host: str = Field(default="localhost", description="Grafana host")
     grafana_port: int = Field(default=3000, description="Grafana port")
-    grafana_credentials: str = Field(default="admin/admin123", description="Grafana default credentials")
+    grafana_credentials: str = Field(
+        default="admin/changeme",
+        description=(
+            "Grafana default credentials (matches docker-compose.monitoring.yml default)"
+        )
+    )
     metrics_endpoint: str = Field(default="/metrics", description="Metrics endpoint path")
 
 
 class ContainerSettings(BaseModel):
     """Container and Docker-related settings."""
-    default_base_image: str = Field(default="python:3.11-slim", description="Default Docker base image")
-    python_version_threshold: str = Field(default="3.11", description="Python version threshold for tomli usage")
-    temp_dir: str = Field(default="/tmp", description="Temporary directory for container operations")
-    excluded_patterns: List[str] = Field(
+    default_base_image: str = Field(
+        default="python:3.11-slim", description="Default Docker base image"
+    )
+    python_version_threshold: str = Field(
+        default="3.11", description="Python version threshold for tomli usage"
+    )
+    temp_dir: str = Field(
+        default="/tmp", description="Temporary directory for container operations"
+    )
+    excluded_patterns: list[str] = Field(
         default_factory=lambda: [
             ".vscode", ".idea", "*.log", "*.tmp", "catboost_info", "*.swp",
             ".git", ".gitignore", "__pycache__", "*.pyc", ".pytest_cache",
@@ -53,7 +66,9 @@ class FilesSettings(BaseModel):
     """File system and path settings."""
     server_log_file: str = Field(default="server.log", description="Server log file name")
     server_pid_file: str = Field(default="server.pid", description="Server PID file name")
-    global_config_file: str = Field(default="global_config.yaml", description="Global configuration file name")
+    global_config_file: str = Field(
+        default="global_config.yaml", description="Global configuration file name"
+    )
     venv_path: str = Field(default=".venv", description="Python virtual environment path")
     ml_server_path: str = Field(default="mlserver", description="Full path to mlserver executable")
 
@@ -72,8 +87,12 @@ class LoadTestingSettings(BaseModel):
     stress_test_spawn_rate: int = Field(default=10, description="Spawn rate for stress testing")
     stress_test_duration: int = Field(default=300, description="Stress test duration in seconds")
     endurance_test_users: int = Field(default=10, description="Users for endurance testing")
-    endurance_test_spawn_rate: int = Field(default=2, description="Spawn rate for endurance testing")
-    endurance_test_duration: int = Field(default=1800, description="Endurance test duration in seconds")
+    endurance_test_spawn_rate: int = Field(
+        default=2, description="Spawn rate for endurance testing"
+    )
+    endurance_test_duration: int = Field(
+        default=1800, description="Endurance test duration in seconds"
+    )
 
 
 class GlobalSettings(BaseModel):
@@ -86,13 +105,13 @@ class GlobalSettings(BaseModel):
     load_testing: LoadTestingSettings = Field(default_factory=LoadTestingSettings)
 
     @classmethod
-    def from_yaml(cls, config_path: str) -> 'GlobalSettings':
+    def from_yaml(cls, config_path: str) -> GlobalSettings:
         """Load settings from YAML configuration file."""
         config_file = Path(config_path)
         if not config_file.exists():
             return cls()  # Return default settings if file doesn't exist
 
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             data = yaml.safe_load(f) or {}
 
         # Apply environment variable overrides
@@ -163,10 +182,10 @@ class GlobalSettings(BaseModel):
 
 class SettingsSingleton:
     """Singleton class to manage global settings."""
-    _instance: Optional['SettingsSingleton'] = None
+    _instance: Optional[SettingsSingleton] = None
     _settings: Optional[GlobalSettings] = None
 
-    def __new__(cls) -> 'SettingsSingleton':
+    def __new__(cls) -> SettingsSingleton:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -230,12 +249,14 @@ class SettingsSingleton:
 
 # Global settings instance
 _settings_singleton = SettingsSingleton()
+# Back-compat module-level name. NOTE: this is a snapshot taken at import
+# time and does NOT follow reload_settings() - use get_settings() instead.
 settings = _settings_singleton.settings
 
 
 def get_settings() -> GlobalSettings:
-    """Get the global settings instance."""
-    return settings
+    """Get the global settings instance (live view, follows reload_settings())."""
+    return _settings_singleton.settings
 
 
 def reload_settings(config_path: Optional[str] = None) -> None:

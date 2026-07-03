@@ -1,8 +1,11 @@
 
 from __future__ import annotations
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+
+import threading
+from collections import OrderedDict
+from typing import Any, Optional
+
 import numpy as np
-import pandas as pd
 
 from .errors import AdapterError as BaseAdapterError
 
@@ -20,13 +23,16 @@ class AdapterError(BaseAdapterError, ValueError):
 
 # Global cache for feature orderings to improve performance
 # LRU-style cache with size limit to prevent unbounded memory growth
-from collections import OrderedDict
-
-_FEATURE_ORDER_CACHE: OrderedDict[frozenset, List[str]] = OrderedDict()
+_FEATURE_ORDER_CACHE: OrderedDict[frozenset, list[str]] = OrderedDict()
 _CACHE_MAX_SIZE = 100  # Maximum number of cached feature orderings
+# Guards all cache access: requests are handled in FastAPI's threadpool, so
+# unsynchronized OrderedDict mutation (move_to_end/insert/popitem) would race
+_FEATURE_ORDER_CACHE_LOCK = threading.Lock()
 
 
-def _get_cached_feature_order(records: List[Dict], config_order: Optional[List[str]] = None) -> List[str]:
+def _get_cached_feature_order(
+    records: list[dict], config_order: Optional[list[str]] = None
+) -> list[str]:
     """Get feature order with caching for performance optimization.
 
     Uses LRU cache with size limit to prevent memory issues while maintaining performance.
@@ -54,12 +60,14 @@ def _get_cached_feature_order(records: List[Dict], config_order: Optional[List[s
     cache_key = frozenset(all_features_set)
 
     # Check if in cache and move to end (most recently used)
-    if cache_key in _FEATURE_ORDER_CACHE:
-        _FEATURE_ORDER_CACHE.move_to_end(cache_key)
-        return _FEATURE_ORDER_CACHE[cache_key]
+    with _FEATURE_ORDER_CACHE_LOCK:
+        if cache_key in _FEATURE_ORDER_CACHE:
+            _FEATURE_ORDER_CACHE.move_to_end(cache_key)
+            return _FEATURE_ORDER_CACHE[cache_key]
 
     # Compute feature order using first-seen order (preserves insertion order)
     # This is more intuitive than sorted order for data science workflows
+    # (computed outside the lock - it's pure and may iterate many records)
     seen_features = []
     seen_set = set()
     for record in records:
@@ -69,30 +77,32 @@ def _get_cached_feature_order(records: List[Dict], config_order: Optional[List[s
                 seen_set.add(key)
 
     # Add to cache with LRU eviction if needed
-    if len(_FEATURE_ORDER_CACHE) >= _CACHE_MAX_SIZE:
-        # Remove least recently used item (first item in OrderedDict)
-        _FEATURE_ORDER_CACHE.popitem(last=False)
+    with _FEATURE_ORDER_CACHE_LOCK:
+        if len(_FEATURE_ORDER_CACHE) >= _CACHE_MAX_SIZE:
+            # Remove least recently used item (first item in OrderedDict)
+            _FEATURE_ORDER_CACHE.popitem(last=False)
 
-    _FEATURE_ORDER_CACHE[cache_key] = seen_features
+        _FEATURE_ORDER_CACHE[cache_key] = seen_features
     return seen_features
 
 
 def clear_feature_cache() -> None:
     """Clear the feature order cache. Useful for memory management in long-running services."""
-    global _FEATURE_ORDER_CACHE
-    _FEATURE_ORDER_CACHE.clear()
+    with _FEATURE_ORDER_CACHE_LOCK:
+        _FEATURE_ORDER_CACHE.clear()
 
 
-def get_cache_info() -> Dict[str, Any]:
+def get_cache_info() -> dict[str, Any]:
     """Get information about the feature order cache for monitoring."""
-    return {
-        "size": len(_FEATURE_ORDER_CACHE),
-        "max_size": _CACHE_MAX_SIZE,
-        "cache_keys": list(_FEATURE_ORDER_CACHE.keys())[:10]  # First 10 keys for debugging
-    }
+    with _FEATURE_ORDER_CACHE_LOCK:
+        return {
+            "size": len(_FEATURE_ORDER_CACHE),
+            "max_size": _CACHE_MAX_SIZE,
+            "cache_keys": list(_FEATURE_ORDER_CACHE.keys())[:10]  # First 10 keys for debugging
+        }
 
 
-def _records_to_numpy_fast(records: List[Dict], feature_order: List[str]) -> np.ndarray:
+def _records_to_numpy_fast(records: list[dict], feature_order: list[str]) -> np.ndarray:
     """Convert records to numpy array with vectorized operations for better performance.
 
     Args:
@@ -132,7 +142,10 @@ def _records_to_numpy_fast(records: List[Dict], feature_order: List[str]) -> np.
                 missing_str += f" ... and {len(missing_features) - 5} more"
             raise AdapterError(
                 message=f"Record {i} is missing required features: {missing_str}",
-                suggestion="Ensure all records contain the required features defined in feature_order"
+                suggestion=(
+                    "Ensure all records contain the required features "
+                    "defined in feature_order"
+                )
             )
 
     # Vectorized approach: Extract all values at once for better performance
@@ -181,7 +194,10 @@ def _extract_ndarray_data(payload: dict) -> np.ndarray:
     if array_data is None:
         raise AdapterError(
             message="Expected 'ndarray' or 'inputs' field in payload for ndarray adapter",
-            suggestion="Use format: {\"ndarray\": [[val1, val2, ...], [val3, val4, ...]]} or {\"inputs\": [...]}"
+            suggestion=(
+                "Use format: {\"ndarray\": [[val1, val2, ...], [val3, val4, ...]]} "
+                "or {\"inputs\": [...]}"
+            )
         )
 
     # Check for empty arrays
@@ -198,7 +214,7 @@ def _extract_ndarray_data(payload: dict) -> np.ndarray:
         raise AdapterError(
             message=f"Invalid array data: {e}",
             suggestion="Ensure all rows have the same number of columns"
-        )
+        ) from e
 
     if arr.ndim == 1:
         arr = arr.reshape(1, -1)
@@ -206,7 +222,7 @@ def _extract_ndarray_data(payload: dict) -> np.ndarray:
     return arr
 
 
-def _extract_records_data(payload: dict) -> List[Dict]:
+def _extract_records_data(payload: dict) -> list[dict]:
     """Extract records data from various payload formats."""
     # Try different keys for records data
     if "records" in payload:
@@ -225,7 +241,10 @@ def _extract_records_data(payload: dict) -> List[Dict]:
             # Looks like it should have proper keys but doesn't
             raise AdapterError(
                 message="Invalid payload structure for records adapter",
-                suggestion="Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} or {\"instances\": [...]}"
+                suggestion=(
+                    "Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} "
+                    "or {\"instances\": [...]}"
+                )
             )
         else:
             # Treat entire dict as single record
@@ -233,13 +252,20 @@ def _extract_records_data(payload: dict) -> List[Dict]:
     else:
         raise AdapterError(
             message="Invalid payload structure for records adapter",
-            suggestion="Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} or {\"instances\": [...]}"
+            suggestion=(
+                "Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} "
+                "or {\"instances\": [...]}"
+            )
         )
 
     return records
 
 
-def _process_records_to_array(records: List[Dict], feature_order: Optional[List[str]], adapter_type: str = "records") -> np.ndarray:
+def _process_records_to_array(
+    records: list[dict],
+    feature_order: Optional[list[str]],
+    adapter_type: str = "records",
+) -> np.ndarray:
     """Convert records list to numpy array.
 
     For records adapter: feature_order is optional - if not provided,
@@ -268,7 +294,7 @@ def _process_records_to_array(records: List[Dict], feature_order: Optional[List[
 def to_ndarray(
     payload: dict,
     adapter: str = "auto",
-    feature_order: Optional[List[str]] = None,
+    feature_order: Optional[list[str]] = None,
 ) -> np.ndarray:
     """Convert common JSON payload formats to a numpy 2D array.
 
@@ -331,5 +357,8 @@ def to_ndarray(
     else:
         raise AdapterError(
             message=f"Unknown adapter type: '{adapter}'",
-            suggestion="Use 'records', 'ndarray', or 'auto' in your mlserver.yaml api.adapter setting"
+            suggestion=(
+                "Use 'records', 'ndarray', or 'auto' in your mlserver.yaml "
+                "api.adapter setting"
+            )
         )

@@ -1,10 +1,10 @@
 
-from importlib import import_module
-from typing import Any, Optional
+import logging
 import os
 import sys
-import logging
+from importlib import import_module
 from pathlib import Path
+from typing import Any, Optional
 
 from .errors import PredictorError
 
@@ -27,8 +27,14 @@ def _validate_model_files(init_kwargs: dict) -> None:
 
                 if size_mb > file_size_limit_mb:
                     raise PredictorError(
-                        message=f"Model file {file_path} is too large: {size_mb:.1f}MB (limit: {file_size_limit_mb}MB)",
-                        suggestion="Consider using a smaller model, compressing the model file, or increase system resources",
+                        message=(
+                            f"Model file {file_path} is too large: "
+                            f"{size_mb:.1f}MB (limit: {file_size_limit_mb}MB)"
+                        ),
+                        suggestion=(
+                            "Consider using a smaller model, compressing the "
+                            "model file, or increase system resources"
+                        ),
                     )
                 elif size_mb > 100:  # Warn for files > 100MB
                     logger.warning(f"Loading large model file: {file_path} ({size_mb:.1f}MB)")
@@ -55,8 +61,9 @@ def resolve_module_path(module_spec: str, config_dir: Optional[str] = None) -> s
 
     # Case 2 & 3: Simple name or filename - try to resolve relative to config
     if config_dir:
-        # Remove .py extension if present
-        module_name = module_spec.replace('.py', '')
+        # Remove .py extension if present (suffix only - a '.py' mid-name
+        # like 'my.pyfile' must not be mangled)
+        module_name = module_spec.removesuffix('.py')
 
         # Check if the file exists in the config directory
         module_file = Path(config_dir) / f"{module_name}.py"
@@ -74,7 +81,10 @@ def resolve_module_path(module_spec: str, config_dir: Optional[str] = None) -> s
                 if module_name in sys.modules:
                     del sys.modules[module_name]
                 import_module(module_name)
-                logger.info(f"Resolved module '{module_spec}' to '{module_name}' (local import from {config_dir})")
+                logger.info(
+                    f"Resolved module '{module_spec}' to '{module_name}' "
+                    f"(local import from {config_dir})"
+                )
                 return module_name
             except ImportError as e:
                 logger.debug(f"Direct import of '{module_name}' failed: {e}")
@@ -98,7 +108,10 @@ def resolve_module_path(module_spec: str, config_dir: Optional[str] = None) -> s
                         full_module = '.'.join(module_parts) + '.' + module_name
                         try:
                             import_module(full_module)
-                            logger.info(f"Resolved module '{module_spec}' to '{full_module}' (package import)")
+                            logger.info(
+                                f"Resolved module '{module_spec}' to '{full_module}' "
+                                f"(package import)"
+                            )
                             return full_module
                         except ImportError:
                             pass
@@ -110,7 +123,9 @@ def resolve_module_path(module_spec: str, config_dir: Optional[str] = None) -> s
     return module_spec
 
 
-def load_predictor(module: str, class_name: str, init_kwargs: dict, config_dir: Optional[str] = None) -> Any:
+def load_predictor(
+    module: str, class_name: str, init_kwargs: dict, config_dir: Optional[str] = None
+) -> Any:
     """Load a predictor class with intelligent module resolution.
 
     Args:
@@ -148,7 +163,10 @@ def load_predictor(module: str, class_name: str, init_kwargs: dict, config_dir: 
     except AttributeError as e:
         raise PredictorError(
             message=f"Class '{class_name}' not found in module '{resolved_module}'",
-            suggestion=f"Check that the class name in mlserver.yaml matches the class defined in your predictor file",
+            suggestion=(
+                "Check that the class name in mlserver.yaml matches the class "
+                "defined in your predictor file"
+            ),
         ) from e
 
     # Instantiate the predictor

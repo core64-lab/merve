@@ -1,40 +1,34 @@
 
 from __future__ import annotations
-import time
+
 import threading
+import time
 from contextlib import asynccontextmanager
-from typing import Any, Optional
 from functools import lru_cache
 from pathlib import Path
+from typing import Any, Optional
 
+import numpy as np
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .config import AppConfig
-from .predictor_loader import load_predictor
-from .adapters import to_ndarray, AdapterError
+from .adapters import to_ndarray
 from .auto_detect import (
-    get_simplified_info_response,
-    generate_simplified_metadata,
     get_deployed_timestamp,
-    get_mlserver_package_version
+    get_simplified_info_response,
 )
+from .concurrency_limiter import PredictionLimiter, PredictionSemaphore
+from .config import AppConfig
+from .logging_conf import log_prediction, log_request, log_response, set_correlation_id
+from .metrics import count_samples, get_metrics, init_metrics
+from .predictor_loader import load_predictor
 from .schemas import (
+    ClassifierMetadataResponse,
+    CustomPredictResponse,
     HealthResponse,
     PredictRequest,
     PredictResponse,
-    ClassifierMetadataResponse,
-    CustomPredictResponse,
-    SinglePredictRequest,
-)
-from .metrics import init_metrics, get_metrics, count_samples
-from .concurrency_limiter import PredictionSemaphore, PredictionLimiter
-from .logging_conf import (
-    set_correlation_id,
-    log_request,
-    log_response,
-    log_prediction
 )
 
 
@@ -42,11 +36,15 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, config: AppConfig):
         super().__init__(app)
         self.config = config
-        self.metrics = get_metrics() if config.observability.metrics else None
 
     async def dispatch(self, request: Request, call_next):
         # Skip metrics for health and metrics endpoints to reduce overhead
         skip_metrics = request.url.path in ["/healthz", self.config.observability.metrics_endpoint]
+
+        # Look up the metrics collector per-request (cheap global read).
+        # It is initialized in the app lifespan, which runs AFTER middleware
+        # construction - caching it in __init__ would always capture None.
+        metrics = get_metrics() if self.config.observability.metrics else None
 
         # Set correlation ID if enabled
         correlation_id = None
@@ -56,8 +54,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
 
         # Track active requests only if metrics enabled and not skipped
-        if self.metrics and not skip_metrics:
-            self.metrics.inc_active_requests()
+        if metrics and not skip_metrics:
+            metrics.inc_active_requests()
 
         # Log request start
         if self.config.observability.structured_logging:
@@ -72,9 +70,9 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             duration = time.perf_counter() - start_time
 
             # Track metrics only if enabled and not skipped
-            if self.metrics and not skip_metrics:
-                self.metrics.track_request(request, response, duration)
-                self.metrics.dec_active_requests()
+            if metrics and not skip_metrics:
+                metrics.track_request(request, response, duration)
+                metrics.dec_active_requests()
 
             # Log response
             if self.config.observability.structured_logging:
@@ -88,8 +86,8 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             duration = time.perf_counter() - start_time
 
-            if self.metrics and not skip_metrics:
-                self.metrics.dec_active_requests()
+            if metrics and not skip_metrics:
+                metrics.dec_active_requests()
 
             if self.config.observability.structured_logging:
                 log_response(
@@ -149,7 +147,9 @@ def _prepare_input_data(req: PredictRequest, config: AppConfig):
 
     try:
         # Resolve feature_order from file if needed
-        base_path = Path(config.project_path_internal) if config.project_path_internal else Path.cwd()
+        base_path = (
+            Path(config.project_path_internal) if config.project_path_internal else Path.cwd()
+        )
         feature_order = config.api.get_resolved_feature_order(base_path=base_path)
 
         # Optional: Validate features before parsing (provides better error messages)
@@ -168,7 +168,7 @@ def _prepare_input_data(req: PredictRequest, config: AppConfig):
     except Exception as e:
         # Log full traceback in DEBUG mode
         if logger.isEnabledFor(logging.DEBUG):
-            logger.exception(f"Input parsing failed with detailed traceback:")
+            logger.exception("Input parsing failed with detailed traceback:")
         else:
             logger.error(f"Input parsing error: {e}")
 
@@ -177,9 +177,12 @@ def _prepare_input_data(req: PredictRequest, config: AppConfig):
             raise HTTPException(
                 status_code=400,
                 detail=f"Input parsing failed: {str(e)}. Check server logs for full traceback."
-            )
+            ) from e
         else:
-            raise HTTPException(status_code=400, detail="Input parsing failed. Please check your input format.")
+            raise HTTPException(
+                status_code=400,
+                detail="Input parsing failed. Please check your input format."
+            ) from e
 
 
 def _validate_input_features(payload: dict, feature_order: list, logger) -> None:
@@ -270,6 +273,36 @@ def _track_prediction_metrics(endpoint_path: str, duration_seconds: float,
         )
 
 
+def _log_payload(endpoint_path: str, request_payload: Any, response: Any) -> None:
+    """Log request/response payloads for a prediction.
+
+    Only called when observability.log_payloads is enabled. Payloads may
+    contain sensitive data, so this is opt-in and disabled by default.
+    Uses the standard logging path so correlation IDs are included by the
+    structured formatter.
+
+    Args:
+        endpoint_path: API endpoint path
+        request_payload: Raw request payload dict
+        response: Response object (pydantic model or JSON-safe structure)
+    """
+    import logging
+
+    from pydantic import BaseModel
+
+    if isinstance(response, BaseModel):
+        response_data = response.model_dump()
+    else:
+        response_data = _to_jsonable(response)
+
+    logging.getLogger("mlserver.payload").info("Prediction payload", extra={
+        "event": "payload",
+        "endpoint": endpoint_path,
+        "payload": _to_jsonable(request_payload),
+        "response": response_data,
+    })
+
+
 def _create_predict_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
                            prediction_limiter: Optional[PredictionSemaphore] = None):
     """Create a predict endpoint handler with concurrency control."""
@@ -283,14 +316,17 @@ def _create_predict_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
     return predict
 
 
-def _get_classifier_metadata(config: AppConfig, predictor_class_name: str = None, config_file_name: str = None) -> Optional[ClassifierMetadataResponse]:
+def _get_classifier_metadata(
+    config: AppConfig, predictor_class_name: str = None, config_file_name: str = None
+) -> Optional[ClassifierMetadataResponse]:
     """Get simplified classifier metadata for response."""
     if not config.classifier:
         return None
 
     # Use auto-detection for git info
-    from .auto_detect import get_git_info, get_project_name, get_mlserver_git_info
     import os
+
+    from .auto_detect import get_git_info, get_mlserver_git_info, get_project_name
 
     git_data = get_git_info(config.project_path or ".")
     mlserver_info = get_mlserver_git_info()
@@ -318,7 +354,9 @@ def _get_classifier_metadata(config: AppConfig, predictor_class_name: str = None
     return metadata
 
 
-def _format_response(predictions, config: AppConfig, timing_ms: float, model_name: str, metadata=None):
+def _format_response(
+    predictions, config: AppConfig, timing_ms: float, model_name: str, metadata=None
+):
     """Format response based on configuration.
 
     Args:
@@ -350,7 +388,10 @@ def _format_response(predictions, config: AppConfig, timing_ms: float, model_nam
                 predictions_list = list(json_safe.values())
             elif 'predictions' in json_safe:
                 # Use the predictions field if it exists in the response
-                predictions_list = json_safe['predictions'] if isinstance(json_safe['predictions'], list) else [json_safe['predictions']]
+                predictions_list = (
+                    json_safe['predictions'] if isinstance(json_safe['predictions'], list)
+                    else [json_safe['predictions']]
+                )
 
             response = CustomPredictResponse(
                 result=json_safe,
@@ -422,7 +463,10 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req
         # Log full error internally, return sanitized message to client
         import logging
         logging.error(f"Prediction error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Prediction failed. Please contact support if the issue persists.")
+        raise HTTPException(
+            status_code=500,
+            detail="Prediction failed. Please contact support if the issue persists."
+        ) from e
 
     duration_ms = (time.perf_counter() - start_time) * 1000
 
@@ -448,13 +492,19 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req
             metadata.deployed_at = deployed_at
 
     # Use the new formatting function
-    return _format_response(
+    response = _format_response(
         predictions,
         config,
         duration_ms,
         app.state.predictor.name,
         metadata
     )
+
+    # Log request/response payloads if enabled (privacy-sensitive, opt-in)
+    if config.observability.log_payloads:
+        _log_payload(endpoint_path, req.payload, response)
+
+    return response
 
 
 def _create_predict_proba_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
@@ -470,7 +520,9 @@ def _create_predict_proba_handler(app: FastAPI, config: AppConfig, endpoint_path
     return predict_proba
 
 
-def _execute_predict_proba(app: FastAPI, config: AppConfig, endpoint_path: str, req: PredictRequest):
+def _execute_predict_proba(
+    app: FastAPI, config: AppConfig, endpoint_path: str, req: PredictRequest
+):
     """Execute the actual probability prediction."""
     start_time = time.perf_counter()
 
@@ -481,13 +533,19 @@ def _execute_predict_proba(app: FastAPI, config: AppConfig, endpoint_path: str, 
 
     try:
         probabilities = app.state.predictor.predict_proba(X)
-    except AttributeError:
-        raise HTTPException(status_code=501, detail="Probability prediction not available for this model.")
+    except AttributeError as e:
+        raise HTTPException(
+            status_code=501,
+            detail="Probability prediction not available for this model."
+        ) from e
     except Exception as e:
         # Log full error internally, return sanitized message to client
         import logging
         logging.error(f"Predict_proba error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Probability prediction failed. Please contact support if the issue persists.")
+        raise HTTPException(
+            status_code=500,
+            detail="Probability prediction failed. Please contact support if the issue persists."
+        ) from e
 
     duration_ms = (time.perf_counter() - start_time) * 1000
 
@@ -514,12 +572,18 @@ def _execute_predict_proba(app: FastAPI, config: AppConfig, endpoint_path: str, 
 
     # Create ProbaResponse with metadata
     from .schemas import ProbaResponse
-    return ProbaResponse(
+    response = ProbaResponse(
         probabilities=_tolist2d(probabilities),
         time_ms=duration_ms,
         classes=None,  # Could be populated if predictor provides class names
         metadata=metadata
     )
+
+    # Log request/response payloads if enabled (privacy-sensitive, opt-in)
+    if config.observability.log_payloads:
+        _log_payload(endpoint_path, req.payload, response)
+
+    return response
 
 
 def _register_endpoint(app: FastAPI, endpoint_name: str, handler,
@@ -568,7 +632,9 @@ def _register_prediction_endpoints(app: FastAPI, config: AppConfig,
     # Register predict_proba endpoint
     if config.is_endpoint_enabled("predict_proba"):
         endpoint_path = f"{base_path}/predict_proba" if base_path else "/predict_proba"
-        predict_proba_handler = _create_predict_proba_handler(app, config, endpoint_path, prediction_limiter)
+        predict_proba_handler = _create_predict_proba_handler(
+            app, config, endpoint_path, prediction_limiter
+        )
         _register_endpoint(
             app, "predict_proba", predict_proba_handler, base_path
         )
@@ -599,14 +665,17 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
 
         # Cache metadata at startup
         predictor_class_name = config.predictor.class_name if config.predictor else None
-        app.state.metadata = _get_classifier_metadata(config, predictor_class_name, config_file_name)
+        app.state.metadata = _get_classifier_metadata(
+            config, predictor_class_name, config_file_name
+        )
 
         # Cache deployment timestamp at startup
         app.state.deployed_at = get_deployed_timestamp()
 
         # Initialize metrics if enabled
         if config.observability.metrics:
-            init_metrics(predictor_wrapper.name)
+            model_version = config.classifier.get('version') if config.classifier else None
+            init_metrics(predictor_wrapper.name, model_version=model_version)
 
         # Model warmup: run a dummy prediction to initialize model internals
         # This reduces latency on the first real prediction request
@@ -620,8 +689,12 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
                     _ = predictor_wrapper.predict(warmup_data)
                     warmup_duration = time.perf_counter() - warmup_start
                     startup_logger.info(f"Model warmup complete in {warmup_duration:.3f}s")
-                else:
+                elif config.api.feature_order is None:
                     startup_logger.info("Model warmup skipped (no feature_order configured)")
+                else:
+                    startup_logger.warning(
+                        "Model warmup skipped (feature_order configured but could not be resolved)"
+                    )
             except Exception as e:
                 # Warmup failure is non-fatal - log and continue
                 startup_logger.warning(f"Model warmup failed (non-fatal): {e}")
@@ -679,10 +752,14 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
         # Keep the endpoints section consistent
         info_response["endpoints"] = {
             "predict": "/predict" if config.is_endpoint_enabled("predict") else None,
-            "predict_proba": "/predict_proba" if config.is_endpoint_enabled("predict_proba") else None,
+            "predict_proba": (
+                "/predict_proba" if config.is_endpoint_enabled("predict_proba") else None
+            ),
             "info": "/info",
             "health": "/healthz",
-            "metrics": config.observability.metrics_endpoint if config.observability.metrics else None
+            "metrics": (
+                config.observability.metrics_endpoint if config.observability.metrics else None
+            )
         }
 
         return info_response
@@ -747,25 +824,22 @@ def _create_warmup_data(config: AppConfig) -> Optional[np.ndarray]:
 
     Returns:
         numpy array with shape (1, n_features) or None if no feature_order
+
+    Raises:
+        Exception: If feature_order resolution fails (caller treats warmup
+            failures as non-fatal and logs them)
     """
-    try:
-        from pathlib import Path
+    # Try to get feature order from config
+    base_path = Path(config.project_path) if config.project_path else None
+    feature_order = config.api.get_resolved_feature_order(base_path=base_path)
 
-        # Try to get feature order from config
-        base_path = Path(config.project_path) if config.project_path else None
-        feature_order = config.api.get_resolved_feature_order(base_path=base_path)
+    if feature_order:
+        # Create single row of zeros with correct number of features
+        return np.zeros((1, len(feature_order)))
 
-        if feature_order:
-            # Create single row of zeros with correct number of features
-            return np.zeros((1, len(feature_order)))
-
-        # If no feature_order, try to infer from predictor if it has n_features attribute
-        # This is a best-effort approach for models without explicit feature_order
-        return None
-
-    except Exception:
-        # If anything fails, return None (warmup will be skipped)
-        return None
+    # If no feature_order, try to infer from predictor if it has n_features attribute
+    # This is a best-effort approach for models without explicit feature_order
+    return None
 
 
 def _to_jsonable(x, _depth=0):
@@ -847,7 +921,7 @@ def _to_jsonable(x, _depth=0):
 
     # === Python datetime types ===
     try:
-        from datetime import datetime, date, time, timedelta
+        from datetime import date, datetime, time, timedelta
 
         # datetime.datetime - ISO 8601 with timezone
         if isinstance(x, datetime):
@@ -936,7 +1010,7 @@ def _to_jsonable(x, _depth=0):
     # If we reach here, the type isn't explicitly handled
     # Log a warning and attempt str conversion
     type_name = type(x).__name__
-    logger.warning(
+    _logger.warning(
         f"Unhandled type in _to_jsonable: {type_name}. "
         f"Attempting str() conversion. Value: {str(x)[:100]}"
     )
@@ -946,7 +1020,7 @@ def _to_jsonable(x, _depth=0):
         return str(x)
     except Exception as e:
         # If even str() fails, log error and return placeholder
-        logger.error(
+        _logger.error(
             f"Failed to convert {type_name} to JSON-serializable format: {e}. "
             f"Returning placeholder string."
         )
@@ -968,10 +1042,15 @@ def _tolist2d(arr):
 def app() -> FastAPI:
     """Factory function to create the FastAPI app for uvicorn workers."""
     import os
+
     import yaml
-    from pathlib import Path
+
     from .config import AppConfig
-    from .multi_classifier import detect_multi_classifier_config, load_multi_classifier_config
+    from .multi_classifier import (
+        detect_multi_classifier_config,
+        extract_single_classifier_config,
+        load_multi_classifier_config,
+    )
 
     # Try to find config file
     config_paths = [
@@ -986,28 +1065,30 @@ def app() -> FastAPI:
             break
 
     if not config_file:
-        raise RuntimeError("No configuration file found. Please specify mlserver.yaml or set MLSERVER_CONFIG_PATH")
+        raise RuntimeError(
+            "No configuration file found. Please specify mlserver.yaml "
+            "or set MLSERVER_CONFIG_PATH"
+        )
 
     # Check for multi-classifier config
     if detect_multi_classifier_config(str(config_file)):
-        # Get classifier from environment or use default
-        classifier_name = os.environ.get('MLSERVER_CLASSIFIER')
-        configs = load_multi_classifier_config(str(config_file))
+        mc = load_multi_classifier_config(str(config_file))
 
-        if classifier_name and classifier_name in configs:
-            cfg = configs[classifier_name]
-        else:
-            # Find default or first classifier
-            with open(config_file, 'r') as f:
-                raw = yaml.safe_load(f)
-            default = raw.get('default_classifier')
-            if default and default in configs:
-                cfg = configs[default]
+        if not mc.classifiers:
+            raise RuntimeError(f"No classifiers defined in multi-classifier config: {config_file}")
+
+        # Resolve classifier name: env var, then default_classifier, then first
+        classifier_name = os.environ.get('MLSERVER_CLASSIFIER')
+        if not classifier_name or classifier_name not in mc.classifiers:
+            if mc.default_classifier and mc.default_classifier in mc.classifiers:
+                classifier_name = mc.default_classifier
             else:
-                cfg = next(iter(configs.values()))
+                classifier_name = next(iter(mc.classifiers))
+
+        cfg = extract_single_classifier_config(mc, classifier_name)
     else:
         # Single classifier config
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             raw = yaml.safe_load(f)
         cfg = AppConfig.model_validate(raw)
 
