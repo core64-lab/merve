@@ -24,7 +24,7 @@
 > 2. **Keep only essential fields**:
 >    - ✅ `classifier.name` and `classifier.description`
 >    - ✅ Your predictor and API configurations
-> 3. **Use git tags** for versioning: `mlserver tag --classifier <name> patch`
+> 3. **Use git tags** for versioning: `merve tag --classifier <name> patch`
 
 ## Complete Annotated Example
 
@@ -191,13 +191,13 @@ deployment:
 
 MLServer uses YAML configuration files to define server settings, predictor loading, observability, and API behavior. Configuration is validated using Pydantic for type safety and clear error messages.
 
-**Unknown keys are not silently ignored**: if the YAML contains a key that is not part of the schema (e.g. a typo like `porrt: 9999`), MLServer logs a warning at load time so misconfigurations don't slip through. `mlserver validate` reports the same warnings.
+**Unknown keys are not silently ignored**: if the YAML contains a key that is not part of the schema (e.g. a typo like `porrt: 9999`), MLServer logs a warning at load time so misconfigurations don't slip through. `merve validate` reports the same warnings.
 
 ## Configuration Files
 
 ### File Detection Priority
 
-1. **Explicit path**: `mlserver serve /path/to/config.yaml`
+1. **Explicit path**: `merve serve /path/to/config.yaml`
 2. **Auto-detection**: `mlserver.yaml` in the current directory
 
 If neither exists, the CLI exits with an error.
@@ -339,7 +339,7 @@ classifiers:
 ```
 
 Notes:
-- The `server` and `observability` sections are **global** — there are no per-classifier server overrides. Each classifier runs as its own server process/container, selected via `mlserver serve --classifier <name>` (or the `MLSERVER_CLASSIFIER` environment variable in containers).
+- The `server` and `observability` sections are **global** — there are no per-classifier server overrides. Each classifier runs as its own server process/container, selected via `merve serve --classifier <name>` (or the `MLSERVER_CLASSIFIER` environment variable in containers).
 - `repository` holds free-form repository metadata (e.g. `name`, `description`).
 - `default_classifier` names the classifier used when `--classifier` is not passed.
 
@@ -377,7 +377,7 @@ server:
     allow_credentials: false
 ```
 
-For development auto-reload, use the CLI flag `mlserver serve --reload` — it is not a config key.
+For development auto-reload, use the CLI flag `merve serve --reload` — it is not a config key.
 
 ### Predictor Configuration
 
@@ -551,7 +551,7 @@ classifier:
 
 Everything else (version, repository, commit, deployment time) is auto-detected from git and the environment and surfaced in `/info` and response metadata.
 
-> **`classifier.version` is deprecated.** Git tags are the canonical version source. A `classifier.version` in the config is display-only and logs a deprecation warning; set the version by creating a git tag with `mlserver tag --classifier <name> <patch|minor|major>` instead.
+> **`classifier.version` is deprecated.** Git tags are the canonical version source. A `classifier.version` in the config is display-only and logs a deprecation warning; set the version by creating a git tag with `merve tag --classifier <name> <patch|minor|major>` instead.
 
 ### Build Configuration
 
@@ -570,7 +570,7 @@ build:
 
 ### Deployment Configuration
 
-Used by the build/CI tooling (`mlserver build`, `mlserver init-github`) for multi-classifier repositories:
+Used by the build/CI tooling (`merve build`, `merve init-github`) for multi-classifier repositories:
 
 ```yaml
 deployment:
@@ -596,7 +596,7 @@ deployment:
   health_check: null
 ```
 
-> **Tag format (RFC 0001 D1–D3).** `mlserver tag` creates **canonical** `<classifier>/vX.Y.Z` tags (slash-namespaced) — the MLServer commit is no longer part of the tag name; it lives in the annotated-tag message and the container's OCI labels. Legacy `<classifier>-vX.Y.Z-mlserver-<hash>` tags remain **readable** everywhere (build validation, status, version listing all parse both forms), so existing tags keep working. The `git_tag_format` field above and `classifier.version` are deprecated, as is `push --version-source` — git tags are the canonical version source.
+> **Tag format (RFC 0001 D1–D3).** `merve tag` creates **canonical** `<classifier>/vX.Y.Z` tags (slash-namespaced) — the MLServer commit is no longer part of the tag name; it lives in the annotated-tag message and the container's OCI labels. Legacy `<classifier>-vX.Y.Z-mlserver-<hash>` tags remain **readable** everywhere (build validation, status, version listing all parse both forms), so existing tags keep working. The `git_tag_format` field above and `classifier.version` are deprecated, as is `push --version-source` — git tags are the canonical version source.
 
 ## Environment Variables
 
@@ -621,16 +621,16 @@ Command-line arguments override the config file:
 
 ```bash
 # Override port
-mlserver serve --port 9000
+merve serve --port 9000
 
 # Override workers
-mlserver serve --workers 8
+merve serve --workers 8
 
 # Select classifier from multi-classifier config
-mlserver serve mlserver.yaml --classifier staging
+merve serve mlserver.yaml --classifier staging
 
 # Multiple overrides
-mlserver serve \
+merve serve \
   --port 9000 \
   --workers 8 \
   --log-level DEBUG
@@ -705,7 +705,7 @@ api:
 
 ```bash
 # Auto-reload comes from the CLI flag
-mlserver serve mlserver.dev.yaml --reload
+merve serve mlserver.dev.yaml --reload
 ```
 
 ### Production Configuration
@@ -773,15 +773,15 @@ predictor:
 
 Enable debug logging:
 ```bash
-mlserver serve --log-level DEBUG
+merve serve --log-level DEBUG
 ```
 
 Validate configuration (including unknown-key warnings):
 ```bash
-mlserver validate mlserver.yaml -v
+merve validate mlserver.yaml -v
 ```
 
 Diagnose the environment:
 ```bash
-mlserver doctor -v
+merve doctor -v
 ```

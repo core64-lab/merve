@@ -45,7 +45,7 @@ Never develop this package against another project's virtual environment (or aga
 ## Project Structure
 
 ```
-merve/  (package: mlserver-fastapi-wrapper)
+merve/  (package: merve)
 ├── mlserver/               # Core package
 │   ├── __init__.py
 │   ├── cli.py             # Typer CLI (the `mlserver` command)
@@ -63,10 +63,10 @@ merve/  (package: mlserver-fastapi-wrapper)
 │   ├── container.py       # Docker building
 │   ├── version_control.py # Hierarchical tagging
 │   ├── github_actions.py  # CI/CD workflow generation
-│   ├── init_project.py    # `mlserver init` scaffolding
-│   ├── validation.py      # `mlserver validate` checks
-│   ├── doctor.py          # `mlserver doctor` diagnostics
-│   ├── schema_generator.py # `mlserver schema` JSON schema
+│   ├── init_project.py    # `merve init` scaffolding
+│   ├── validation.py      # `merve validate` checks
+│   ├── doctor.py          # `merve doctor` diagnostics
+│   ├── schema_generator.py # `merve schema` JSON schema
 │   └── defaults.py        # Package-wide default constants (env-overridable)
 ├── tests/                 # Test suite
 │   ├── unit/             # Unit tests
@@ -261,7 +261,7 @@ class MLServerUser(HttpUser):
 Run load tests:
 ```bash
 # Start server
-mlserver serve
+merve serve
 
 # Run load test
 locust -f tests/load/locustfile.py --host http://localhost:8000
@@ -273,11 +273,11 @@ locust -f tests/load/locustfile.py --host http://localhost:8000
 
 ```bash
 # Via CLI (only overrides the YAML value when explicitly passed)
-mlserver serve --log-level DEBUG
+merve serve --log-level DEBUG
 
 # Via environment (tooling default)
 export MLSERVER_LOG_LEVEL=DEBUG
-mlserver serve
+merve serve
 ```
 
 ```yaml
@@ -431,7 +431,7 @@ git push origin feature/your-feature-name
 
 #### Understanding Version Tags
 
-`mlserver tag` creates **canonical** per-classifier git tags:
+`merve tag` creates **canonical** per-classifier git tags:
 ```
 <classifier>/vX.Y.Z
 Example: sentiment/v2.3.1
@@ -443,7 +443,7 @@ The classifier version comes from the tag; the MLServer commit used is recorded 
 
 ```bash
 # Check current version status
-mlserver tag
+merve tag
 
 # Output shows current versions and recommendations:
 #                    🏷️  Classifier Version Status
@@ -454,9 +454,9 @@ mlserver tag
 # └────────────┴─────────┴───────────┴────────┴─────────────────┘
 
 # Create version tag after completing feature
-mlserver tag --classifier sentiment patch  # For bug fixes
-mlserver tag --classifier sentiment minor  # For new features
-mlserver tag --classifier sentiment major  # For breaking changes
+merve tag --classifier sentiment patch  # For bug fixes
+merve tag --classifier sentiment minor  # For new features
+merve tag --classifier sentiment major  # For breaking changes
 
 # Push tags to remote
 git push --tags
@@ -468,12 +468,12 @@ Before creating a PR, verify your build is reproducible:
 
 ```bash
 # 1. Create a tag for your changes
-mlserver tag --classifier sentiment patch
+merve tag --classifier sentiment patch
 
 # 2. Note the created tag (e.g., sentiment/v1.0.1)
 
 # 3. Build container with the tag
-mlserver build --classifier sentiment/v1.0.1
+merve build --classifier sentiment/v1.0.1
 
 # 4. Verify container labels include version info
 docker inspect sentiment:latest | grep -A 20 Labels
@@ -491,7 +491,7 @@ For repositories with multiple classifiers:
 
 ```bash
 # Check status of all classifiers
-mlserver tag
+merve tag
 
 # Work on specific classifier
 cd classifiers/sentiment
@@ -499,10 +499,10 @@ cd classifiers/sentiment
 # Make changes...
 
 # Tag only the classifier you modified
-mlserver tag --classifier sentiment patch
+merve tag --classifier sentiment patch
 
 # Other classifiers maintain their versions independently
-mlserver tag --classifier intent minor  # If you also modified intent
+merve tag --classifier intent minor  # If you also modified intent
 ```
 
 #### Version Bumping Guidelines
@@ -511,17 +511,17 @@ Choose the right semantic version bump:
 
 - **Patch (X.X.Y)**: Bug fixes, minor improvements, no API changes
   ```bash
-  mlserver tag --classifier sentiment patch
+  merve tag --classifier sentiment patch
   ```
 
 - **Minor (X.Y.0)**: New features, backward compatible
   ```bash
-  mlserver tag --classifier sentiment minor
+  merve tag --classifier sentiment minor
   ```
 
 - **Major (Y.0.0)**: Breaking changes, API modifications
   ```bash
-  mlserver tag --classifier sentiment major
+  merve tag --classifier sentiment major
   ```
 
 #### Validating Before PR
@@ -536,16 +536,16 @@ pytest tests/ --cov=mlserver
 git status
 
 # 3. View tag status
-mlserver tag
+merve tag
 
 # 4. If tests pass and everything looks good, create tag
-mlserver tag --classifier <name> <patch|minor|major>
+merve tag --classifier <name> <patch|minor|major>
 
 # 5. Build and test container
-mlserver build --classifier <tag-name>
+merve build --classifier <tag-name>
 
 # 6. Validate push readiness (checks for uncommitted changes)
-mlserver version --detailed
+merve version --detailed
 ```
 
 #### Common Version Management Scenarios
@@ -553,7 +553,7 @@ mlserver version --detailed
 **Scenario 1: Forgot to tag before pushing**
 ```bash
 # No problem! Create tag now
-mlserver tag --classifier sentiment patch
+merve tag --classifier sentiment patch
 
 # Push the tag separately
 git push --tags
@@ -571,7 +571,7 @@ git checkout -b hotfix/sentiment-security-fix
 git commit -m "fix: security vulnerability"
 
 # Create new patch version
-mlserver tag --classifier sentiment patch  # Creates v1.0.1
+merve tag --classifier sentiment patch  # Creates v1.0.1
 
 # Push branch and tag
 git push origin hotfix/sentiment-security-fix --tags
@@ -580,7 +580,7 @@ git push origin hotfix/sentiment-security-fix --tags
 **Scenario 3: Working with uncommitted changes**
 ```bash
 # Try to create tag with uncommitted changes
-mlserver tag --classifier sentiment patch
+merve tag --classifier sentiment patch
 
 # Output:
 # ⚠️  Warning: Working directory has uncommitted changes
@@ -589,7 +589,7 @@ mlserver tag --classifier sentiment patch
 # Solution: Commit your changes first
 git add .
 git commit -m "feat: add new feature"
-mlserver tag --classifier sentiment minor
+merve tag --classifier sentiment minor
 ```
 
 ### Pull Request Guidelines
@@ -605,7 +605,7 @@ mlserver tag --classifier sentiment minor
 
 ## Release Procedure
 
-Releases of the `mlserver-fastapi-wrapper` package itself are cut from git tags — tags are the canonical version source. Package releases use plain `vX.Y.Z` tags on `main` (not to be confused with the classifier tags described above, which version classifier repositories).
+Releases of the `merve` package itself are cut from git tags — tags are the canonical version source. Package releases use plain `vX.Y.Z` tags on `main` (not to be confused with the classifier tags described above, which version classifier repositories).
 
 1. **Update `CHANGELOG.md`**: move the `[Unreleased]` entries into a new `[X.Y.Z] - YYYY-MM-DD` section
 2. **Tag on main**: `git tag vX.Y.Z`
@@ -788,7 +788,7 @@ lsof -i :8000
 pip install -r requirements.txt
 
 # Validate config
-mlserver validate mlserver.yaml
+merve validate mlserver.yaml
 
 # Or programmatically
 python -c "

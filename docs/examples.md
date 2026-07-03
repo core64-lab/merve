@@ -29,7 +29,7 @@ class MyPredictor:
 
 ```bash
 # Start server
-mlserver serve
+merve serve
 
 # Test prediction (send input keys at the top level)
 curl -X POST http://localhost:8000/predict \
@@ -253,10 +253,10 @@ observability:
 python train_models.py
 
 # Serve single classifier
-mlserver serve mlserver.yaml
+merve serve mlserver.yaml
 
 # Or serve specific classifier from multi-config
-mlserver serve mlserver_multi_classifier_simple.yaml --classifier catboost-survival
+merve serve mlserver_multi_classifier_simple.yaml --classifier catboost-survival
 
 # Test prediction (send input keys at the top level; the "payload" wrapper is deprecated)
 curl -X POST http://localhost:8000/predict \
@@ -347,7 +347,7 @@ class TitanicPredictionUser(HttpUser):
 ### Running Load Tests
 ```bash
 # Start server
-mlserver serve
+merve serve
 
 # Run Locust web UI
 locust -f tests/load/locustfile.py --host http://localhost:8000
@@ -645,7 +645,7 @@ demo-train:
 
 # Start server
 demo-serve:
-	mlserver serve examples/mlserver.yaml
+	merve serve examples/mlserver.yaml
 
 # Test predictions
 demo-test:

@@ -1,6 +1,6 @@
 # Claude Code Configuration
 
-This is a Python project for `mlserver-fastapi-wrapper` - a tool that wraps Python predictor classes into FastAPI inference APIs via YAML configuration.
+This is a Python project for `merve` - a tool that wraps Python predictor classes into FastAPI inference APIs via YAML configuration.
 
 For testing - consider ../test-classifier, which contains a self-contained example and the corresponding test-scripts. You may read- and write to this folder!
 
@@ -48,22 +48,22 @@ The main documentation hub with links to all other docs. Start here to find any 
 ### Core CLI Commands
 The CLI lives in `mlserver/cli.py` (Typer-based) and is exposed as the `mlserver` command.
 
-- **Serve**: `mlserver serve [config.yaml]` - Start ML server (auto-detects mlserver.yaml)
-- **Version**: `mlserver version` - Display version and metadata information
-- **Build**: `mlserver build` - Build Docker container from current project
-- **Push**: `mlserver push` - Push container to registry
-- **Tag**: `mlserver tag <patch|minor|major>` - Create hierarchical version tag
-- **Images**: `mlserver images` - List built container images
-- **Clean**: `mlserver clean` - Remove built container images
-- **Run**: `mlserver run` - Run built container locally
-- **List**: `mlserver list-classifiers` - List classifiers in config
-- **Status**: `mlserver status` - Show system status
-- **Init**: `mlserver init` - Initialize a new project
-- **Init GitHub**: `mlserver init-github` - Generate GitHub Actions workflow
-- **Validate**: `mlserver validate [config.yaml]` - Validate configuration
-- **Doctor**: `mlserver doctor` - Diagnose common issues
-- **Test**: `mlserver test` - Test against a running server
-- **Schema**: `mlserver schema` - Generate JSON schema for mlserver.yaml (IDE support)
+- **Serve**: `merve serve [config.yaml]` - Start ML server (auto-detects mlserver.yaml)
+- **Version**: `merve version` - Display version and metadata information
+- **Build**: `merve build` - Build Docker container from current project
+- **Push**: `merve push` - Push container to registry
+- **Tag**: `merve tag <patch|minor|major>` - Create hierarchical version tag
+- **Images**: `merve images` - List built container images
+- **Clean**: `merve clean` - Remove built container images
+- **Run**: `merve run` - Run built container locally
+- **List**: `merve list-classifiers` - List classifiers in config
+- **Status**: `merve status` - Show system status
+- **Init**: `merve init` - Initialize a new project
+- **Init GitHub**: `merve init-github` - Generate GitHub Actions workflow
+- **Validate**: `merve validate [config.yaml]` - Validate configuration
+- **Doctor**: `merve doctor` - Diagnose common issues
+- **Test**: `merve test` - Test against a running server
+- **Schema**: `merve schema` - Generate JSON schema for mlserver.yaml (IDE support)
 
 ### Make Targets
 - **Setup**: `make dev-setup` - Complete development environment setup

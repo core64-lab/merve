@@ -1,9 +1,9 @@
 # Multi-Classifier Workflow Guide
 
 ## Overview
-This guide explains how to set up, develop, and deploy multiple ML classifiers from a single repository using the mlserver framework.
+This guide explains how to set up, develop, and deploy multiple ML classifiers from a single repository using the merve framework.
 
-**Deployment model**: each classifier runs as its own server process / container serving flat endpoints (`/predict`, `/predict_proba`, ...). The classifier is selected at startup with `mlserver serve --classifier <name>` (or the `MLSERVER_CLASSIFIER` environment variable inside containers) — classifier names never appear in URLs.
+**Deployment model**: each classifier runs as its own server process / container serving flat endpoints (`/predict`, `/predict_proba`, ...). The classifier is selected at startup with `merve serve --classifier <name>` (or the `MLSERVER_CLASSIFIER` environment variable inside containers) — classifier names never appear in URLs.
 
 ## Workflow Summary
 
@@ -94,13 +94,13 @@ Note: `server` and `observability` are global sections — there are no per-clas
 #### Serve specific classifier:
 ```bash
 # Serve CatBoost classifier
-mlserver serve mlserver.yaml --classifier catboost-survival
+merve serve mlserver.yaml --classifier catboost-survival
 
 # Serve RandomForest classifier (e.g. on another port)
-mlserver serve mlserver.yaml --classifier randomforest-survival --port 8001
+merve serve mlserver.yaml --classifier randomforest-survival --port 8001
 
 # Serve default classifier (catboost-survival)
-mlserver serve mlserver.yaml
+merve serve mlserver.yaml
 ```
 
 #### Test endpoints (flat URLs — one classifier per server):
@@ -132,28 +132,28 @@ curl -X POST http://localhost:8001/predict \
 
 ### Step 5: Version Management
 
-Use `mlserver tag` to version each classifier from git tags (the canonical version source).
+Use `merve tag` to version each classifier from git tags (the canonical version source).
 
 ```
-Canonical tag format (created by `mlserver tag`): <classifier>/vX.Y.Z   (e.g. catboost-survival/v1.0.1)
+Canonical tag format (created by `merve tag`): <classifier>/vX.Y.Z   (e.g. catboost-survival/v1.0.1)
 Legacy tag format (still read for old tags):      <classifier>-vX.Y.Z-mlserver-<hash>
 ```
 
-`mlserver tag` writes the **canonical** `<classifier>/vX.Y.Z` form; the MLServer commit lives in the annotated-tag message and the container's OCI labels, not the tag name. The **legacy** form is still parsed everywhere (status, build validation, version listing), so tags created before this change keep working.
+`merve tag` writes the **canonical** `<classifier>/vX.Y.Z` form; the MLServer commit lives in the annotated-tag message and the container's OCI labels, not the tag name. The **legacy** form is still parsed everywhere (status, build validation, version listing), so tags created before this change keep working.
 
 ```bash
 # Create tags (auto-increments the version from the latest git tag)
-mlserver tag --classifier catboost-survival patch
+merve tag --classifier catboost-survival patch
 # ✓ Created tag: catboost-survival/v1.0.1
 
-mlserver tag --classifier randomforest-survival minor
+merve tag --classifier randomforest-survival minor
 # ✓ Created tag: randomforest-survival/v1.1.0
 
 # Push tags
 git push --tags
 
 # View tag status for all classifiers (add --json for machine-readable output)
-mlserver tag
+merve tag
 ```
 
 ### Step 6: Container Build Strategy
@@ -161,10 +161,10 @@ mlserver tag
 #### Build Single Classifier:
 ```bash
 # Build CatBoost classifier container
-mlserver build --classifier catboost-survival
+merve build --classifier catboost-survival
 
 # Build an exact tagged version (validates code matches the tag)
-mlserver build --classifier catboost-survival/v1.0.1
+merve build --classifier catboost-survival/v1.0.1
 ```
 
 #### Container Naming Convention:
@@ -184,15 +184,15 @@ Examples:
 # Script to build all classifiers
 #!/bin/bash
 for classifier in catboost-survival randomforest-survival; do
-  mlserver build --classifier $classifier
+  merve build --classifier $classifier
 done
 ```
 
 ### Step 7: CI/CD Integration
 
-Use `mlserver init-github` to generate a workflow triggered by tag pushes, or write your own.
+Use `merve init-github` to generate a workflow triggered by tag pushes, or write your own.
 
-> **CI trigger note:** the generated workflow (and the example below) currently trigger on the legacy pattern `'*-v*-mlserver-*'`. Since `mlserver tag` now writes canonical `<classifier>/vX.Y.Z` tags, use a `'*/v*'` trigger (and matching parsing) to fire on them — aligning the generated workflow with the canonical format is part of the ongoing tag migration.
+> **CI trigger note:** the generated workflow (and the example below) currently trigger on the legacy pattern `'*-v*-mlserver-*'`. Since `merve tag` now writes canonical `<classifier>/vX.Y.Z` tags, use a `'*/v*'` trigger (and matching parsing) to fire on them — aligning the generated workflow with the canonical format is part of the ongoing tag migration.
 
 ```yaml
 name: Build and Deploy Classifier
@@ -217,17 +217,17 @@ jobs:
           python-version: '3.11'
 
       - name: Install mlserver
-        run: pip install mlserver-fastapi-wrapper
+        run: pip install merve
 
       - name: Build Container
         run: |
-          mlserver build \
+          merve build \
             --classifier ${{ github.ref_name }} \
             --registry ${{ secrets.REGISTRY_URL }}
 
       - name: Push Container
         run: |
-          mlserver push \
+          merve push \
             --classifier ${{ github.ref_name }} \
             --registry ${{ secrets.REGISTRY_URL }}
 ```
@@ -293,7 +293,7 @@ Every prediction response includes metadata:
 ### Step 10: Production Workflow
 
 1. **Development**: Train model, create predictor, test locally
-2. **Tag**: `mlserver tag --classifier <name> <patch|minor|major>` creates the hierarchical git tag
+2. **Tag**: `merve tag --classifier <name> <patch|minor|major>` creates the hierarchical git tag
 3. **Push**: `git push --tags` triggers CI/CD
 4. **Build**: CI/CD builds container from tag
 5. **Deploy**: Deploy to dev environment
@@ -305,12 +305,12 @@ Every prediction response includes metadata:
 
 ### 1. Naming Conventions
 - Classifiers: `{model-type}-{purpose}` (e.g. catboost-survival)
-- Git tags: canonical `{classifier}/v{semver}` (both this and the legacy `{classifier}-v{semver}-mlserver-{hash}` form are read; `mlserver tag` currently writes the legacy form)
+- Git tags: canonical `{classifier}/v{semver}` (both this and the legacy `{classifier}-v{semver}-mlserver-{hash}` form are read; `merve tag` currently writes the legacy form)
 - Containers: `{repo}-{classifier}:{version}`
 
 ### 2. Version Management
 - Each classifier has independent versioning
-- Use semantic versioning (major.minor.patch) via `mlserver tag`
+- Use semantic versioning (major.minor.patch) via `merve tag`
 - Tag every production deployment
 - Versions are derived from git tags — no manual version fields in the config
 
@@ -363,23 +363,23 @@ else:
 
 ```bash
 # Local development
-mlserver serve mlserver.yaml --classifier catboost-survival
+merve serve mlserver.yaml --classifier catboost-survival
 
 # List available classifiers
-mlserver list-classifiers mlserver.yaml
+merve list-classifiers mlserver.yaml
 
 # Tag a release (canonical <classifier>/vX.Y.Z tag)
-mlserver tag --classifier catboost-survival patch
+merve tag --classifier catboost-survival patch
 
 # Build specific version
 git checkout catboost-survival/v1.2.3
-mlserver build --classifier catboost-survival
+merve build --classifier catboost-survival
 
 # Push to registry
-mlserver push --classifier catboost-survival --registry gcr.io/myproject
+merve push --classifier catboost-survival --registry gcr.io/myproject
 
 # Check version info
-mlserver version --classifier catboost-survival
+merve version --classifier catboost-survival
 
 # Run tests for specific classifier
 pytest tests/test_catboost_predictor.py

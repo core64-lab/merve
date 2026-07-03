@@ -77,7 +77,7 @@ This index provides a comprehensive overview of all documentation available for 
 ### [Multi-Classifier Support](./multi-classifier.md)
 - **Configuration Format**: Dict (canonical) and list YAML structures for multiple models
 - **Deployment Patterns**: One classifier per container/process, selected at startup
-- **Version Management**: Per-classifier versioning via `mlserver tag`
+- **Version Management**: Per-classifier versioning via `merve tag`
 - **Classifier Selection**: `serve --classifier` and `MLSERVER_CLASSIFIER`
 - **Examples**: Real-world multi-model deployments
 
@@ -105,23 +105,23 @@ predictor:
 ### CLI Quick Commands
 ```bash
 # Serve with auto-detection
-mlserver serve
+merve serve
 
 # Serve specific classifier
-mlserver serve config.yaml --classifier model-name
+merve serve config.yaml --classifier model-name
 
 # Version management with canonical per-classifier tags
-mlserver tag --classifier sentiment patch  # Create sentiment/v1.0.1
-mlserver tag                               # View status of all classifiers
+merve tag --classifier sentiment patch  # Create sentiment/v1.0.1
+merve tag                               # View status of all classifiers
 
 # Build container with version validation
-mlserver build --classifier sentiment/v1.0.1
+merve build --classifier sentiment/v1.0.1
 
 # Version information
-mlserver version --detailed
+merve version --detailed
 
 # Scaffold a new project
-mlserver init --classifier my-model
+merve init --classifier my-model
 ```
 
 ### API Quick Endpoints

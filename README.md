@@ -70,7 +70,7 @@ That's the minimal configuration. Server defaults to `0.0.0.0:8000`.
 ### 3. Start Server
 
 ```bash
-mlserver serve
+merve serve
 ```
 
 ### 4. Make Predictions
@@ -189,29 +189,29 @@ classifiers:
 
 Run a specific classifier:
 ```bash
-mlserver serve --classifier sentiment
-mlserver build --classifier sentiment
+merve serve --classifier sentiment
+merve build --classifier sentiment
 ```
 
 ## CLI Commands
 
 ```
-mlserver serve [config.yaml]           Start the server
-mlserver build --classifier <name>     Build Docker container
-mlserver tag <patch|minor|major> -c <name>   Create version tag
-mlserver push --classifier <name>      Push to container registry
-mlserver run --classifier <name>       Run container locally
-mlserver images                        List built images
-mlserver clean --classifier <name>     Remove built images
-mlserver list-classifiers              List classifiers in config
-mlserver version [--json]              Show version info
-mlserver status                        Show system status
-mlserver validate                      Validate configuration
-mlserver doctor                        Diagnose common issues
-mlserver test                          Test against running server
-mlserver init                          Initialize new project
-mlserver init-github                   Generate GitHub Actions workflow
-mlserver schema                        Generate JSON schema for mlserver.yaml
+merve serve [config.yaml]           Start the server
+merve build --classifier <name>     Build Docker container
+merve tag <patch|minor|major> -c <name>   Create version tag
+merve push --classifier <name>      Push to container registry
+merve run --classifier <name>       Run container locally
+merve images                        List built images
+merve clean --classifier <name>     Remove built images
+merve list-classifiers              List classifiers in config
+merve version [--json]              Show version info
+merve status                        Show system status
+merve validate                      Validate configuration
+merve doctor                        Diagnose common issues
+merve test                          Test against running server
+merve init                          Initialize new project
+merve init-github                   Generate GitHub Actions workflow
+merve schema                        Generate JSON schema for mlserver.yaml
 ```
 
 ## Docker Containerization
@@ -220,10 +220,10 @@ mlserver schema                        Generate JSON schema for mlserver.yaml
 
 ```bash
 # Build container
-mlserver build --classifier my-classifier
+merve build --classifier my-classifier
 
 # Run locally
-mlserver run --classifier my-classifier
+merve run --classifier my-classifier
 
 # Or manually
 docker run -p 8000:8000 my-repo/my-classifier:latest
@@ -235,7 +235,7 @@ Create hierarchical tags that track both classifier and mlserver versions:
 
 ```bash
 # Create patch version bump (1.0.0 -> 1.0.1)
-mlserver tag patch --classifier my-classifier
+merve tag patch --classifier my-classifier
 
 # Push to trigger GitHub Actions
 git push --tags
@@ -250,13 +250,13 @@ Example: `my-classifier-v1.0.1-mlserver-abc123d`
 Initialize the workflow:
 
 ```bash
-mlserver init-github
+merve init-github
 ```
 
 This creates `.github/workflows/ml-classifier-container-build.yml` which:
 
 1. Triggers on hierarchical tags
-2. Installs the exact mlserver version from the tag
+2. Installs the exact merve version from the tag
 3. Builds and tests the container
 4. Pushes to GHCR or ECR
 
@@ -341,13 +341,13 @@ Current status: **897 tests passing, 0 failing**, **64% coverage**
 
 ```bash
 # Validate configuration
-mlserver validate
+merve validate
 
 # Diagnose environment issues
-mlserver doctor
+merve doctor
 
 # Check server status
-mlserver status
+merve status
 ```
 
 Common issues:

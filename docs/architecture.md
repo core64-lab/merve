@@ -450,7 +450,7 @@ FROM python:3.9-slim as builder
 FROM python:3.9-slim
 # Runtime only
 COPY --from=builder /app /app
-CMD ["mlserver", "serve"]
+CMD ["merve", "serve"]
 ```
 
 ### Kubernetes Architecture
