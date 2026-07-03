@@ -565,8 +565,24 @@ def build(
         "--force",
         help="Skip validation prompts and continue with build"
     ),
+    per_classifier_image: bool = typer.Option(
+        False,
+        "--per-classifier-image",
+        help=(
+            "Escape hatch: build one baked image per classifier (pre-W2.5 behavior) "
+            "instead of a single build-once commit image. Use ONLY for classifiers "
+            "whose conflicting dependencies cannot share one image. Requires --classifier."
+        )
+    ),
 ):
     """🏗️  Build Docker container for the classifier project.
+
+    Build-once / deploy-many (RFC 0001 D4): for a multi-classifier repo the
+    DEFAULT builds ONE commit image (tagged <repo>:<git-sha> and <repo>:latest)
+    that bundles every classifier; the classifier is chosen at deploy/run time
+    via MLSERVER_CLASSIFIER. Use --per-classifier-image (with --classifier) to
+    fall back to one baked image per classifier for diverging-dependency cases.
+    Single-classifier repos always build a single image.
 
     The --classifier parameter accepts simple names and full version tags:
     - Simple: --classifier sentiment
@@ -696,24 +712,39 @@ def build(
         # Multi-classifier config
         available = list_available_classifiers(str(config_file))
 
-        if not classifier:
+        if per_classifier_image:
+            # Escape hatch (RFC 0001 D4): one baked image per classifier.
+            if not classifier:
+                console.print(
+                    "[red]✗[/red] --per-classifier-image requires --classifier <name>.",
+                    style="bold red",
+                )
+                console.print(f"Available classifiers: {', '.join(available)}")
+                console.print("Usage: mlserver build --per-classifier-image --classifier <name>")
+                raise typer.Exit(1)
+            if classifier not in available:
+                console.print(
+                    f"[red]✗[/red] Classifier '{classifier}' not found.", style="bold red"
+                )
+                console.print(f"Available classifiers: {', '.join(available)}")
+                raise typer.Exit(1)
             console.print(
-                "[red]✗[/red] Multi-classifier config detected. "
-                "Please specify which classifier to build:",
-                style="bold red",
+                f"[yellow]→[/yellow] Building per-classifier image for: [cyan]{classifier}[/cyan]"
             )
-            console.print(f"Available classifiers: {', '.join(available)}")
-            console.print("Usage: mlserver build --classifier <name>")
-            raise typer.Exit(1)
-
-        if classifier not in available:
-            console.print(f"[red]✗[/red] Classifier '{classifier}' not found.", style="bold red")
-            console.print(f"Available classifiers: {', '.join(available)}")
-            raise typer.Exit(1)
-
-        # For multi-classifier, we need to pass the specific classifier config
-        # This is handled by build_container internally
-        console.print(f"[yellow]→[/yellow] Building for classifier: {classifier}")
+        else:
+            # Default (RFC 0001 D4 / W2.5): ONE commit image bundling every
+            # classifier; selection happens at deploy/run time.
+            console.print(
+                "[yellow]→[/yellow] Building single commit image bundling all classifiers: "
+                f"[cyan]{', '.join(available)}[/cyan]"
+            )
+            if classifier:
+                console.print(
+                    "[dim]  (--classifier is ignored for the commit image; use "
+                    "--per-classifier-image to bake a single classifier)[/dim]"
+                )
+                # The commit image bundles all classifiers - drop any selection.
+                classifier = None
 
     # Parse --build-arg values (must be KEY=value)
     parsed_build_args = None
@@ -738,7 +769,8 @@ def build(
         build_args=parsed_build_args,
         no_cache=no_cache,
         mlserver_source_path=None,  # Auto-detect
-        platform=platform
+        platform=platform,
+        per_classifier_image=per_classifier_image
     )
 
     if result["success"]:
@@ -749,6 +781,88 @@ def build(
             console.print(result["build_output"])
     else:
         console.print(f"[red]✗[/red] Build failed: {result['error']}", style="bold red")
+        raise typer.Exit(1)
+
+
+def _push_classifier_alias_cli(
+    path: str,
+    registry: str,
+    classifier: Optional[str],
+    tag_prefix: Optional[str],
+    force: bool,
+    config_file: Optional[Path],
+) -> None:
+    """Apply a classifier release as registry tag aliases on the commit image.
+
+    Build-once/deploy-many (RFC 0001 D4 / W2.5): validates that HEAD sits on the
+    canonical git tag ``<classifier>/vX.Y.Z``, then re-tags and pushes the
+    already-built commit image under classifier-scoped registry tags (no
+    rebuild). Raises ``typer.Exit(1)`` on any failure.
+    """
+    from .container import push_classifier_alias
+    from .multi_classifier import list_available_classifiers
+
+    available = list_available_classifiers(str(config_file)) if config_file else []
+
+    if not classifier:
+        console.print(
+            "[red]✗[/red] Multi-classifier config detected. "
+            "Specify which classifier release to push:",
+            style="bold red",
+        )
+        console.print(f"Available classifiers: {', '.join(available)}")
+        console.print("Usage: mlserver push --classifier <name> --registry <url>")
+        raise typer.Exit(1)
+
+    if available and classifier not in available:
+        console.print(f"[red]✗[/red] Classifier '{classifier}' not found.", style="bold red")
+        console.print(f"Available classifiers: {', '.join(available)}")
+        raise typer.Exit(1)
+
+    # Validate the canonical git tag <classifier>/vX.Y.Z exists at HEAD
+    git_mgr = GitVersionManager(str(path))
+    validation = git_mgr.validate_push_readiness(classifier, force)
+    if not validation["ready"] and not force:
+        console.print("[red]✗[/red] Push failed: release validation failed", style="bold red")
+        for err in validation.get("errors", []):
+            console.print(f"  [red]→[/red] {err}")
+        raise typer.Exit(1)
+
+    version = git_mgr.get_current_version(classifier)
+    if not version:
+        console.print(
+            f"[red]✗[/red] No release tag found for classifier '{classifier}'.",
+            style="bold red",
+        )
+        console.print(
+            f"Create one first: [cyan]mlserver tag <major|minor|patch> "
+            f"--classifier {classifier}[/cyan]"
+        )
+        raise typer.Exit(1)
+
+    console.print(
+        f"[cyan]📤 Applying release alias for {classifier} v{version} "
+        f"on the commit image → {registry}...[/cyan]"
+    )
+
+    result = push_classifier_alias(
+        project_path=str(path),
+        registry=registry,
+        classifier_name=classifier,
+        version=version,
+        tag_prefix=tag_prefix,
+    )
+
+    if result.get("success"):
+        console.print("[green]✓[/green] Successfully pushed release aliases")
+        console.print(f"  [yellow]→[/yellow] Source image: {result['source_image']}")
+        for tag in result.get("pushed_tags", []):
+            console.print(f"  [yellow]→[/yellow] {tag}")
+    else:
+        error_msg = result.get("error") or "Some aliases failed to push"
+        console.print(f"[red]✗[/red] Push failed: {error_msg}", style="bold red")
+        for err in result.get("failed_tags", []):
+            console.print(f"  [red]✗[/red] {err}")
         raise typer.Exit(1)
 
 
@@ -814,11 +928,28 @@ def push(
         )
         raise typer.Exit(1)
 
+    # Choose the push strategy from the config shape. Multi-classifier repos
+    # use build-once/deploy-many: the release is applied as registry tag aliases
+    # on the already-built commit image (RFC 0001 D4 / W2.5), not rebuilt.
+    try:
+        push_config_file = detect_config_file(None, base_dir=Path(path))
+        is_multi = detect_multi_classifier_config(str(push_config_file))
+    except Exception:
+        push_config_file = None
+        is_multi = False
+
+    if is_multi:
+        _push_classifier_alias_cli(
+            path=path, registry=registry, classifier=classifier,
+            tag_prefix=tag_prefix, force=force, config_file=push_config_file
+        )
+        return
+
     console.print(f"[cyan]📤 Validating and pushing to {registry}...[/cyan]")
     if classifier:
         console.print(f"[yellow]→[/yellow] Classifier: {classifier}")
 
-    # Use safe push with version control
+    # Single-classifier repos keep the existing per-image push path.
     result = safe_push_container(
         project_path=str(path),
         registry=registry,
@@ -1342,11 +1473,10 @@ def run(
     from .version import get_repository_name
     repository = get_repository_name(path)
 
-    # Construct image name
-    if classifier:
-        image_name = f"{repository}/{classifier}"
-    else:
-        image_name = repository
+    # Build-once / deploy-many (RFC 0001 D4 / W2.5): the commit image bundles
+    # every classifier, so run the repository image and select the classifier at
+    # run time via MLSERVER_CLASSIFIER (added to the docker run command below).
+    image_name = repository
 
     # Add version tag
     if version:
@@ -1383,6 +1513,11 @@ def run(
             import time
             timestamp = int(time.time())
             docker_cmd.extend(["--name", f"{classifier}-{timestamp}"])
+
+    # Select the classifier at run time for the build-once commit image
+    # (RFC 0001 D4 / W2.5). User -e overrides can still follow.
+    if classifier:
+        docker_cmd.extend(["-e", f"MLSERVER_CLASSIFIER={classifier}"])
 
     # Add environment variables
     if env:

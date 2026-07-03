@@ -682,10 +682,43 @@ Dockerfile
     return dockerignore_content
 
 
+def _get_installed_mlserver_version() -> Optional[str]:
+    """Return the version of the currently-installed mlserver-fastapi-wrapper.
+
+    Reads ``importlib.metadata`` first (authoritative for installed
+    distributions), falling back to ``mlserver.__version__``. Returns None
+    when the version cannot be determined (RFC 0001, D16 / W2.6).
+    """
+    try:
+        from importlib.metadata import version
+        return version("mlserver-fastapi-wrapper")
+    except Exception:
+        try:
+            import mlserver
+            return getattr(mlserver, "__version__", None)
+        except Exception:
+            return None
+
+
+def _is_release_version(version: Optional[str]) -> bool:
+    """True when ``version`` is a clean release (RFC 0001, D16 / W2.6).
+
+    A clean release carries no development/local/post markers: none of
+    ``.dev``, ``+`` (PEP 440 local version) or ``.post``. Only such versions
+    can be pinned reproducibly via ``pip install mlserver-fastapi-wrapper==X``.
+    Everything else (dev builds, local builds) is treated as non-reproducible.
+    """
+    if not version:
+        return False
+    return not any(marker in version for marker in (".dev", "+", ".post"))
+
+
 def generate_dockerfile(project_path: str, config: AppConfig,
                        required_files: list[str], base_image: str = None,
                        has_wheel: bool = False, needs_git: bool = False,
-                       classifier_name: Optional[str] = None) -> str:
+                       classifier_name: Optional[str] = None,
+                       bake_classifier_env: Optional[str] = None,
+                       commit_image: bool = False) -> str:
     """
     Generate a two-stage Dockerfile for the classifier project (RFC 0001, D15).
 
@@ -701,6 +734,14 @@ def generate_dockerfile(project_path: str, config: AppConfig,
         has_wheel: Whether a wheel file is available
         needs_git: Whether git needs to be installed in the builder stage
         classifier_name: Name of classifier being built (for labels)
+        bake_classifier_env: When set, bake ``ENV MLSERVER_CLASSIFIER=<value>``
+            into the image (RFC 0001 D4 / W2.5 ``--per-classifier-image`` mode).
+            The build-once commit image leaves this None so the classifier is
+            selected at deploy/run time.
+        commit_image: When True the image is a build-once commit image
+            (RFC 0001 D4 / W2.5): it bundles every classifier, ships the full
+            multi-classifier config, bakes no classifier selection, and carries
+            repository-level (not classifier-level) labels.
 
     Returns:
         Dockerfile content as string
@@ -810,28 +851,47 @@ def generate_dockerfile(project_path: str, config: AppConfig,
 
     builder_deps_line = " \\\n    ".join(builder_system_deps)
 
-    # Generate wheel installation section
-    if has_wheel:
-        temp_dir = CONTAINER_TEMP_DIR
-        temp_wheel = f"{temp_dir}/mlserver_fastapi_wrapper*.whl"
-        wheel_install_section = f"""COPY mlserver_fastapi_wrapper*.whl {temp_dir}/
-RUN pip install --no-cache-dir {temp_wheel} && rm {temp_wheel}"""
-    else:
-        # Try to detect if installed from git
-        git_url = _get_mlserver_git_url()
-        git_install_comment = (
-            "# Installing from git repository (detected from current installation)"
+    # Framework install section (RFC 0001, D16 / W2.6).
+    # A clean RELEASE version of mlserver is pinned reproducibly from PyPI.
+    # Development builds fall back to the wheel-copy (or git) path and emit a
+    # build-time WARNING, because the resulting image cannot be reproduced.
+    installed_mlserver_version = _get_installed_mlserver_version()
+    if _is_release_version(installed_mlserver_version):
+        wheel_install_section = (
+            f"# Release build: pin the exact framework version (RFC 0001, D16)\n"
+            f'RUN pip install --no-cache-dir '
+            f'"mlserver-fastapi-wrapper=={installed_mlserver_version}"'
         )
-        if git_url and needs_git:
-            wheel_install_section = f"""{git_install_comment}
+    else:
+        # Dev build: non-reproducible - warn loudly at build time (RFC 0001 D16).
+        print(
+            f"⚠️  WARNING: baking a development build of mlserver-fastapi-wrapper "
+            f"({installed_mlserver_version or 'unknown'}) into the image. The "
+            f"resulting image is NOT reproducible (RFC 0001, D16). Tag and install "
+            f"a release version to pin an exact, reproducible framework version."
+        )
+        if has_wheel:
+            temp_dir = CONTAINER_TEMP_DIR
+            temp_wheel = f"{temp_dir}/mlserver_fastapi_wrapper*.whl"
+            wheel_install_section = f"""# Dev build: install the locally built wheel
+COPY mlserver_fastapi_wrapper*.whl {temp_dir}/
+RUN pip install --no-cache-dir {temp_wheel} && rm {temp_wheel}"""
+        else:
+            # Try to detect if installed from git
+            git_url = _get_mlserver_git_url()
+            git_install_comment = (
+                "# Installing from git repository (detected from current installation)"
+            )
+            if git_url and needs_git:
+                wheel_install_section = f"""{git_install_comment}
 # Git is installed in system dependencies to support pip git clone
 RUN pip install --no-cache-dir "{git_url}"#egg=mlserver-fastapi-wrapper"""
-        elif git_url:
-            wheel_install_section = f"""{git_install_comment}
+            elif git_url:
+                wheel_install_section = f"""{git_install_comment}
 # Note: This should not happen - wheel should have been built
 RUN pip install --no-cache-dir "{git_url}"#egg=mlserver-fastapi-wrapper"""
-        else:
-            wheel_install_section = """# No local wheel found, installing from PyPI
+            else:
+                wheel_install_section = """# No local wheel found, installing from PyPI
 RUN pip install --no-cache-dir mlserver-fastapi-wrapper"""
 
     # Get classifier info for labels (the classifier_name parameter takes
@@ -850,8 +910,25 @@ RUN pip install --no-cache-dir mlserver-fastapi-wrapper"""
         config_classifier_name = config.classifier_metadata.classifier.name
         classifier_version = config.classifier_metadata.classifier.version
 
-    if classifier_name is None:
-        classifier_name = config_classifier_name or "unknown"
+    # Commit images (RFC 0001 D4 / W2.5) bundle every classifier, so they carry
+    # repository-level labels and no baked classifier selection. Single/
+    # per-classifier images keep classifier-level labels as before.
+    if commit_image:
+        label_classifier_name = None
+        header_name = f"{get_repository_name(project_path)} (commit image, all classifiers)"
+        header_version = ""
+    else:
+        if classifier_name is None:
+            classifier_name = config_classifier_name or "unknown"
+        label_classifier_name = classifier_name
+        header_name = classifier_name
+        header_version = f" v{classifier_version}"
+
+    # ``ENV MLSERVER_CLASSIFIER`` is only baked for --per-classifier-image
+    # builds; the commit image leaves selection to deploy/run time.
+    classifier_env_line = ""
+    if bake_classifier_env:
+        classifier_env_line = f'\nENV MLSERVER_CLASSIFIER="{bake_classifier_env}"'
 
     # Capture git info at build time (before containerization)
     from .version import get_git_info
@@ -871,7 +948,7 @@ RUN pip install --no-cache-dir mlserver-fastapi-wrapper"""
     # (CMD serves on this port, so they must agree)
     server_port = config.server.port if config.server else 8000
 
-    dockerfile_content = f'''# Generated Dockerfile for {classifier_name} v{classifier_version}
+    dockerfile_content = f'''# Generated Dockerfile for {header_name}{header_version}
 # Generated at: {datetime.now().isoformat()}
 # Two-stage build (RFC 0001, D15): build tooling stays out of the runtime image
 
@@ -915,7 +992,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONPATH=/app
 
 # Embed build-time metadata as environment variables
-ENV MLSERVER_CONFIG_FILE="{config_file}"
+ENV MLSERVER_CONFIG_FILE="{config_file}"{classifier_env_line}
 ENV MLSERVER_GIT_COMMIT="{git_commit or ''}"
 ENV MLSERVER_GIT_TAG="{git_tag or ''}"
 ENV MLSERVER_GIT_BRANCH="{git_branch or ''}"
@@ -937,7 +1014,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \\
 EXPOSE {server_port}
 
 # Set labels for metadata (comprehensive traceability)
-{_generate_label_directives(project_path, classifier_name, config)}
+{_generate_label_directives(project_path, label_classifier_name, config)}
 
 # Command to run the server
 CMD ["mlserver", "serve", "{config_file}"]
@@ -1244,7 +1321,9 @@ def _prepare_docker_build_command(final_tags: list[str],
 
 def _write_docker_files(project_path: str, config: 'AppConfig', required_files: list[str],
                        analysis: dict[str, Any], has_wheel: bool, needs_git: bool,
-                       classifier_name: Optional[str] = None) -> tuple[Path, Path, Optional[Path]]:
+                       classifier_name: Optional[str] = None,
+                       bake_classifier_env: Optional[str] = None
+                       ) -> tuple[Path, Path, Optional[Path]]:
     """Generate and write Dockerfile and .dockerignore files.
 
     Args:
@@ -1255,6 +1334,8 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
         has_wheel: Whether a wheel is available
         needs_git: Whether git needs to be installed in container
         classifier_name: Name of specific classifier (for multi-classifier configs)
+        bake_classifier_env: When set, bake ``ENV MLSERVER_CLASSIFIER=<value>``
+            into the image (RFC 0001 D4 / W2.5 ``--per-classifier-image`` mode)
 
     Returns:
         Tuple of (dockerfile_path, dockerignore_path, temp_config_file) where
@@ -1312,7 +1393,8 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
 
     # Generate Dockerfile
     dockerfile_content = generate_dockerfile(
-        project_path, config, required_files, base_image, has_wheel, needs_git, classifier_name
+        project_path, config, required_files, base_image, has_wheel, needs_git, classifier_name,
+        bake_classifier_env=bake_classifier_env
     )
 
     # If we created a temp config, update Dockerfile to rename it to mlserver.yaml
@@ -1370,6 +1452,219 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
     return dockerfile_path, dockerignore_path, temp_config_file
 
 
+def _resolve_config_path(project_path: str, config_file: Optional[str] = None) -> Optional[Path]:
+    """Resolve the config file path for a project (auto-detect when None).
+
+    Returns the absolute path to the config file, or None when no config file
+    can be located (callers then fall back to their single-image behavior).
+    """
+    from .cli import detect_config_file
+
+    if config_file:
+        candidate = Path(config_file)
+        if not candidate.is_absolute():
+            candidate = Path(project_path) / candidate
+        return candidate if candidate.exists() else None
+    try:
+        return detect_config_file(None, base_dir=Path(project_path))
+    except Exception:
+        return None
+
+
+def _execute_docker_build(build_cmd: list[str], project_path: str) -> tuple[int, str]:
+    """Run a ``docker build`` command, streaming output; return (rc, output).
+
+    Paths with glob special characters are already routed around by
+    get_parent_without_glob() during COPY generation (RFC 0001, D15).
+    """
+    print("\n" + "=" * 60)
+    print("Docker build output:")
+    print("=" * 60)
+
+    process = subprocess.Popen(
+        build_cmd,
+        cwd=project_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,  # Line buffered
+        universal_newlines=True,
+    )
+
+    output_lines = []
+    for line in iter(process.stdout.readline, ''):
+        print(line.rstrip())  # Print to console in real-time
+        output_lines.append(line)
+
+    process.wait()
+    full_output = ''.join(output_lines)
+
+    print("=" * 60)
+    print(f"Build completed with exit code: {process.returncode}")
+    print("=" * 60 + "\n")
+
+    return process.returncode, full_output
+
+
+def _commit_image_tags(project_path: str) -> list[str]:
+    """Base tags for a build-once commit image (RFC 0001 D4 / W2.5).
+
+    Produces ``<repo>:<short-git-sha>`` (when a commit is known) and
+    ``<repo>:latest`` - one image per git commit, no classifier baked in.
+    """
+    repository = get_repository_name(project_path)
+    tags: list[str] = []
+
+    git_info = get_git_info(project_path)
+    if git_info and git_info.commit:
+        # get_git_info already truncates to 8 chars; use a 7-char short sha
+        tags.append(f"{repository}:{git_info.commit[:7]}")
+
+    tags.append(f"{repository}:latest")
+    return tags
+
+
+def _build_commit_container(
+    project_path: str,
+    config_path: str,
+    tag_prefix: Optional[str],
+    registry: Optional[str],
+    build_args: Optional[dict[str, str]],
+    no_cache: bool,
+    mlserver_source_path: Optional[str],
+    platform: Optional[str],
+) -> dict[str, Any]:
+    """Build ONE commit image for a multi-classifier repo (RFC 0001 D4 / W2.5).
+
+    The image bundles every classifier's code and a superset of their required
+    files, ships the full multi-classifier ``mlserver.yaml`` unchanged, and
+    bakes NO classifier selection - the classifier is chosen at deploy/run time
+    via ``MLSERVER_CLASSIFIER``. Tagged ``<repo>:<git-sha>`` and ``<repo>:latest``;
+    per-classifier release tags are applied later, without a rebuild, as registry
+    tag aliases by :func:`push_classifier_alias`.
+    """
+    try:
+        from .multi_classifier import (
+            extract_single_classifier_config,
+            load_multi_classifier_config,
+        )
+
+        cfg_path = Path(config_path)
+        multi_config = load_multi_classifier_config(str(cfg_path))
+        classifier_names = list(multi_config.classifiers.keys())
+        if not classifier_names:
+            raise ContainerError(
+                message="Multi-classifier config has no classifiers to build",
+                suggestion="Add at least one classifier under 'classifiers:'"
+            )
+
+        # Union required files + auto-excludes across ALL classifiers so the
+        # commit image is a superset that can serve any of them.
+        required_files: set[str] = set()
+        auto_excludes: set[str] = set()
+        representative_config: Optional[AppConfig] = None
+        for name in classifier_names:
+            cfg = extract_single_classifier_config(multi_config, name)
+            if representative_config is None:
+                representative_config = cfg
+            detection = detect_required_files(project_path, cfg)
+            required_files.update(detection["required_files"])
+            auto_excludes.update(detection["analysis"].get("auto_excludes", set()))
+
+        # Always ship the full multi-classifier config (unchanged) + requirements
+        required_files.add(cfg_path.name)
+        if (Path(project_path) / "requirements.txt").exists():
+            required_files.add("requirements.txt")
+        required_files_list = sorted(required_files)
+
+        # Wheel preparation (identical to the single-image path)
+        git_url = _get_mlserver_git_url()
+        wheel_file, needs_git = _handle_wheel_preparation(
+            project_path, mlserver_source_path, git_url
+        )
+        existing_wheels = list(Path(project_path).glob("mlserver_fastapi_wrapper-*.whl"))
+        has_wheel = bool(existing_wheels) or wheel_file is not None
+
+        base_image = DEFAULT_BASE_IMAGE
+        if representative_config.build and representative_config.build.base_image:
+            base_image = representative_config.build.base_image
+
+        print("Building single commit image bundling classifiers: "
+              f"{', '.join(classifier_names)}")
+        print(f"  Total files to copy: {len(required_files_list)}")
+
+        # Commit-image Dockerfile: no baked classifier, repo-level labels, full
+        # multi-classifier config shipped as-is (no per-classifier extraction).
+        dockerfile_content = generate_dockerfile(
+            project_path, representative_config, required_files_list,
+            base_image, has_wheel, needs_git,
+            classifier_name=None, commit_image=True,
+        )
+        dockerfile_path = Path(project_path) / "Dockerfile"
+        dockerfile_path.write_text(dockerfile_content)
+
+        dockerignore_content = generate_dockerignore(
+            project_path, auto_excludes,
+            representative_config.build.exclude_patterns
+            if representative_config.build else None
+        )
+        dockerignore_path = Path(project_path) / ".dockerignore"
+        dockerignore_path.write_text(dockerignore_content)
+
+        # Commit-image tags: <repo>:<sha> + <repo>:latest (+ prefix/registry)
+        final_tags = []
+        for tag in _commit_image_tags(project_path):
+            final_tag = tag
+            if tag_prefix:
+                final_tag = f"{tag_prefix}/{final_tag}"
+            if registry:
+                final_tag = f"{registry}/{final_tag}"
+            final_tags.append(final_tag)
+
+        build_cmd = _prepare_docker_build_command(final_tags, build_args, no_cache, platform)
+        print(f"Tags: {', '.join(final_tags)}")
+
+        returncode, full_output = _execute_docker_build(build_cmd, project_path)
+
+        # Clean up a wheel this build created (user-provided wheels are kept)
+        try:
+            if wheel_file:
+                wheel_path = Path(project_path) / wheel_file
+                if wheel_path.exists():
+                    wheel_path.unlink()
+                    print(f"✓ Cleaned up temporary wheel: {wheel_file}")
+        except Exception as cleanup_error:
+            print(f"Warning: Error during cleanup: {cleanup_error}")
+
+        if returncode != 0:
+            raise ContainerError(
+                message=f"Docker build failed with exit code {returncode}",
+                suggestion=(
+                    "Check the build output above for errors. Common issues: missing files, "
+                    "invalid Dockerfile syntax, or network issues pulling base image"
+                )
+            )
+
+        git_info = get_git_info(project_path)
+        return {
+            "success": True,
+            "tags": final_tags,
+            "commit_image": True,
+            "classifiers": classifier_names,
+            "dockerfile": str(dockerfile_path),
+            "dockerignore": str(dockerignore_path),
+            "required_files": required_files_list,
+            "git_info": git_info.__dict__ if git_info else None,
+            "build_output": full_output,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 def build_container(
     project_path: str = ".",
     config_file: Optional[str] = None,
@@ -1379,14 +1674,23 @@ def build_container(
     build_args: Optional[dict[str, str]] = None,
     no_cache: bool = False,
     mlserver_source_path: Optional[str] = None,
-    platform: Optional[str] = None
+    platform: Optional[str] = None,
+    per_classifier_image: bool = False
 ) -> dict[str, Any]:
     """
     Build Docker container for the classifier project with intelligent file detection.
 
+    Build-once/deploy-many (RFC 0001 D4 / W2.5): for a multi-classifier repo the
+    DEFAULT is a single commit image bundling every classifier (no baked
+    classifier; selected at deploy/run time via ``MLSERVER_CLASSIFIER``). Pass
+    ``per_classifier_image=True`` to preserve the pre-W2.5 behavior of one baked
+    image per classifier (escape hatch for classifiers with diverging deps).
+    Single-classifier repos always produce one image, unchanged.
+
     Args:
         project_path: Path to the classifier project
         config_file: Config file to use (auto-detected if None)
+        classifier_name: Classifier to build (per-classifier-image mode only)
         tag_prefix: Optional prefix for container tags
         registry: Optional registry URL prefix
         build_args: Optional build arguments
@@ -1394,11 +1698,35 @@ def build_container(
         mlserver_source_path: Path to mlserver source for wheel building
         platform: Optional target platform passed to `docker build --platform`
             (single platform; cross-arch builds require binfmt/buildx)
+        per_classifier_image: Build one baked image per classifier instead of a
+            single commit image (RFC 0001 D4 / W2.5 escape hatch)
 
     Returns:
         Build result with tags and metadata
     """
     try:
+        from .multi_classifier import detect_multi_classifier_config
+
+        # Build-once default: a multi-classifier repo builds ONE commit image
+        # unless --per-classifier-image asks for the legacy per-classifier build.
+        resolved_config_path = _resolve_config_path(project_path, config_file)
+        if (
+            resolved_config_path
+            and not per_classifier_image
+            and detect_multi_classifier_config(str(resolved_config_path))
+        ):
+            return _build_commit_container(
+                project_path, str(resolved_config_path), tag_prefix, registry,
+                build_args, no_cache, mlserver_source_path, platform
+            )
+
+        # Per-classifier-image (or single-classifier) path bakes the classifier
+        # selection into the image (multi-classifier repos only).
+        bake_env = None
+        if per_classifier_image and classifier_name and resolved_config_path and \
+                detect_multi_classifier_config(str(resolved_config_path)):
+            bake_env = classifier_name
+
         # Load configuration
         config = _load_container_config(project_path, config_file, classifier_name)
 
@@ -1425,7 +1753,8 @@ def build_container(
 
         # Write Docker files (Dockerfile and .dockerignore)
         dockerfile_path, dockerignore_path, temp_config_file = _write_docker_files(
-            project_path, config, required_files, analysis, has_wheel, needs_git, classifier_name
+            project_path, config, required_files, analysis, has_wheel, needs_git, classifier_name,
+            bake_classifier_env=bake_env
         )
 
         # Prepare container metadata and tags
@@ -1444,36 +1773,9 @@ def build_container(
         )
         print(f"Tags: {', '.join(final_tags)}")
 
-        # Run Docker build with real-time output (verbose)
-        print("\n" + "="*60)
-        print("Docker build output:")
-        print("="*60)
-
-        # BuildKit is left at the daemon default (RFC 0001, D15). Paths with
-        # glob special characters are already routed around by
-        # get_parent_without_glob() during COPY generation.
-        process = subprocess.Popen(
-            build_cmd,
-            cwd=project_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,  # Line buffered
-            universal_newlines=True,
-        )
-
-        # Stream output in real-time
-        output_lines = []
-        for line in iter(process.stdout.readline, ''):
-            print(line.rstrip())  # Print to console in real-time
-            output_lines.append(line)
-
-        process.wait()
-        full_output = ''.join(output_lines)
-
-        print("="*60)
-        print(f"Build completed with exit code: {process.returncode}")
-        print("="*60 + "\n")
+        # Run Docker build with real-time output (verbose). BuildKit is left at
+        # the daemon default (RFC 0001, D15).
+        returncode, full_output = _execute_docker_build(build_cmd, project_path)
 
         # Always clean up build-created files (even on failure)
         try:
@@ -1491,9 +1793,9 @@ def build_container(
         except Exception as cleanup_error:
             print(f"Warning: Error during cleanup: {cleanup_error}")
 
-        if process.returncode != 0:
+        if returncode != 0:
             raise ContainerError(
-                message=f"Docker build failed with exit code {process.returncode}",
+                message=f"Docker build failed with exit code {returncode}",
                 suggestion=(
                     "Check the build output above for errors. Common issues: missing files, "
                     "invalid Dockerfile syntax, or network issues pulling base image"
@@ -1615,6 +1917,117 @@ def push_container(
             "failed_tags": push_errors,
             "registry": registry,
             "metadata": metadata.model_dump()
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+def push_classifier_alias(
+    project_path: str,
+    registry: str,
+    classifier_name: str,
+    version: str,
+    tag_prefix: Optional[str] = None,
+    source_tag: Optional[str] = None,
+) -> dict[str, Any]:
+    """Publish a classifier release as registry tag aliases on the commit image.
+
+    Build-once/deploy-many (RFC 0001 D4 / W2.5): rather than rebuilding per
+    classifier, the already-built commit image (``<repo>:<git-sha>``) is
+    re-tagged and pushed under classifier-scoped registry tags that all resolve
+    to the SAME image digest. No rebuild happens - only ``docker tag`` +
+    ``docker push``::
+
+        docker tag  <repo>:<sha>  <registry>/<repo>:<classifier>-v<version>
+        docker push               <registry>/<repo>:<classifier>-v<version>
+        docker tag  <repo>:<sha>  <registry>/<repo>:<classifier>-latest
+        docker push               <registry>/<repo>:<classifier>-latest
+
+    Args:
+        project_path: Path to the classifier project (repo root)
+        registry: Target registry URL
+        classifier_name: Classifier whose release is being published
+        version: Validated release version from the git tag ``<classifier>/vX.Y.Z``
+        tag_prefix: Optional repository prefix
+        source_tag: Local commit-image tag to alias from (defaults to
+            ``<repo>:<git-sha>`` at HEAD, falling back to ``<repo>:latest``)
+
+    Returns:
+        Push result dict with pushed_tags / failed_tags / source_image.
+    """
+    try:
+        if not registry:
+            raise ContainerError(
+                message="Registry URL is required for push operation",
+                suggestion="Specify registry with --registry flag"
+            )
+
+        repository = get_repository_name(project_path)
+
+        # Source = the already-built commit image (same digest for every alias)
+        if source_tag:
+            source_image = source_tag
+        else:
+            git_info = get_git_info(project_path)
+            if git_info and git_info.commit:
+                source_image = f"{repository}:{git_info.commit[:7]}"
+            else:
+                source_image = f"{repository}:latest"
+
+        # Target repository path (prefix + registry)
+        target_repo = repository
+        if tag_prefix:
+            target_repo = f"{tag_prefix}/{target_repo}"
+        target_repo = f"{registry}/{target_repo}"
+
+        # Classifier-scoped registry tags aliasing the same commit image
+        alias_tags = [
+            f"{target_repo}:{classifier_name}-v{version}",
+            f"{target_repo}:{classifier_name}-latest",
+        ]
+
+        pushed_tags: list[str] = []
+        failed_tags: list[str] = []
+        for alias in alias_tags:
+            # Re-tag the commit image (no rebuild), then push the alias
+            tag_result = subprocess.run(
+                ["docker", "tag", source_image, alias],
+                capture_output=True,
+                text=True
+            )
+            if tag_result.returncode != 0:
+                failed_tags.append(
+                    f"Failed to tag {source_image} as {alias}: {tag_result.stderr}"
+                )
+                print(f"✗ Failed to tag {source_image} as {alias}")
+                continue
+
+            print(f"Pushing {alias} (alias of {source_image})...")
+            push_result = subprocess.run(
+                ["docker", "push", alias],
+                capture_output=True,
+                text=True
+            )
+            if push_result.returncode == 0:
+                pushed_tags.append(alias)
+                print(f"✓ Successfully pushed {alias}")
+            else:
+                failed_tags.append(f"Failed to push {alias}: {push_result.stderr}")
+                print(f"✗ Failed to push {alias}")
+
+        return {
+            # Partial failures are not a success - callers exit nonzero on them
+            "success": len(pushed_tags) > 0 and not failed_tags,
+            "pushed_tags": pushed_tags,
+            "failed_tags": failed_tags,
+            "registry": registry,
+            "source_image": source_image,
+            "classifier": classifier_name,
+            "version": version,
         }
 
     except Exception as e:

@@ -207,3 +207,66 @@ class TestCLIv2WorkflowIntegration:
         assert "sentiment" in result.stdout
         assert "intent" in result.stdout
         assert "Available Classifiers" in result.stdout
+
+    def test_build_once_commit_image_serves_selected_classifier(self, multi_classifier_repo):
+        """Build-once / deploy-many (RFC 0001 D4 / W2.5), daemon-gated.
+
+        A multi-classifier repo builds ONE commit image (no baked classifier).
+        Running it with `-e MLSERVER_CLASSIFIER=<one>` must serve /healthz for
+        the selected classifier. Skips cleanly when no Docker daemon is present.
+        """
+        if not _docker_daemon_available():
+            pytest.skip("Docker daemon not available")
+
+        import time
+
+        from mlserver.version import get_repository_name
+
+        repo_path = multi_classifier_repo.repo_path
+
+        # Build ONCE with no --classifier -> a single commit image bundling all.
+        build = multi_classifier_repo.run_cli_command("build")
+        assert build.returncode == 0, build.stdout + build.stderr
+
+        repo = get_repository_name(str(repo_path))
+        image = f"{repo}:latest"
+        container_name = "merve-buildonce-smoke"
+
+        # Clean any stale container from a previous run.
+        subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+
+        # Select a classifier at run time via the environment variable.
+        run = subprocess.run(
+            [
+                "docker", "run", "-d",
+                "-e", "MLSERVER_CLASSIFIER=sentiment",
+                "--name", container_name, image,
+            ],
+            capture_output=True, text=True,
+        )
+        assert run.returncode == 0, run.stderr
+
+        try:
+            deadline = time.time() + 60
+            healthy = False
+            while time.time() < deadline:
+                # Use the container's own curl (installed in the runtime stage)
+                # so the check does not depend on host port routing.
+                health = subprocess.run(
+                    [
+                        "docker", "exec", container_name,
+                        "curl", "-fsS", "http://localhost:8000/healthz",
+                    ],
+                    capture_output=True, text=True,
+                )
+                if health.returncode == 0:
+                    healthy = True
+                    break
+                time.sleep(2)
+
+            assert healthy, (
+                "commit image did not serve /healthz for MLSERVER_CLASSIFIER=sentiment"
+            )
+        finally:
+            subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+            subprocess.run(["docker", "rmi", "-f", image], capture_output=True)

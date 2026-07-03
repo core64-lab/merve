@@ -2435,3 +2435,270 @@ class TestGenerateContainerTagsInternal:
         assert metadata.classifier.version == "missing-git-tag"
         assert f"{repo_name}/clf-b:latest" in tags
         assert f"{repo_name}/clf-b:untagged" in tags
+
+
+def _write_multi_classifier_config(project_dir):
+    """Write a two-classifier config sharing one predictor.py in project_dir."""
+    (project_dir / "mlserver.yaml").write_text("""
+classifiers:
+  sentiment:
+    predictor:
+      module: predictor
+      class_name: TestPredictor
+    classifier:
+      name: sentiment
+      version: "1.0.0"
+  intent:
+    predictor:
+      module: predictor
+      class_name: TestPredictor
+    classifier:
+      name: intent
+      version: "2.0.0"
+default_classifier: sentiment
+""")
+
+
+class TestBuildCommitImage:
+    """Build-once commit image for multi-classifier repos (RFC 0001 D4 / W2.5).
+
+    The DEFAULT `mlserver build` for a multi-classifier repo builds ONE commit
+    image per git commit: no baked classifier, plain `mlserver serve` CMD, full
+    multi-classifier config shipped, tagged <repo>:<sha> + <repo>:latest.
+    """
+
+    def _git_info(self, commit="abcdef12"):
+        from mlserver.version import GitInfo
+        return GitInfo(tag=None, commit=commit, branch="main", is_dirty=False)
+
+    def test_multi_classifier_build_produces_commit_image(self, temp_project_dir):
+        _write_multi_classifier_config(temp_project_dir)
+        repo_name = temp_project_dir.name.lower()
+        mock_process = _mock_build_process(returncode=0)
+
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container._find_mlserver_source', return_value=None), \
+             patch('mlserver.container.get_git_info', return_value=self._git_info()), \
+             patch('mlserver.container.subprocess.Popen',
+                   side_effect=_docker_popen_router(mock_process)) as mock_popen:
+
+            result = build_container(project_path=str(temp_project_dir), config_file=None)
+
+        assert result["success"] is True, result.get("error")
+        assert result["commit_image"] is True
+        assert sorted(result["classifiers"]) == ["intent", "sentiment"]
+
+        # Commit-image tags: <repo>:<short-sha> + <repo>:latest
+        assert f"{repo_name}:abcdef1" in result["tags"]
+        assert f"{repo_name}:latest" in result["tags"]
+
+        # Dockerfile: NO baked classifier, plain serve CMD, repo-level header
+        dockerfile = Path(result["dockerfile"]).read_text()
+        assert "ENV MLSERVER_CLASSIFIER" not in dockerfile
+        assert 'CMD ["mlserver", "serve", "mlserver.yaml"]' in dockerfile
+        assert "commit image, all classifiers" in dockerfile
+
+        # Exactly one docker build call, carrying both commit-image tags
+        docker_calls = [c for c in mock_popen.call_args_list if c[0][0][0] == "docker"]
+        assert len(docker_calls) == 1
+        build_cmd = docker_calls[0][0][0]
+        assert build_cmd[:5] == ["docker", "build", ".", "-f", "Dockerfile"]
+        for tag in result["tags"]:
+            assert tag in build_cmd
+
+    def test_commit_image_two_stage_structure_preserved(self, temp_project_dir):
+        """The commit image keeps the two-stage build (no regression of W1.9)."""
+        _write_multi_classifier_config(temp_project_dir)
+        mock_process = _mock_build_process(returncode=0)
+
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container._find_mlserver_source', return_value=None), \
+             patch('mlserver.container.get_git_info', return_value=self._git_info()), \
+             patch('mlserver.container.subprocess.Popen',
+                   side_effect=_docker_popen_router(mock_process)):
+
+            result = build_container(project_path=str(temp_project_dir), config_file=None)
+
+        dockerfile = Path(result["dockerfile"]).read_text()
+        from_lines = [ln for ln in dockerfile.splitlines() if ln.startswith("FROM ")]
+        assert len(from_lines) == 2
+        assert from_lines[0].endswith(" AS builder")
+        builder, runtime = dockerfile.split("# ============================ Stage 2")
+        assert "build-essential" in builder
+        assert "build-essential" not in runtime
+        assert "COPY --from=builder /opt/venv /opt/venv" in dockerfile
+
+    def test_commit_image_tags_helper(self, temp_project_dir):
+        from mlserver.container import _commit_image_tags
+
+        with patch('mlserver.container.get_repository_name', return_value="myrepo"), \
+             patch('mlserver.container.get_git_info', return_value=self._git_info("deadbeef")):
+            tags = _commit_image_tags(str(temp_project_dir))
+
+        assert tags == ["myrepo:deadbee", "myrepo:latest"]
+
+    def test_commit_image_tags_without_git_only_latest(self, temp_project_dir):
+        from mlserver.container import _commit_image_tags
+
+        with patch('mlserver.container.get_repository_name', return_value="myrepo"), \
+             patch('mlserver.container.get_git_info', return_value=None):
+            tags = _commit_image_tags(str(temp_project_dir))
+
+        assert tags == ["myrepo:latest"]
+
+
+class TestPerClassifierImage:
+    """--per-classifier-image escape hatch keeps the pre-W2.5 behavior (baked ENV)."""
+
+    def _git_info(self):
+        from mlserver.version import GitInfo
+        return GitInfo(tag=None, commit="abcdef12", branch="main", is_dirty=False)
+
+    def test_per_classifier_image_bakes_env_and_is_not_commit_image(self, temp_project_dir):
+        _write_multi_classifier_config(temp_project_dir)
+        mock_process = _mock_build_process(returncode=0)
+
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container._find_mlserver_source', return_value=None), \
+             patch('mlserver.container.get_git_info', return_value=self._git_info()), \
+             patch('mlserver.container.subprocess.Popen',
+                   side_effect=_docker_popen_router(mock_process)):
+
+            result = build_container(
+                project_path=str(temp_project_dir), config_file=None,
+                classifier_name="sentiment", per_classifier_image=True
+            )
+
+        assert result["success"] is True, result.get("error")
+        # Legacy per-classifier path - not the build-once commit image
+        assert result.get("commit_image") is not True
+
+        dockerfile = Path(result["dockerfile"]).read_text()
+        assert 'ENV MLSERVER_CLASSIFIER="sentiment"' in dockerfile
+        # single-classifier config shipped (renamed to mlserver.yaml in-image)
+        assert "COPY .mlserver.sentiment.yaml ./mlserver.yaml" in dockerfile
+
+
+class TestReleasePinnedInstall:
+    """W2.6 (RFC 0001 D16): release -> pinned install; dev -> wheel + WARNING."""
+
+    def test_is_release_version_helper(self):
+        from mlserver.container import _is_release_version
+
+        assert _is_release_version("0.5.0") is True
+        assert _is_release_version("1.2.3") is True
+        assert _is_release_version("0.5.0.dev19") is False
+        assert _is_release_version("0.5.0+local.abc") is False
+        assert _is_release_version("0.5.0.post1") is False
+        assert _is_release_version("") is False
+        assert _is_release_version(None) is False
+
+    def test_release_version_pins_framework(self, temp_project_dir, mock_config):
+        with patch('mlserver.container._get_installed_mlserver_version', return_value="0.5.0"):
+            result = generate_dockerfile(str(temp_project_dir), mock_config, ["predictor.py"])
+
+        assert 'RUN pip install --no-cache-dir "mlserver-fastapi-wrapper==0.5.0"' in result
+        # No wheel copy path for a clean release
+        assert "COPY mlserver_fastapi_wrapper*.whl" not in result
+
+    def test_dev_version_uses_wheel_path_and_warns(self, temp_project_dir, mock_config, capsys):
+        with patch('mlserver.container._get_installed_mlserver_version',
+                   return_value="0.5.0.dev19"):
+            result = generate_dockerfile(
+                str(temp_project_dir), mock_config, ["predictor.py"], has_wheel=True
+            )
+
+        # Dev build falls back to the wheel-copy path, not the pinned install
+        assert "COPY mlserver_fastapi_wrapper*.whl" in result
+        assert 'pip install --no-cache-dir "mlserver-fastapi-wrapper==' not in result
+
+        out = capsys.readouterr().out
+        assert "WARNING" in out
+        assert "not reproducible" in out.lower()
+
+
+class TestPushClassifierAlias:
+    """W2.5: registry tag aliases on the already-built commit image (no rebuild)."""
+
+    def _git_info(self, commit="abcdef12"):
+        from mlserver.version import GitInfo
+        return GitInfo(tag=None, commit=commit, branch="main", is_dirty=False)
+
+    def test_alias_tag_and_push_sequence(self, temp_project_dir):
+        from mlserver.container import push_classifier_alias
+
+        with patch('mlserver.container.get_repository_name', return_value="myrepo"), \
+             patch('mlserver.container.get_git_info', return_value=self._git_info()), \
+             patch('mlserver.container.subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            result = push_classifier_alias(
+                str(temp_project_dir), registry="reg.example.com",
+                classifier_name="sentiment", version="1.2.0"
+            )
+
+        assert result["success"] is True
+        # Source is the commit image at HEAD's short sha - never rebuilt
+        assert result["source_image"] == "myrepo:abcdef1"
+        assert result["pushed_tags"] == [
+            "reg.example.com/myrepo:sentiment-v1.2.0",
+            "reg.example.com/myrepo:sentiment-latest",
+        ]
+
+        # Exact command sequence: tag -> push -> tag -> push, and NO docker build
+        cmds = [c[0][0] for c in mock_run.call_args_list]
+        assert cmds == [
+            ["docker", "tag", "myrepo:abcdef1", "reg.example.com/myrepo:sentiment-v1.2.0"],
+            ["docker", "push", "reg.example.com/myrepo:sentiment-v1.2.0"],
+            ["docker", "tag", "myrepo:abcdef1", "reg.example.com/myrepo:sentiment-latest"],
+            ["docker", "push", "reg.example.com/myrepo:sentiment-latest"],
+        ]
+        assert not any(c[:2] == ["docker", "build"] for c in cmds)
+
+    def test_alias_applies_tag_prefix(self, temp_project_dir):
+        from mlserver.container import push_classifier_alias
+
+        with patch('mlserver.container.get_repository_name', return_value="myrepo"), \
+             patch('mlserver.container.get_git_info', return_value=self._git_info()), \
+             patch('mlserver.container.subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            result = push_classifier_alias(
+                str(temp_project_dir), registry="reg.example.com",
+                classifier_name="intent", version="3.1.0", tag_prefix="team-ml"
+            )
+
+        assert result["pushed_tags"] == [
+            "reg.example.com/team-ml/myrepo:intent-v3.1.0",
+            "reg.example.com/team-ml/myrepo:intent-latest",
+        ]
+
+    def test_alias_tag_failure_reported_not_success(self, temp_project_dir):
+        from mlserver.container import push_classifier_alias
+
+        with patch('mlserver.container.get_repository_name', return_value="myrepo"), \
+             patch('mlserver.container.get_git_info', return_value=self._git_info()), \
+             patch('mlserver.container.subprocess.run') as mock_run:
+            # docker tag fails for the very first alias
+            mock_run.return_value = MagicMock(returncode=1, stderr="no such image")
+
+            result = push_classifier_alias(
+                str(temp_project_dir), registry="reg.example.com",
+                classifier_name="sentiment", version="1.0.0"
+            )
+
+        assert result["success"] is False
+        assert result["pushed_tags"] == []
+        assert len(result["failed_tags"]) >= 1
+        # A failed tag short-circuits before push (tag, tag) - never pushes
+        cmds = [c[0][0] for c in mock_run.call_args_list]
+        assert all(c[1] == "tag" for c in cmds)
+
+    def test_alias_no_registry_errors(self, temp_project_dir):
+        from mlserver.container import push_classifier_alias
+
+        result = push_classifier_alias(
+            str(temp_project_dir), registry="", classifier_name="x", version="1.0.0"
+        )
+        assert result["success"] is False
+        assert "Registry URL is required" in result["error"]
