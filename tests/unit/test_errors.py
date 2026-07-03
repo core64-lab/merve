@@ -1,4 +1,5 @@
 """Unit tests for the errors module."""
+
 import pytest
 
 from mlserver.errors import (
@@ -26,20 +27,14 @@ class TestMLServerError:
 
     def test_error_with_suggestion(self):
         """Test error with message and suggestion."""
-        error = MLServerError(
-            "Model failed to load",
-            suggestion="Check the model file path"
-        )
+        error = MLServerError("Model failed to load", suggestion="Check the model file path")
         assert "Model failed to load" in str(error)
         assert "Try this: Check the model file path" in str(error)
         assert error.suggestion == "Check the model file path"
 
     def test_error_with_docs_url(self):
         """Test error with message and docs URL."""
-        error = MLServerError(
-            "Invalid configuration",
-            docs_url="https://example.com/docs"
-        )
+        error = MLServerError("Invalid configuration", docs_url="https://example.com/docs")
         assert "Invalid configuration" in str(error)
         assert "Documentation: https://example.com/docs" in str(error)
         assert error.docs_url == "https://example.com/docs"
@@ -49,7 +44,7 @@ class TestMLServerError:
         error = MLServerError(
             "Configuration error",
             suggestion="Fix your config file",
-            docs_url="https://example.com/config"
+            docs_url="https://example.com/config",
         )
         error_str = str(error)
         assert "Configuration error" in error_str
@@ -69,8 +64,7 @@ class TestSpecificErrors:
     def test_configuration_error(self):
         """Test ConfigurationError."""
         error = ConfigurationError(
-            "Missing required field",
-            suggestion="Add 'predictor' section to mlserver.yaml"
+            "Missing required field", suggestion="Add 'predictor' section to mlserver.yaml"
         )
         assert isinstance(error, MLServerError)
         assert "Missing required field" in str(error)
@@ -78,8 +72,7 @@ class TestSpecificErrors:
     def test_predictor_error(self):
         """Test PredictorError."""
         error = PredictorError(
-            "Module not found: my_predictor",
-            suggestion="Check the module name in config"
+            "Module not found: my_predictor", suggestion="Check the module name in config"
         )
         assert isinstance(error, MLServerError)
         assert "Module not found" in str(error)
@@ -87,35 +80,27 @@ class TestSpecificErrors:
     def test_adapter_error(self):
         """Test AdapterError."""
         error = AdapterError(
-            "Invalid payload format",
-            suggestion="Use 'records' or 'ndarray' format"
+            "Invalid payload format", suggestion="Use 'records' or 'ndarray' format"
         )
         assert isinstance(error, MLServerError)
         assert "Invalid payload format" in str(error)
 
     def test_container_error(self):
         """Test ContainerError."""
-        error = ContainerError(
-            "Docker not available",
-            suggestion="Install and start Docker"
-        )
+        error = ContainerError("Docker not available", suggestion="Install and start Docker")
         assert isinstance(error, MLServerError)
         assert "Docker not available" in str(error)
 
     def test_validation_error(self):
         """Test ValidationError."""
-        error = ValidationError(
-            "Invalid YAML syntax",
-            suggestion="Check line 15 for syntax errors"
-        )
+        error = ValidationError("Invalid YAML syntax", suggestion="Check line 15 for syntax errors")
         assert isinstance(error, MLServerError)
         assert "Invalid YAML syntax" in str(error)
 
     def test_version_control_error(self):
         """Test VersionControlError."""
         error = VersionControlError(
-            "Git repository not found",
-            suggestion="Run 'git init' to initialize"
+            "Git repository not found", suggestion="Run 'git init' to initialize"
         )
         assert isinstance(error, MLServerError)
         assert "Git repository not found" in str(error)
@@ -132,20 +117,14 @@ class TestFormatErrorForCli:
 
     def test_format_with_suggestion(self):
         """Test formatting with suggestion."""
-        error = MLServerError(
-            "Model failed",
-            suggestion="Check the path"
-        )
+        error = MLServerError("Model failed", suggestion="Check the path")
         formatted = format_error_for_cli(error)
         assert "[red]✗ Model failed[/red]" in formatted
         assert "[yellow]→ Try this:[/yellow] Check the path" in formatted
 
     def test_format_with_docs_url(self):
         """Test formatting with docs URL."""
-        error = MLServerError(
-            "Config error",
-            docs_url="https://example.com/docs"
-        )
+        error = MLServerError("Config error", docs_url="https://example.com/docs")
         formatted = format_error_for_cli(error)
         assert "[red]✗ Config error[/red]" in formatted
         assert "[blue]📚 Docs:[/blue] https://example.com/docs" in formatted
@@ -153,9 +132,7 @@ class TestFormatErrorForCli:
     def test_format_with_all_fields(self):
         """Test formatting with all fields."""
         error = MLServerError(
-            "Full error",
-            suggestion="Try fixing it",
-            docs_url="https://example.com"
+            "Full error", suggestion="Try fixing it", docs_url="https://example.com"
         )
         formatted = format_error_for_cli(error)
         assert "[red]✗ Full error[/red]" in formatted

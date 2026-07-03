@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from typing import Any, Optional
@@ -26,6 +25,7 @@ class PredictRequest(BaseModel):
     behave identically; when both are present the wrapper wins. Using the
     wrapper logs a deprecation warning once per server process.
     """
+
     # Legacy wrapper field - prediction endpoints parse the raw body, so top-level
     # keys need no schema field here; this model documents the wrapped form.
     payload: dict[str, Any] = Field(
@@ -33,7 +33,7 @@ class PredictRequest(BaseModel):
         description=(
             "DEPRECATED wrapper around the prediction input data. Prefer sending "
             "'records'/'instances'/'ndarray'/'inputs'/'features' as top-level keys."
-        )
+        ),
     )
 
     model_config = ConfigDict(
@@ -45,37 +45,28 @@ class PredictRequest(BaseModel):
                     "value": {
                         "records": [
                             {"feature1": 1.5, "feature2": 2.3, "feature3": 0.8},
-                            {"feature1": 2.1, "feature2": 1.7, "feature3": 1.2}
+                            {"feature1": 2.1, "feature2": 1.7, "feature3": 1.2},
                         ]
-                    }
+                    },
                 },
                 {
                     "description": "Ndarray format, top-level (for adapter='ndarray')",
-                    "value": {
-                        "ndarray": [
-                            [1.5, 2.3, 0.8],
-                            [2.1, 1.7, 1.2]
-                        ]
-                    }
+                    "value": {"ndarray": [[1.5, 2.3, 0.8], [2.1, 1.7, 1.2]]},
                 },
                 {
                     "description": "Single record prediction, top-level",
-                    "value": {
-                        "features": {"feature1": 1.5, "feature2": 2.3, "feature3": 0.8}
-                    }
+                    "value": {"features": {"feature1": 1.5, "feature2": 2.3, "feature3": 0.8}},
                 },
                 {
                     "description": "Legacy wrapped format (deprecated, removal targeted for 1.0)",
                     "value": {
                         "payload": {
-                            "records": [
-                                {"feature1": 1.5, "feature2": 2.3, "feature3": 0.8}
-                            ]
+                            "records": [{"feature1": 1.5, "feature2": 2.3, "feature3": 0.8}]
                         }
-                    }
-                }
+                    },
+                },
             ]
-        }
+        },
     )
 
 
@@ -85,6 +76,7 @@ class PredictRequest(BaseModel):
 
 class ClassifierMetadataResponse(BaseModel):
     """Simplified metadata included in responses."""
+
     project: str = Field(description="Auto-detected project/repository name")
     classifier: str = Field(description="Classifier name")
     predictor_class: Optional[str] = Field(None, description="Predictor class name")
@@ -100,6 +92,7 @@ class ClassifierMetadataResponse(BaseModel):
 
 class PredictResponse(BaseModel):
     """Response from prediction endpoints."""
+
     predictions: list[Any] = Field(description="Model predictions for each input record")
     time_ms: float = Field(description="Time taken for prediction in milliseconds")
     predictor_class: Optional[str] = Field(None, description="Name of the predictor class used")
@@ -119,14 +112,14 @@ class PredictResponse(BaseModel):
                         "classifier": "catboost-survival",
                         "predictor_class": "CatBoostPredictor",
                         "git_commit": "abc1234",
-                        "mlserver_version": "0.3.0"
-                    }
+                        "mlserver_version": "0.3.0",
+                    },
                 },
                 {
                     "predictions": ["class_a", "class_b", "class_a"],
                     "time_ms": 8.3,
-                    "predictor_class": "TextClassifierPredictor"
-                }
+                    "predictor_class": "TextClassifierPredictor",
+                },
             ]
         }
     )
@@ -134,6 +127,7 @@ class PredictResponse(BaseModel):
 
 class ProbaResponse(BaseModel):
     """Response from predict_proba endpoints."""
+
     probabilities: list[list[float]] = Field(
         description="Class probabilities for each input record"
     )
@@ -141,9 +135,7 @@ class ProbaResponse(BaseModel):
     classes: Optional[list[str]] = Field(
         None, description="Class labels corresponding to probability columns"
     )
-    predictor_class: Optional[str] = Field(
-        None, description="Name of the predictor class used"
-    )
+    predictor_class: Optional[str] = Field(None, description="Name of the predictor class used")
     metadata: Optional[ClassifierMetadataResponse] = Field(
         None, description="Comprehensive classifier metadata"
     )
@@ -152,14 +144,10 @@ class ProbaResponse(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "probabilities": [
-                        [0.75, 0.25],
-                        [0.10, 0.90],
-                        [0.60, 0.40]
-                    ],
+                    "probabilities": [[0.75, 0.25], [0.10, 0.90], [0.60, 0.40]],
                     "time_ms": 15.2,
                     "classes": ["negative", "positive"],
-                    "predictor_class": "CatBoostPredictor"
+                    "predictor_class": "CatBoostPredictor",
                 }
             ]
         }
@@ -168,37 +156,30 @@ class ProbaResponse(BaseModel):
 
 class CustomPredictResponse(BaseModel):
     """Flexible response supporting arbitrary structures for custom predictors."""
+
     result: Any = Field(description="Prediction result (any JSON-serializable structure)")
     predictions: Optional[list[Any]] = Field(
-        None,
-        description="Optional extracted predictions for compatibility"
+        None, description="Optional extracted predictions for compatibility"
     )
     time_ms: float = Field(description="Time taken for prediction in milliseconds")
     predictor_class: Optional[str] = Field(None, description="Name of the predictor class used")
     metadata: Optional[ClassifierMetadataResponse] = Field(
-        None,
-        description="Classifier version and metadata"
+        None, description="Classifier version and metadata"
     )
 
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
-                    "result": {
-                        "a": [1, 2, 3, 4, 5],
-                        "b": {
-                            "c": [1, 2, 3],
-                            "d": [4, 5, 6]
-                        }
-                    },
+                    "result": {"a": [1, 2, 3, 4, 5], "b": {"c": [1, 2, 3], "d": [4, 5, 6]}},
                     "time_ms": 16.4,
-                    "predictor_class": "CustomPredictor"
+                    "predictor_class": "CustomPredictor",
                 },
                 {
                     "result": {
                         "predictions": [0, 1, 0],
                         "confidence": [0.95, 0.87, 0.92],
-                        "features_used": ["feature1", "feature2", "feature3"]
+                        "features_used": ["feature1", "feature2", "feature3"],
                     },
                     "time_ms": 12.5,
                     "predictor_class": "AdvancedClassifier",
@@ -207,9 +188,9 @@ class CustomPredictResponse(BaseModel):
                         "classifier": "advanced-classifier",
                         "predictor_class": "AdvancedClassifier",
                         "git_commit": "abc1234",
-                        "mlserver_version": "0.3.0"
-                    }
-                }
+                        "mlserver_version": "0.3.0",
+                    },
+                },
             ]
         }
     )

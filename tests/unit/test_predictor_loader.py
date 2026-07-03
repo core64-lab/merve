@@ -1,4 +1,5 @@
 """Unit tests for predictor_loader module."""
+
 import os
 import sys
 import tempfile
@@ -43,17 +44,17 @@ class TestValidateModelFiles:
     def test_model_file_warning_for_large_file(self):
         """Test warning for large (>100MB) but acceptable files."""
         # We can't easily create a 100MB+ file in tests, so we'll mock
-        with patch('os.path.exists', return_value=True):
-            with patch('os.path.getsize', return_value=150 * 1024 * 1024):  # 150MB
-                with patch('mlserver.predictor_loader.logger') as mock_logger:
+        with patch("os.path.exists", return_value=True):
+            with patch("os.path.getsize", return_value=150 * 1024 * 1024):  # 150MB
+                with patch("mlserver.predictor_loader.logger") as mock_logger:
                     _validate_model_files({"model_path": "/path/to/model.pkl"})
                     mock_logger.warning.assert_called_once()
                     assert "150.0MB" in str(mock_logger.warning.call_args)
 
     def test_model_file_too_large(self):
         """Test error for file exceeding 2GB limit."""
-        with patch('os.path.exists', return_value=True):
-            with patch('os.path.getsize', return_value=2500 * 1024 * 1024):  # 2.5GB
+        with patch("os.path.exists", return_value=True):
+            with patch("os.path.getsize", return_value=2500 * 1024 * 1024):  # 2.5GB
                 with pytest.raises(PredictorError) as exc_info:
                     _validate_model_files({"model_path": "/path/to/huge_model.pkl"})
                 assert "too large" in str(exc_info.value)
@@ -67,10 +68,12 @@ class TestValidateModelFiles:
             preprocessor_path.write_bytes(b"preprocessor")
 
             # Should not raise
-            _validate_model_files({
-                "model_path": str(model_path),
-                "preprocessor_path": str(preprocessor_path),
-            })
+            _validate_model_files(
+                {
+                    "model_path": str(model_path),
+                    "preprocessor_path": str(preprocessor_path),
+                }
+            )
 
     def test_non_string_file_param(self):
         """Test that non-string file params are ignored."""
@@ -176,10 +179,7 @@ class LocalPredictor:
 
             # Load the predictor
             predictor = load_predictor(
-                "local_predictor",
-                "LocalPredictor",
-                {"value": 100},
-                config_dir=tmpdir
+                "local_predictor", "LocalPredictor", {"value": 100}, config_dir=tmpdir
             )
 
             assert predictor.value == 100
@@ -194,7 +194,7 @@ class LocalPredictor:
 
     def test_load_with_model_file_validation(self):
         """Test that model file validation is called."""
-        with patch('mlserver.predictor_loader._validate_model_files') as mock_validate:
+        with patch("mlserver.predictor_loader._validate_model_files") as mock_validate:
             try:
                 load_predictor("collections", "OrderedDict", {"model_path": "/test"})
             except Exception:
@@ -272,7 +272,7 @@ class TestPredictor:
                 module="predictor",
                 class_name="TestPredictor",
                 init_kwargs={"model_path": str(model_file)},
-                config_dir=tmpdir
+                config_dir=tmpdir,
             )
 
             assert predictor.model_path == str(model_file)

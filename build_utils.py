@@ -11,42 +11,31 @@ from pathlib import Path
 
 def capture_git_info():
     """Capture git information from the repository."""
-    info = {
-        "commit": None,
-        "tag": None,
-        "branch": None,
-        "dirty": False
-    }
+    info = {"commit": None, "tag": None, "branch": None, "dirty": False}
 
     try:
         # Get commit hash
         info["commit"] = subprocess.check_output(
-            ['git', 'rev-parse', '--short', 'HEAD'],
-            stderr=subprocess.DEVNULL,
-            text=True
+            ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL, text=True
         ).strip()
 
         # Get current branch
         info["branch"] = subprocess.check_output(
-            ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
-            stderr=subprocess.DEVNULL,
-            text=True
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL, text=True
         ).strip()
 
         # Check if dirty
         status = subprocess.check_output(
-            ['git', 'status', '--porcelain'],
-            stderr=subprocess.DEVNULL,
-            text=True
+            ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True
         ).strip()
         info["dirty"] = len(status) > 0
 
         # Get tag at current commit (if any)
         try:
             info["tag"] = subprocess.check_output(
-                ['git', 'describe', '--tags', '--exact-match', 'HEAD'],
+                ["git", "describe", "--tags", "--exact-match", "HEAD"],
                 stderr=subprocess.DEVNULL,
-                text=True
+                text=True,
             ).strip()
         except subprocess.CalledProcessError:
             pass
@@ -90,10 +79,10 @@ def write_version_info():
 # DO NOT EDIT MANUALLY - it will be overwritten during build
 
 VERSION = "{version}"
-GIT_COMMIT = "{git_info['commit'] or ''}"
-GIT_TAG = "{git_info['tag'] or ''}"
-GIT_BRANCH = "{git_info['branch'] or ''}"
-GIT_DIRTY = {git_info['dirty']}
+GIT_COMMIT = "{git_info["commit"] or ""}"
+GIT_TAG = "{git_info["tag"] or ""}"
+GIT_BRANCH = "{git_info["branch"] or ""}"
+GIT_DIRTY = {git_info["dirty"]}
 BUILD_TIME = "{now_utc}Z"
 
 # This file is populated during package build

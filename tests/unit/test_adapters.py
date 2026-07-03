@@ -46,12 +46,7 @@ class TestRecordsAdapter:
     """Test records format conversion"""
 
     def test_records_basic(self):
-        payload = {
-            "records": [
-                {"a": 1, "b": 2},
-                {"a": 3, "b": 4}
-            ]
-        }
+        payload = {"records": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}
         result = to_ndarray(payload, adapter="records")
         expected = np.array([[1, 2], [3, 4]])
         np.testing.assert_array_equal(result, expected)
@@ -60,7 +55,7 @@ class TestRecordsAdapter:
         payload = {
             "records": [
                 {"b": 2, "a": 1},  # Different order
-                {"b": 4, "a": 3}
+                {"b": 4, "a": 3},
             ]
         }
         feature_order = ["a", "b"]
@@ -69,20 +64,13 @@ class TestRecordsAdapter:
         np.testing.assert_array_equal(result, expected)
 
     def test_instances_format(self):
-        payload = {
-            "instances": [
-                {"a": 1, "b": 2},
-                {"a": 3, "b": 4}
-            ]
-        }
+        payload = {"instances": [{"a": 1, "b": 2}, {"a": 3, "b": 4}]}
         result = to_ndarray(payload, adapter="records")
         expected = np.array([[1, 2], [3, 4]])
         np.testing.assert_array_equal(result, expected)
 
     def test_single_features_format(self):
-        payload = {
-            "features": {"a": 1, "b": 2}
-        }
+        payload = {"features": {"a": 1, "b": 2}}
         result = to_ndarray(payload, adapter="records")
         expected = np.array([[1, 2]])
         np.testing.assert_array_equal(result, expected)
@@ -91,7 +79,7 @@ class TestRecordsAdapter:
         payload = {
             "records": [
                 {"a": 1, "b": "category1", "c": 3.14},
-                {"a": 2, "b": "category2", "c": 2.71}
+                {"a": 2, "b": "category2", "c": 2.71},
             ]
         }
         result = to_ndarray(payload, adapter="records")
@@ -105,7 +93,7 @@ class TestRecordsAdapter:
         payload = {
             "records": [
                 {"a": 1, "b": 2},
-                {"a": 3}  # Missing 'b'
+                {"a": 3},  # Missing 'b'
             ]
         }
         with pytest.raises(AdapterError):
@@ -126,33 +114,25 @@ class TestNdarrayAdapter:
     """Test ndarray format conversion"""
 
     def test_ndarray_basic(self):
-        payload = {
-            "ndarray": [[1, 2, 3], [4, 5, 6]]
-        }
+        payload = {"ndarray": [[1, 2, 3], [4, 5, 6]]}
         result = to_ndarray(payload, adapter="ndarray")
         expected = np.array([[1, 2, 3], [4, 5, 6]])
         np.testing.assert_array_equal(result, expected)
 
     def test_inputs_format(self):
-        payload = {
-            "inputs": [[1, 2, 3], [4, 5, 6]]
-        }
+        payload = {"inputs": [[1, 2, 3], [4, 5, 6]]}
         result = to_ndarray(payload, adapter="ndarray")
         expected = np.array([[1, 2, 3], [4, 5, 6]])
         np.testing.assert_array_equal(result, expected)
 
     def test_inputs_single_row(self):
-        payload = {
-            "inputs": [1, 2, 3]
-        }
+        payload = {"inputs": [1, 2, 3]}
         result = to_ndarray(payload, adapter="ndarray")
         expected = np.array([[1, 2, 3]])
         np.testing.assert_array_equal(result, expected)
 
     def test_ndarray_mixed_types(self):
-        payload = {
-            "ndarray": [[1, "a", 3.14], [2, "b", 2.71]]
-        }
+        payload = {"ndarray": [[1, "a", 3.14], [2, "b", 2.71]]}
         result = to_ndarray(payload, adapter="ndarray")
         assert result.shape == (2, 3)
         assert result[0, 0] == 1
@@ -187,33 +167,25 @@ class TestAutoAdapter:
     """Test automatic adapter detection"""
 
     def test_auto_detects_records(self):
-        payload = {
-            "records": [{"a": 1, "b": 2}]
-        }
+        payload = {"records": [{"a": 1, "b": 2}]}
         result = to_ndarray(payload, adapter="auto")
         expected = np.array([[1, 2]])
         np.testing.assert_array_equal(result, expected)
 
     def test_auto_detects_ndarray(self):
-        payload = {
-            "ndarray": [[1, 2, 3]]
-        }
+        payload = {"ndarray": [[1, 2, 3]]}
         result = to_ndarray(payload, adapter="auto")
         expected = np.array([[1, 2, 3]])
         np.testing.assert_array_equal(result, expected)
 
     def test_auto_detects_instances(self):
-        payload = {
-            "instances": [{"a": 1, "b": 2}]
-        }
+        payload = {"instances": [{"a": 1, "b": 2}]}
         result = to_ndarray(payload, adapter="auto")
         expected = np.array([[1, 2]])
         np.testing.assert_array_equal(result, expected)
 
     def test_auto_detects_features(self):
-        payload = {
-            "features": {"a": 1, "b": 2}
-        }
+        payload = {"features": {"a": 1, "b": 2}}
         result = to_ndarray(payload, adapter="auto")
         expected = np.array([[1, 2]])
         np.testing.assert_array_equal(result, expected)
@@ -250,34 +222,26 @@ class TestEdgeCases:
 
     def test_numpy_array_input_passthrough(self):
         # Test that numpy arrays are handled correctly
-        payload = {
-            "ndarray": np.array([[1, 2, 3], [4, 5, 6]]).tolist()
-        }
+        payload = {"ndarray": np.array([[1, 2, 3], [4, 5, 6]]).tolist()}
         result = to_ndarray(payload, adapter="ndarray")
         expected = np.array([[1, 2, 3], [4, 5, 6]])
         np.testing.assert_array_equal(result, expected)
 
     def test_single_value_expansion(self):
-        payload = {
-            "inputs": 42
-        }
+        payload = {"inputs": 42}
         result = to_ndarray(payload, adapter="ndarray")
         expected = np.array([[42]])
         np.testing.assert_array_equal(result, expected)
 
     def test_feature_order_with_extra_features(self):
-        payload = {
-            "records": [{"a": 1, "b": 2, "c": 3, "d": 4}]
-        }
+        payload = {"records": [{"a": 1, "b": 2, "c": 3, "d": 4}]}
         feature_order = ["b", "a"]  # Only select subset
         result = to_ndarray(payload, adapter="records", feature_order=feature_order)
         expected = np.array([[2, 1]])
         np.testing.assert_array_equal(result, expected)
 
     def test_feature_order_with_missing_features(self):
-        payload = {
-            "records": [{"a": 1, "b": 2}]
-        }
+        payload = {"records": [{"a": 1, "b": 2}]}
         feature_order = ["a", "b", "c"]  # 'c' is missing
         with pytest.raises(AdapterError):
             to_ndarray(payload, adapter="records", feature_order=feature_order)
@@ -325,11 +289,7 @@ class TestInternalFunctions:
 
     def test_get_cached_feature_order_union_features(self):
         """Test feature union across multiple records."""
-        records = [
-            {"a": 1, "b": 2},
-            {"b": 3, "c": 4},
-            {"c": 5, "d": 6}
-        ]
+        records = [{"a": 1, "b": 2}, {"b": 3, "c": 4}, {"c": 5, "d": 6}]
         result = _get_cached_feature_order(records, None)
         assert result == ["a", "b", "c", "d"]
 
@@ -532,7 +492,7 @@ class TestAdditionalEdgeCases:
         payload = {
             "records": [
                 {"a": 1, "b": 2, "c": 3},
-                {"a": 4, "b": 5}  # Missing 'c'
+                {"a": 4, "b": 5},  # Missing 'c'
             ]
         }
         # Should fail when trying to create array with missing features
@@ -551,7 +511,7 @@ class TestAdditionalEdgeCases:
         payload = {
             "records": [
                 {"id": 1, "data": {"nested": "value"}, "tags": ["a", "b"]},
-                {"id": 2, "data": {"nested": "other"}, "tags": ["c", "d"]}
+                {"id": 2, "data": {"nested": "other"}, "tags": ["c", "d"]},
             ]
         }
         result = to_ndarray(payload, adapter="records")

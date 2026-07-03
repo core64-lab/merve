@@ -13,11 +13,13 @@ import pandas as pd
 class RandomForestSurvivalPredictor:
     """RandomForest-based Titanic survival predictor."""
 
-    def __init__(self,
-                 model_path: str = "./artifacts/randomforest-survival/model.pkl",
-                 features_path: str = "./artifacts/randomforest-survival/features.json",
-                 encoders_path: str = "./artifacts/randomforest-survival/label_encoders.pkl",
-                 scaler_path: str = "./artifacts/randomforest-survival/scaler.pkl"):
+    def __init__(
+        self,
+        model_path: str = "./artifacts/randomforest-survival/model.pkl",
+        features_path: str = "./artifacts/randomforest-survival/features.json",
+        encoders_path: str = "./artifacts/randomforest-survival/label_encoders.pkl",
+        scaler_path: str = "./artifacts/randomforest-survival/scaler.pkl",
+    ):
         """Initialize the RandomForest predictor.
 
         Args:
@@ -27,7 +29,7 @@ class RandomForestSurvivalPredictor:
             scaler_path: Path to the scaler
         """
         # Load model
-        with open(model_path, 'rb') as f:
+        with open(model_path, "rb") as f:
             self.model = pickle.load(f)
 
         # Load feature order
@@ -35,15 +37,15 @@ class RandomForestSurvivalPredictor:
             self.feature_order = json.load(f)
 
         # Load label encoders
-        with open(encoders_path, 'rb') as f:
+        with open(encoders_path, "rb") as f:
             self.label_encoders = pickle.load(f)
 
         # Load scaler
-        with open(scaler_path, 'rb') as f:
+        with open(scaler_path, "rb") as f:
             self.scaler = pickle.load(f)
 
-        self.categorical_features = ['Sex', 'Embarked', 'Title']
-        self.numerical_features = ['Age', 'Fare', 'FamilySize']
+        self.categorical_features = ["Sex", "Embarked", "Title"]
+        self.numerical_features = ["Age", "Fare", "FamilySize"]
 
         print(f"Loaded RandomForest model with features: {self.feature_order}")
 
@@ -132,5 +134,5 @@ class RandomForestSurvivalPredictor:
             "categorical_features": self.categorical_features,
             "numerical_features": self.numerical_features,
             "n_features": len(self.feature_order),
-            "n_estimators": self.model.n_estimators
+            "n_estimators": self.model.n_estimators,
         }

@@ -24,15 +24,8 @@ from ._app import _display_check_result, app, console, detect_config_file
 
 @app.command()
 def list_classifiers(
-    config: Optional[Path] = typer.Argument(
-        None,
-        help="Path to multi-classifier config file"
-    ),
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        help="Output as JSON (machine-readable)"
-    ),
+    config: Optional[Path] = typer.Argument(None, help="Path to multi-classifier config file"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON (machine-readable)"),
 ):
     """📋 List available classifiers in multi-classifier config."""
     try:
@@ -40,12 +33,17 @@ def list_classifiers(
 
         if not detect_multi_classifier_config(str(config_file)):
             if json_output:
-                print(json.dumps({
-                    "config_file": str(config_file),
-                    "multi_classifier": False,
-                    "classifiers": [],
-                    "default_classifier": None,
-                }, indent=2))
+                print(
+                    json.dumps(
+                        {
+                            "config_file": str(config_file),
+                            "multi_classifier": False,
+                            "classifiers": [],
+                            "default_classifier": None,
+                        },
+                        indent=2,
+                    )
+                )
             else:
                 console.print("[yellow]Not a multi-classifier configuration[/yellow]")
             return
@@ -54,12 +52,17 @@ def list_classifiers(
         default = get_default_classifier(str(config_file))
 
         if json_output:
-            print(json.dumps({
-                "config_file": str(config_file),
-                "multi_classifier": True,
-                "classifiers": classifiers,
-                "default_classifier": default,
-            }, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "config_file": str(config_file),
+                        "multi_classifier": True,
+                        "classifiers": classifiers,
+                        "default_classifier": default,
+                    },
+                    indent=2,
+                )
+            )
             return
 
         table = Table(title="📦 Available Classifiers", title_style="bold cyan")
@@ -87,11 +90,7 @@ def list_classifiers(
 
 @app.command()
 def status(
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        help="Output as JSON (machine-readable)"
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON (machine-readable)"),
 ):
     """📊 Show ML Server status and system info."""
     from ..github_actions import check_github_actions_setup
@@ -105,13 +104,18 @@ def status(
     github_actions_setup = check_github_actions_setup(".")
 
     if json_output:
-        print(json.dumps({
-            "docker_available": docker_available,
-            "config_file": config_file,
-            "python_version": python_version,
-            "virtual_env": Path(venv).name if venv else None,
-            "github_actions_configured": github_actions_setup,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "docker_available": docker_available,
+                    "config_file": config_file,
+                    "python_version": python_version,
+                    "virtual_env": Path(venv).name if venv else None,
+                    "github_actions_configured": github_actions_setup,
+                },
+                indent=2,
+            )
+        )
         return
 
     table = Table(title="📊 ML Server Status", title_style="bold cyan")
@@ -140,8 +144,7 @@ def status(
 
     # Check for GitHub Actions setup
     github_status = (
-        "[green]✓ Configured[/green]" if github_actions_setup
-        else "[yellow]Not configured[/yellow]"
+        "[green]✓ Configured[/green]" if github_actions_setup else "[yellow]Not configured[/yellow]"
     )
     table.add_row("GitHub Actions", github_status)
 
@@ -150,36 +153,20 @@ def status(
 
 @app.command()
 def init(
-    path: str = typer.Option(
-        ".",
-        "--path", "-C",
-        help="Path to initialize project in"
-    ),
+    path: str = typer.Option(".", "--path", "-C", help="Path to initialize project in"),
     classifier: Optional[str] = typer.Option(
-        None,
-        "--classifier", "-c",
-        help="Classifier name (defaults to directory name)"
+        None, "--classifier", "-c", help="Classifier name (defaults to directory name)"
     ),
     predictor_file: Optional[str] = typer.Option(
-        None,
-        "--predictor-file",
-        help="Name of predictor Python file (without .py extension)"
+        None, "--predictor-file", help="Name of predictor Python file (without .py extension)"
     ),
     predictor_class: Optional[str] = typer.Option(
-        None,
-        "--predictor-class",
-        help="Name of predictor class"
+        None, "--predictor-class", help="Name of predictor class"
     ),
     no_github: bool = typer.Option(
-        False,
-        "--no-github",
-        help="Skip GitHub Actions workflow creation"
+        False, "--no-github", help="Skip GitHub Actions workflow creation"
     ),
-    force: bool = typer.Option(
-        False,
-        "--force", "-f",
-        help="Overwrite existing files"
-    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
 ):
     """🎬 Initialize a new MLServer classifier project.
 
@@ -206,7 +193,7 @@ def init(
         predictor_file=predictor_file,
         predictor_class=predictor_class,
         include_github_actions=not no_github,
-        force=force
+        force=force,
     )
 
     if success:
@@ -217,9 +204,9 @@ def init(
             console.print()
 
         # Show the message (may include skipped files)
-        for line in message.split('\n'):
+        for line in message.split("\n"):
             if line.strip():
-                if 'Skipped' in line or 'already exist' in line:
+                if "Skipped" in line or "already exist" in line:
                     console.print(f"[yellow]{line}[/yellow]")
                 else:
                     console.print(line)
@@ -244,26 +231,16 @@ def init(
 
 @app.command(name="init-github")
 def init_github(
-    path: str = typer.Option(
-        ".",
-        "--path", "-C",
-        help="Path to classifier project"
-    ),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     python_version: str = typer.Option(
-        "3.11",
-        "--python-version",
-        help="Python version for CI/CD workflow"
+        "3.11", "--python-version", help="Python version for CI/CD workflow"
     ),
     registry: str = typer.Option(
         "ghcr.io",
         "--registry",
-        help="Container registry (default: ghcr.io for GitHub Container Registry)"
+        help="Container registry (default: ghcr.io for GitHub Container Registry)",
     ),
-    force: bool = typer.Option(
-        False,
-        "--force", "-f",
-        help="Overwrite existing workflow files"
-    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing workflow files"),
 ):
     """🔧 Initialize GitHub Actions CI/CD workflow for automated container builds.
 
@@ -288,14 +265,11 @@ def init_github(
     console.print()
 
     success, message, files = init_github_actions(
-        project_path=path,
-        python_version=python_version,
-        registry=registry,
-        force=force
+        project_path=path, python_version=python_version, registry=registry, force=force
     )
 
     if success:
-        console.print("[green]✓[/green] " + message.split('\n')[0])
+        console.print("[green]✓[/green] " + message.split("\n")[0])
         console.print()
 
         # Show created files
@@ -308,8 +282,7 @@ def init_github(
         # Show next steps
         console.print("[bold cyan]Next steps:[/bold cyan]")
         console.print(
-            "  1. Review workflow: "
-            "[cyan].github/workflows/ml-classifier-container-build.yml[/cyan]"
+            "  1. Review workflow: [cyan].github/workflows/ml-classifier-container-build.yml[/cyan]"
         )
         console.print(
             "  2. Commit changes: "
@@ -339,9 +312,7 @@ def validate(
         True, "--check-imports/--no-check-imports", help="Check predictor imports"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
-    json_output: bool = typer.Option(
-        False, "--json", help="Output as JSON (machine-readable)"
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON (machine-readable)"),
 ):
     """Validate configuration without starting the server.
 
@@ -381,22 +352,27 @@ def validate(
         has_errors = report.has_errors
         has_warnings = report.has_warnings
         valid = not has_errors and not (strict and has_warnings)
-        print(json.dumps({
-            "config_file": str(config_file),
-            "valid": valid,
-            "strict": strict,
-            "errors": sum(1 for c in report.checks if c.status == CheckStatus.FAILED),
-            "warnings": sum(1 for c in report.checks if c.status == CheckStatus.WARNING),
-            "checks": [
+        print(
+            json.dumps(
                 {
-                    "name": c.name,
-                    "status": c.status.value,
-                    "message": c.message,
-                    "suggestion": c.suggestion,
-                }
-                for c in report.checks
-            ],
-        }, indent=2))
+                    "config_file": str(config_file),
+                    "valid": valid,
+                    "strict": strict,
+                    "errors": sum(1 for c in report.checks if c.status == CheckStatus.FAILED),
+                    "warnings": sum(1 for c in report.checks if c.status == CheckStatus.WARNING),
+                    "checks": [
+                        {
+                            "name": c.name,
+                            "status": c.status.value,
+                            "message": c.message,
+                            "suggestion": c.suggestion,
+                        }
+                        for c in report.checks
+                    ],
+                },
+                indent=2,
+            )
+        )
         if not valid:
             raise typer.Exit(1)
         return
@@ -498,20 +474,16 @@ def doctor(
 @app.command()
 def schema(
     output: Optional[Path] = typer.Option(
-        None, "--output", "-o",
-        help="Output path for schema file (default: stdout)"
+        None, "--output", "-o", help="Output path for schema file (default: stdout)"
     ),
     config_type: str = typer.Option(
-        "auto", "--type", "-t",
-        help="Config type: 'single', 'multi', or 'auto' (supports both)"
+        "auto", "--type", "-t", help="Config type: 'single', 'multi', or 'auto' (supports both)"
     ),
     setup: bool = typer.Option(
-        False, "--setup", "-s",
-        help="Show IDE setup instructions after generating schema"
+        False, "--setup", "-s", help="Show IDE setup instructions after generating schema"
     ),
     vscode: bool = typer.Option(
-        False, "--vscode",
-        help="Generate .vscode/settings.json for automatic schema association"
+        False, "--vscode", help="Generate .vscode/settings.json for automatic schema association"
     ),
 ):
     """Generate JSON schema for mlserver.yaml configuration.
@@ -575,7 +547,7 @@ def schema(
                 vscode_settings = get_vscode_settings_snippet(str(output))
                 existing_settings.update(vscode_settings)
 
-                with open(settings_path, 'w') as f:
+                with open(settings_path, "w") as f:
                     json.dump(existing_settings, f, indent=2)
 
                 console.print(f"[green]✓[/green] VSCode settings updated: {settings_path}")

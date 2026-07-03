@@ -23,9 +23,11 @@ def capture_and_embed_git_info():
         print("Capturing git information for build...")
         git_info = build_utils.write_version_info()
 
-        if git_info and git_info.get('commit'):
-            print(f"✓ Embedded git info - commit: {git_info['commit']}, "
-                  f"branch: {git_info.get('branch', 'unknown')}")
+        if git_info and git_info.get("commit"):
+            print(
+                f"✓ Embedded git info - commit: {git_info['commit']}, "
+                f"branch: {git_info.get('branch', 'unknown')}"
+            )
         else:
             print("⚠ No git information available (not a git repository)")
 
@@ -37,6 +39,7 @@ def capture_and_embed_git_info():
 
 class CustomBuildPy(build_py):
     """Custom build command that embeds git info before building."""
+
     def run(self):
         capture_and_embed_git_info()
         super().run()
@@ -44,6 +47,7 @@ class CustomBuildPy(build_py):
 
 class CustomSdist(sdist):
     """Custom sdist command that embeds git info before creating source distribution."""
+
     def run(self):
         capture_and_embed_git_info()
         super().run()
@@ -51,6 +55,7 @@ class CustomSdist(sdist):
 
 class CustomBdistWheel(bdist_wheel):
     """Custom bdist_wheel command that embeds git info before creating wheel."""
+
     def run(self):
         capture_and_embed_git_info()
         super().run()
@@ -60,8 +65,8 @@ if __name__ == "__main__":
     # Use setup with custom commands
     setup(
         cmdclass={
-            'build_py': CustomBuildPy,
-            'sdist': CustomSdist,
-            'bdist_wheel': CustomBdistWheel,
+            "build_py": CustomBuildPy,
+            "sdist": CustomSdist,
+            "bdist_wheel": CustomBdistWheel,
         }
     )

@@ -18,39 +18,22 @@ from ._app import app, console, detect_config_file, err_console
 def build(
     classifier: Optional[str] = typer.Option(
         None,
-        "--classifier", "-c",
-        help="Classifier to build (can be simple name or full tag: name-vX.Y.Z-mlserver-hash)"
+        "--classifier",
+        "-c",
+        help="Classifier to build (can be simple name or full tag: name-vX.Y.Z-mlserver-hash)",
     ),
-    path: str = typer.Option(
-        ".",
-        "--path",
-        help="Path to classifier project"
-    ),
+    path: str = typer.Option(".", "--path", help="Path to classifier project"),
     config: Optional[Path] = typer.Option(
-        None,
-        "--config",
-        help="Config file to use (auto-detected if not specified)"
+        None, "--config", help="Config file to use (auto-detected if not specified)"
     ),
-    registry: Optional[str] = typer.Option(
-        None,
-        "--registry",
-        help="Container registry URL"
-    ),
+    registry: Optional[str] = typer.Option(None, "--registry", help="Container registry URL"),
     tag_prefix: Optional[str] = typer.Option(
-        None,
-        "--tag-prefix",
-        help="Tag prefix for container names"
+        None, "--tag-prefix", help="Tag prefix for container names"
     ),
     build_arg: Optional[list[str]] = typer.Option(
-        None,
-        "--build-arg",
-        help="Build arguments (key=value)"
+        None, "--build-arg", help="Build arguments (key=value)"
     ),
-    no_cache: bool = typer.Option(
-        False,
-        "--no-cache",
-        help="Do not use cache when building"
-    ),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Do not use cache when building"),
     platform: Optional[str] = typer.Option(
         None,
         "--platform",
@@ -58,17 +41,11 @@ def build(
             "Target platform for the image, e.g. linux/amd64 (single platform only). "
             "Cross-architecture builds require BuildKit with binfmt/QEMU emulation "
             "or docker buildx on the host."
-        )
+        ),
     ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose", "-v",
-        help="Verbose output"
-    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     force: bool = typer.Option(
-        False,
-        "--force",
-        help="Skip validation prompts and continue with build"
+        False, "--force", help="Skip validation prompts and continue with build"
     ),
     per_classifier_image: bool = typer.Option(
         False,
@@ -77,7 +54,7 @@ def build(
             "Escape hatch: build one baked image per classifier (pre-W2.5 behavior) "
             "instead of a single build-once commit image. Use ONLY for classifiers "
             "whose conflicting dependencies cannot share one image. Requires --classifier."
-        )
+        ),
     ),
 ):
     """🏗️  Build Docker container for the classifier project.
@@ -131,8 +108,8 @@ def build(
             # Get expected commits from tag (mlserver commit is only encoded
             # in legacy tags; canonical tags carry the classifier commit only)
             tag_commits = get_tag_commits(original_input, path)
-            expected_classifier_commit = tag_commits['classifier_commit']
-            expected_mlserver_commit = parsed['mlserver_commit']
+            expected_classifier_commit = tag_commits["classifier_commit"]
+            expected_mlserver_commit = parsed["mlserver_commit"]
 
             # Get current commits
             git_info = get_git_info(path)
@@ -176,10 +153,10 @@ def build(
                 console.print()
                 console.print("[dim]Current working directory:[/dim]")
                 classifier_marker = (
-                    '[red]⚠️  MISMATCH[/red]' if classifier_mismatch else '[green]✓[/green]'
+                    "[red]⚠️  MISMATCH[/red]" if classifier_mismatch else "[green]✓[/green]"
                 )
                 mlserver_marker = (
-                    '[red]⚠️  MISMATCH[/red]' if mlserver_mismatch else '[green]✓[/green]'
+                    "[red]⚠️  MISMATCH[/red]" if mlserver_mismatch else "[green]✓[/green]"
                 )
                 console.print(
                     f"  Classifier commit: {current_classifier_commit_short or 'unknown'} "
@@ -254,13 +231,13 @@ def build(
     if build_arg:
         parsed_build_args = {}
         for arg in build_arg:
-            if '=' not in arg:
+            if "=" not in arg:
                 console.print(
                     f"[red]✗[/red] Invalid --build-arg '{arg}': expected format KEY=value",
                     style="bold red",
                 )
                 raise typer.Exit(1)
-            key, value = arg.split('=', 1)
+            key, value = arg.split("=", 1)
             parsed_build_args[key] = value
 
     result = build_container(
@@ -273,7 +250,7 @@ def build(
         no_cache=no_cache,
         mlserver_source_path=None,  # Auto-detect
         platform=platform,
-        per_classifier_image=per_classifier_image
+        per_classifier_image=per_classifier_image,
     )
 
     if result["success"]:
@@ -370,30 +347,19 @@ def _push_classifier_alias_cli(
 
 @app.command()
 def push(
-    registry: str = typer.Option(
-        ...,
-        "--registry", "-r",
-        help="Container registry URL"
-    ),
+    registry: str = typer.Option(..., "--registry", "-r", help="Container registry URL"),
     classifier: Optional[str] = typer.Option(
         None,
-        "--classifier", "-c",
-        help="Classifier to push (required for multi-classifier configs)"
+        "--classifier",
+        "-c",
+        help="Classifier to push (required for multi-classifier configs)",
     ),
-    path: str = typer.Option(
-        ".",
-        "--path",
-        help="Path to classifier project"
-    ),
+    path: str = typer.Option(".", "--path", help="Path to classifier project"),
     tag_prefix: Optional[str] = typer.Option(
-        None,
-        "--tag-prefix",
-        help="Tag prefix for container names"
+        None, "--tag-prefix", help="Tag prefix for container names"
     ),
     force: bool = typer.Option(
-        False,
-        "--force", "-f",
-        help="Force push even if not on tagged commit or tag exists"
+        False, "--force", "-f", help="Force push even if not on tagged commit or tag exists"
     ),
     version_source: Optional[str] = typer.Option(
         None,
@@ -402,7 +368,7 @@ def push(
             "[DEPRECATED] Version source: 'git-tag', 'config', or 'auto'. "
             "Git tags are the canonical version source (RFC 0001 D3); "
             "this flag will be removed in v0.5.0."
-        )
+        ),
     ),
 ):
     """📤 Push container to registry (requires tagged commit for specific classifier)."""
@@ -426,7 +392,7 @@ def push(
         console.print(
             f"[red]✗[/red] Invalid --version-source '{version_source}'. "
             f"Allowed values: {', '.join(allowed_version_sources)}",
-            style="bold red"
+            style="bold red",
         )
         raise typer.Exit(1)
 
@@ -442,8 +408,12 @@ def push(
 
     if is_multi:
         _push_classifier_alias_cli(
-            path=path, registry=registry, classifier=classifier,
-            tag_prefix=tag_prefix, force=force, config_file=push_config_file
+            path=path,
+            registry=registry,
+            classifier=classifier,
+            tag_prefix=tag_prefix,
+            force=force,
+            config_file=push_config_file,
         )
         return
 
@@ -458,7 +428,7 @@ def push(
         classifier_name=classifier,
         tag_prefix=tag_prefix,
         force=force,
-        version_source=version_source
+        version_source=version_source,
     )
 
     if result["success"]:
@@ -494,21 +464,11 @@ def push(
 
 @app.command()
 def images(
-    path: str = typer.Option(
-        ".",
-        "--path",
-        help="Path to classifier project"
-    ),
+    path: str = typer.Option(".", "--path", help="Path to classifier project"),
     classifier: Optional[str] = typer.Option(
-        None,
-        "--classifier", "-c",
-        help="Classifier name (for multi-classifier configs)"
+        None, "--classifier", "-c", help="Classifier name (for multi-classifier configs)"
     ),
-    json_output: bool = typer.Option(
-        False,
-        "--json",
-        help="Output as JSON (machine-readable)"
-    ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON (machine-readable)"),
 ):
     """📋 List Docker images for the classifier project.
 
@@ -517,11 +477,16 @@ def images(
     image_list = list_images(str(path), classifier_name=classifier)
 
     if json_output:
-        print(json.dumps({
-            "images": image_list,
-            "count": len(image_list),
-            "classifier": classifier,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "images": image_list,
+                    "count": len(image_list),
+                    "classifier": classifier,
+                },
+                indent=2,
+            )
+        )
         return
 
     if not image_list:
@@ -535,28 +500,15 @@ def images(
     table.add_column("Size", style="magenta")
 
     for image in image_list:
-        table.add_row(
-            image['tag'],
-            image['image_id'],
-            image['created'],
-            image['size']
-        )
+        table.add_row(image["tag"], image["image_id"], image["created"], image["size"])
 
     console.print(table)
 
 
 @app.command()
 def clean(
-    path: str = typer.Option(
-        ".",
-        "--path",
-        help="Path to classifier project"
-    ),
-    force: bool = typer.Option(
-        False,
-        "--force", "-f",
-        help="Force removal without confirmation"
-    ),
+    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force removal without confirmation"),
 ):
     """🧹 Remove Docker images for the classifier project."""
     if not check_docker_availability():
@@ -601,44 +553,20 @@ def clean(
 @app.command()
 def run(
     classifier: Optional[str] = typer.Option(
-        None,
-        "--classifier", "-c",
-        help="Classifier to run (required for multi-classifier configs)"
+        None, "--classifier", "-c", help="Classifier to run (required for multi-classifier configs)"
     ),
-    path: str = typer.Option(
-        ".",
-        "--path",
-        help="Path to classifier project"
-    ),
-    port: int = typer.Option(
-        8000,
-        "--port", "-p",
-        help="Port to expose the container on"
-    ),
+    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to expose the container on"),
     version: Optional[str] = typer.Option(
-        None,
-        "--version",
-        help="Specific version to run (default: latest)"
+        None, "--version", help="Specific version to run (default: latest)"
     ),
-    detach: bool = typer.Option(
-        False,
-        "--detach", "-d",
-        help="Run container in background"
-    ),
-    name: Optional[str] = typer.Option(
-        None,
-        "--name",
-        help="Container name"
-    ),
+    detach: bool = typer.Option(False, "--detach", "-d", help="Run container in background"),
+    name: Optional[str] = typer.Option(None, "--name", help="Container name"),
     env: Optional[list[str]] = typer.Option(
-        None,
-        "--env", "-e",
-        help="Environment variables (KEY=value)"
+        None, "--env", "-e", help="Environment variables (KEY=value)"
     ),
     volume: Optional[list[str]] = typer.Option(
-        None,
-        "--volume",
-        help="Volume mounts (host:container)"
+        None, "--volume", help="Volume mounts (host:container)"
     ),
 ):
     """🚀 Run Docker container for the classifier."""
@@ -671,6 +599,7 @@ def run(
 
     # Get repository name
     from ..version import get_repository_name
+
     repository = get_repository_name(path)
 
     # Build-once / deploy-many (RFC 0001 D4 / W2.5): the commit image bundles
@@ -711,6 +640,7 @@ def run(
         # Auto-generate name if running specific classifier
         if classifier:
             import time
+
             timestamp = int(time.time())
             docker_cmd.extend(["--name", f"{classifier}-{timestamp}"])
 
@@ -754,6 +684,7 @@ def run(
         try:
             # Check if we have a TTY available
             import sys
+
             if sys.stdin.isatty():
                 # We have TTY, run interactively
                 result = subprocess.run(docker_cmd)

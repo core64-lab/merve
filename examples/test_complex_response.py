@@ -14,10 +14,7 @@ def test_standard_format():
     # This would use default config with response_format: "standard"
     payload = {
         "payload": {
-            "records": [
-                {"feature1": 1.5, "feature2": 2.3},
-                {"feature1": 2.1, "feature2": 1.7}
-            ]
+            "records": [{"feature1": 1.5, "feature2": 2.3}, {"feature1": 2.1, "feature2": 1.7}]
         }
     }
 
@@ -40,10 +37,7 @@ def test_custom_format():
     # (with api.response_format set to "custom")
     payload = {
         "payload": {
-            "records": [
-                {"feature1": 1.5, "feature2": 2.3},
-                {"feature1": 2.1, "feature2": 1.7}
-            ]
+            "records": [{"feature1": 1.5, "feature2": 2.3}, {"feature1": 2.1, "feature2": 1.7}]
         }
     }
 
@@ -87,13 +81,7 @@ def test_passthrough_format():
     print("\n=== Testing Passthrough Format ===")
 
     # This assumes a server with api.response_format: "passthrough" on port 8001
-    payload = {
-        "payload": {
-            "records": [
-                {"feature1": 1.5, "feature2": 2.3}
-            ]
-        }
-    }
+    payload = {"payload": {"records": [{"feature1": 1.5, "feature2": 2.3}]}}
 
     try:
         response = httpx.post("http://localhost:8001/predict", json=payload)

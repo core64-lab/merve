@@ -30,34 +30,16 @@ def serve(
         exists=False,  # We'll check existence ourselves
     ),
     classifier: Optional[str] = typer.Option(
-        None,
-        "--classifier", "-c",
-        help="Classifier to serve (for multi-classifier configs)"
+        None, "--classifier", "-c", help="Classifier to serve (for multi-classifier configs)"
     ),
-    host: Optional[str] = typer.Option(
-        None,
-        "--host",
-        help="Override host address"
-    ),
-    port: Optional[int] = typer.Option(
-        None,
-        "--port", "-p",
-        help="Override port number"
-    ),
+    host: Optional[str] = typer.Option(None, "--host", help="Override host address"),
+    port: Optional[int] = typer.Option(None, "--port", "-p", help="Override port number"),
     workers: Optional[int] = typer.Option(
-        None,
-        "--workers", "-w",
-        help="Number of worker processes"
+        None, "--workers", "-w", help="Number of worker processes"
     ),
-    reload: bool = typer.Option(
-        False,
-        "--reload",
-        help="Enable auto-reload for development"
-    ),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development"),
     log_level: Optional[LogLevel] = typer.Option(
-        None,
-        "--log-level", "-l",
-        help="Set log level (defaults to server.log_level from config)"
+        None, "--log-level", "-l", help="Set log level (defaults to server.log_level from config)"
     ),
 ):
     """🚀 Launch ML FastAPI server from YAML config."""
@@ -102,6 +84,7 @@ def serve(
                 console.print(f"[red]✗[/red] Error: {e}", style="bold red")
                 if log_level == LogLevel.DEBUG:
                     import traceback
+
                     console.print("[yellow]Full traceback:[/yellow]")
                     console.print(traceback.format_exc())
                 raise typer.Exit(1) from e
@@ -109,6 +92,7 @@ def serve(
                 console.print(f"[red]✗[/red] Unexpected error: {e}", style="bold red")
                 if log_level == LogLevel.DEBUG:
                     import traceback
+
                     console.print("[yellow]Full traceback:[/yellow]")
                     console.print(traceback.format_exc())
                 raise typer.Exit(1) from e
@@ -155,7 +139,7 @@ def serve(
                 structured=logger_config.structured,
                 include_timestamp=logger_config.timestamp,
                 show_tasks=logger_config.show_tasks,
-                custom_format=logger_config.format
+                custom_format=logger_config.format,
             )
         else:
             # Fallback to default behavior
@@ -166,25 +150,27 @@ def serve(
         fastapi_app = create_app(cfg, config_file_name=config_file_name)
 
         # Show startup info
-        console.print(Panel.fit(
-            f"[bold cyan]ML Server Starting[/bold cyan]\n\n"
-            f"[yellow]→[/yellow] Host: [cyan]{cfg.server.host}:{cfg.server.port}[/cyan]\n"
-            f"[yellow]→[/yellow] Workers: [cyan]{cfg.server.workers}[/cyan]\n"
-            f"[yellow]→[/yellow] Model: [cyan]{cfg.predictor.class_name}[/cyan]\n"
-            f"[yellow]→[/yellow] API: [cyan]http://{cfg.server.host}:{cfg.server.port}[/cyan]\n"
-            f"[yellow]→[/yellow] Docs: [cyan]http://{cfg.server.host}:{cfg.server.port}/docs[/cyan]",
-            title="🚀 Server Info",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                f"[bold cyan]ML Server Starting[/bold cyan]\n\n"
+                f"[yellow]→[/yellow] Host: [cyan]{cfg.server.host}:{cfg.server.port}[/cyan]\n"
+                f"[yellow]→[/yellow] Workers: [cyan]{cfg.server.workers}[/cyan]\n"
+                f"[yellow]→[/yellow] Model: [cyan]{cfg.predictor.class_name}[/cyan]\n"
+                f"[yellow]→[/yellow] API: [cyan]http://{cfg.server.host}:{cfg.server.port}[/cyan]\n"
+                f"[yellow]→[/yellow] Docs: [cyan]http://{cfg.server.host}:{cfg.server.port}/docs[/cyan]",
+                title="🚀 Server Info",
+                border_style="cyan",
+            )
+        )
 
         # Run the server
         # Multi-worker and reload modes require an import string (uvicorn
         # cannot use an app instance for those), so use the factory function
         if cfg.server.workers > 1 or reload:
             # Set environment variables for the factory function
-            os.environ['MLSERVER_CONFIG_PATH'] = str(config_file)
+            os.environ["MLSERVER_CONFIG_PATH"] = str(config_file)
             if classifier:
-                os.environ['MLSERVER_CLASSIFIER'] = classifier
+                os.environ["MLSERVER_CLASSIFIER"] = classifier
 
             uvicorn.run(
                 "mlserver.server:app",  # Factory function (reads env vars above)

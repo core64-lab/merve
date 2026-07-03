@@ -1,4 +1,5 @@
 """Mock predictor classes for testing."""
+
 import time
 
 import numpy as np
@@ -55,8 +56,13 @@ class MockPredictor:
 class MockPredictorWithPreprocessing:
     """Mock predictor with preprocessing for testing."""
 
-    def __init__(self, model_path: str = None, preprocessor_path: str = None,
-                 feature_order: list[str] = None, **kwargs):
+    def __init__(
+        self,
+        model_path: str = None,
+        preprocessor_path: str = None,
+        feature_order: list[str] = None,
+        **kwargs,
+    ):
         self.model_path = model_path
         self.preprocessor_path = preprocessor_path
         self.feature_order = feature_order or ["f1", "f2", "f3", "f4", "f5"]
@@ -76,7 +82,7 @@ class MockPredictorWithPreprocessing:
             X = np.asarray(X)
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        return pd.DataFrame(X, columns=self.feature_order[:X.shape[1]])
+        return pd.DataFrame(X, columns=self.feature_order[: X.shape[1]])
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         df = self._as_dataframe(X)

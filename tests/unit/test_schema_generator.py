@@ -3,6 +3,7 @@
 Tests for mlserver schema command and schema generation functionality.
 These tests are written FIRST as part of test-driven development.
 """
+
 import json
 import tempfile
 from pathlib import Path
@@ -17,6 +18,7 @@ try:
         get_schema_for_config_type,
         save_schema,
     )
+
     SCHEMA_MODULE_EXISTS = True
 except ImportError:
     SCHEMA_MODULE_EXISTS = False

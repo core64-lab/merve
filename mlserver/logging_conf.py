@@ -1,4 +1,3 @@
-
 import json
 import logging
 import uuid
@@ -9,7 +8,7 @@ from typing import Optional
 DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 
 # Context variable for correlation ID
-correlation_id_var: ContextVar[Optional[str]] = ContextVar('correlation_id', default=None)
+correlation_id_var: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
 
 
 class StructuredFormatter(logging.Formatter):
@@ -44,11 +43,29 @@ class StructuredFormatter(logging.Formatter):
         # exc_info/exc_text/stack_info are excluded: exc_info is a traceback
         # tuple that json.dumps cannot serialize (handled explicitly below)
         for key, value in record.__dict__.items():
-            if key not in ["name", "msg", "args", "levelname", "levelno", "pathname",
-                          "filename", "module", "lineno", "funcName", "created",
-                          "msecs", "relativeCreated", "thread", "threadName",
-                          "processName", "process", "getMessage",
-                          "exc_info", "exc_text", "stack_info"]:
+            if key not in [
+                "name",
+                "msg",
+                "args",
+                "levelname",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "lineno",
+                "funcName",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+                "getMessage",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+            ]:
                 # Skip taskName if show_tasks is False
                 if key == "taskName" and not self.show_tasks:
                     continue
@@ -67,9 +84,13 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(log_entry, default=str)
 
 
-def configure_logging(level: str = "INFO", structured: bool = True,
-                     include_timestamp: bool = False, show_tasks: bool = False,
-                     custom_format: Optional[str] = None) -> None:
+def configure_logging(
+    level: str = "INFO",
+    structured: bool = True,
+    include_timestamp: bool = False,
+    show_tasks: bool = False,
+    custom_format: Optional[str] = None,
+) -> None:
     """Configure logging with optional structured format.
 
     Args:
@@ -89,10 +110,9 @@ def configure_logging(level: str = "INFO", structured: bool = True,
         handler.setFormatter(logging.Formatter(custom_format))
     elif structured:
         # Use structured formatter with configurable options
-        handler.setFormatter(StructuredFormatter(
-            include_timestamp=include_timestamp,
-            show_tasks=show_tasks
-        ))
+        handler.setFormatter(
+            StructuredFormatter(include_timestamp=include_timestamp, show_tasks=show_tasks)
+        )
     else:
         # Use default text format
         handler.setFormatter(logging.Formatter(DEFAULT_LOG_FORMAT))
@@ -118,32 +138,36 @@ def get_correlation_id() -> Optional[str]:
 def log_request(method: str, path: str, **kwargs):
     """Log structured request information"""
     logger = logging.getLogger("mlserver.request")
-    logger.info("Request started", extra={
-        "event": "request_start",
-        "method": method,
-        "path": path,
-        **kwargs
-    })
+    logger.info(
+        "Request started",
+        extra={"event": "request_start", "method": method, "path": path, **kwargs},
+    )
 
 
 def log_response(status_code: int, duration_ms: float, **kwargs):
     """Log structured response information"""
     logger = logging.getLogger("mlserver.response")
-    logger.info("Request completed", extra={
-        "event": "request_complete",
-        "status_code": status_code,
-        "duration_ms": duration_ms,
-        **kwargs
-    })
+    logger.info(
+        "Request completed",
+        extra={
+            "event": "request_complete",
+            "status_code": status_code,
+            "duration_ms": duration_ms,
+            **kwargs,
+        },
+    )
 
 
 def log_prediction(model_name: str, duration_ms: float, sample_count: int, **kwargs):
     """Log structured prediction information"""
     logger = logging.getLogger("mlserver.prediction")
-    logger.info("Prediction completed", extra={
-        "event": "prediction_complete",
-        "model": model_name,
-        "duration_ms": duration_ms,
-        "sample_count": sample_count,
-        **kwargs
-    })
+    logger.info(
+        "Prediction completed",
+        extra={
+            "event": "prediction_complete",
+            "model": model_name,
+            "duration_ms": duration_ms,
+            "sample_count": sample_count,
+            **kwargs,
+        },
+    )

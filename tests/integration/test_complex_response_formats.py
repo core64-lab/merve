@@ -30,62 +30,54 @@ class TestComplexResponseFormats:
 
         # Clean up temp directory
         import shutil
+
         if os.path.exists(cls.test_dir):
             shutil.rmtree(cls.test_dir)
 
     def create_config(self, response_format="standard", port=9990):
         """Create a test configuration file."""
         config = {
-            "server": {
-                "workers": 1,
-                "host": "0.0.0.0",
-                "port": port
-            },
+            "server": {"workers": 1, "host": "0.0.0.0", "port": port},
             "predictor": {
                 "module": "examples.predictor_complex",
-                "class_name": "ComplexResponsePredictor"
+                "class_name": "ComplexResponsePredictor",
             },
             "api": {
                 "adapter": "auto",
                 "response_format": response_format,
                 "response_validation": response_format != "passthrough",
                 "extract_values": False,
-                "endpoints": {
-                    "predict": True,
-                    "batch_predict": True,
-                    "predict_proba": True
-                }
+                "endpoints": {"predict": True, "batch_predict": True, "predict_proba": True},
             },
             "observability": {
                 "metrics": True,
-                "structured_logging": False  # Disable for cleaner test output
+                "structured_logging": False,  # Disable for cleaner test output
             },
             "classifier": {
                 "name": f"test-{response_format}",
                 "version": "1.0.0",
-                "repository": "test"
-            }
+                "repository": "test",
+            },
         }
 
         config_path = os.path.join(self.test_dir, f"config_{response_format}.yaml")
         import yaml
-        with open(config_path, 'w') as f:
+
+        with open(config_path, "w") as f:
             yaml.dump(config, f)
         return config_path
 
     def start_server(self, config_path, port):
         """Start a test server in the background."""
         import sys
-        cmd = [
-            sys.executable, "-m", "mlserver.cli", "serve",
-            config_path, "--port", str(port)
-        ]
+
+        cmd = [sys.executable, "-m", "mlserver.cli", "serve", config_path, "--port", str(port)]
 
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            preexec_fn=os.setsid  # Create new process group for easy cleanup
+            preexec_fn=os.setsid,  # Create new process group for easy cleanup
         )
 
         # Wait for server to start
@@ -173,18 +165,16 @@ class TestComplexResponseFormats:
             "server": {"workers": 1, "host": "0.0.0.0", "port": 9993},
             "predictor": {
                 "module": "examples.predictor_complex",
-                "class_name": "LegacyFormatPredictor"
+                "class_name": "LegacyFormatPredictor",
             },
-            "api": {
-                "response_format": "passthrough",
-                "response_validation": False
-            },
-            "classifier": {"name": "test-passthrough", "version": "1.0.0"}
+            "api": {"response_format": "passthrough", "response_validation": False},
+            "classifier": {"name": "test-passthrough", "version": "1.0.0"},
         }
 
         config_path = os.path.join(self.test_dir, "config_passthrough.yaml")
         import yaml
-        with open(config_path, 'w') as f:
+
+        with open(config_path, "w") as f:
             yaml.dump(config, f)
 
         self.start_server(config_path, 9993)
@@ -214,10 +204,7 @@ class TestComplexResponseFormats:
         # (the separate /batch_predict endpoint no longer exists).
         payload = {
             "payload": {
-                "records": [
-                    {"feature1": 1.5, "feature2": 2.3},
-                    {"feature1": 2.1, "feature2": 1.7}
-                ]
+                "records": [{"feature1": 1.5, "feature2": 2.3}, {"feature1": 2.1, "feature2": 1.7}]
             }
         }
 

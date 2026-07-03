@@ -64,11 +64,7 @@ class TestCLIv2WorkflowIntegration:
 
             # Test prediction
             payload = {
-                "payload": {
-                    "records": [
-                        {"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0}
-                    ]
-                }
+                "payload": {"records": [{"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0}]}
             }
             response = requests.post("http://localhost:8080/predict", json=payload, timeout=30)
             assert response.status_code == 200
@@ -139,16 +135,12 @@ class TestCLIv2WorkflowIntegration:
     def test_multi_classifier_tagging(self, multi_classifier_repo):
         """Test tagging multiple classifiers independently."""
         # Tag sentiment with patch
-        result = multi_classifier_repo.run_cli_command(
-            "tag", "patch", "--classifier", "sentiment"
-        )
+        result = multi_classifier_repo.run_cli_command("tag", "patch", "--classifier", "sentiment")
         assert result.returncode == 0
         assert "0.0.1" in result.stdout
 
         # Tag intent with minor
-        result = multi_classifier_repo.run_cli_command(
-            "tag", "minor", "--classifier", "intent"
-        )
+        result = multi_classifier_repo.run_cli_command("tag", "minor", "--classifier", "intent")
         assert result.returncode == 0
         assert "0.1.0" in result.stdout
 
@@ -167,9 +159,7 @@ class TestCLIv2WorkflowIntegration:
 
         # Make a change and tag
         single_classifier_repo.make_change()
-        single_classifier_repo.run_cli_command(
-            "tag", "minor", "--classifier", "test-classifier"
-        )
+        single_classifier_repo.run_cli_command("tag", "minor", "--classifier", "test-classifier")
 
         # Build container
         result = single_classifier_repo.run_cli_command("build")
@@ -238,11 +228,17 @@ class TestCLIv2WorkflowIntegration:
         # Select a classifier at run time via the environment variable.
         run = subprocess.run(
             [
-                "docker", "run", "-d",
-                "-e", "MLSERVER_CLASSIFIER=sentiment",
-                "--name", container_name, image,
+                "docker",
+                "run",
+                "-d",
+                "-e",
+                "MLSERVER_CLASSIFIER=sentiment",
+                "--name",
+                container_name,
+                image,
             ],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert run.returncode == 0, run.stderr
 
@@ -254,19 +250,22 @@ class TestCLIv2WorkflowIntegration:
                 # so the check does not depend on host port routing.
                 health = subprocess.run(
                     [
-                        "docker", "exec", container_name,
-                        "curl", "-fsS", "http://localhost:8000/healthz",
+                        "docker",
+                        "exec",
+                        container_name,
+                        "curl",
+                        "-fsS",
+                        "http://localhost:8000/healthz",
                     ],
-                    capture_output=True, text=True,
+                    capture_output=True,
+                    text=True,
                 )
                 if health.returncode == 0:
                     healthy = True
                     break
                 time.sleep(2)
 
-            assert healthy, (
-                "commit image did not serve /healthz for MLSERVER_CLASSIFIER=sentiment"
-            )
+            assert healthy, "commit image did not serve /healthz for MLSERVER_CLASSIFIER=sentiment"
         finally:
             subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True)

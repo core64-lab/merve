@@ -58,9 +58,7 @@ def test_banned_pattern_detected_with_file_and_line(tmp_path, capsys, label, lin
 
 def test_multiple_hits_all_reported(tmp_path, capsys):
     make_clean_tree(tmp_path)
-    (tmp_path / "docs" / "bad.md").write_text(
-        "use cli_v2 here\nand probe /readyz there\n"
-    )
+    (tmp_path / "docs" / "bad.md").write_text("use cli_v2 here\nand probe /readyz there\n")
     assert drift.main(["--root", str(tmp_path)]) == 1
     out = capsys.readouterr().out
     assert f"{Path('docs') / 'bad.md'}:1: cli_v2" in out

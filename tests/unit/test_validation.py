@@ -1,4 +1,5 @@
 """Unit tests for validation module."""
+
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -36,27 +37,18 @@ class TestValidationResult:
 
     def test_with_error_message(self):
         """Test ValidationResult with error message."""
-        result = ValidationResult(
-            passed=False,
-            error_message="Something went wrong"
-        )
+        result = ValidationResult(passed=False, error_message="Something went wrong")
         assert result.passed is False
         assert result.error_message == "Something went wrong"
 
     def test_with_warnings(self):
         """Test ValidationResult with warnings."""
-        result = ValidationResult(
-            passed=True,
-            warnings=["Warning 1", "Warning 2"]
-        )
+        result = ValidationResult(passed=True, warnings=["Warning 1", "Warning 2"])
         assert len(result.warnings) == 2
 
     def test_with_details(self):
         """Test ValidationResult with details."""
-        result = ValidationResult(
-            passed=False,
-            details={"key": "value"}
-        )
+        result = ValidationResult(passed=False, details={"key": "value"})
         assert result.details["key"] == "value"
 
 
@@ -79,20 +71,14 @@ class TestFeatureValidationResult:
 
     def test_to_error_message_missing_features(self):
         """Test error message with missing features."""
-        result = FeatureValidationResult(
-            valid=False,
-            missing_features=["feature1", "feature2"]
-        )
+        result = FeatureValidationResult(valid=False, missing_features=["feature1", "feature2"])
         msg = result.to_error_message()
         assert "Missing features" in msg
         assert "feature1" in msg
 
     def test_to_error_message_extra_features(self):
         """Test error message with extra features."""
-        result = FeatureValidationResult(
-            valid=False,
-            extra_features=["extra1", "extra2"]
-        )
+        result = FeatureValidationResult(valid=False, extra_features=["extra1", "extra2"])
         msg = result.to_error_message()
         assert "Unexpected features" in msg
         assert "extra1" in msg
@@ -100,8 +86,7 @@ class TestFeatureValidationResult:
     def test_to_error_message_type_errors(self):
         """Test error message with type errors."""
         result = FeatureValidationResult(
-            valid=False,
-            type_errors=[{"feature": "f1", "expected": "int", "actual": "str"}]
+            valid=False, type_errors=[{"feature": "f1", "expected": "int", "actual": "str"}]
         )
         msg = result.to_error_message()
         assert "Type errors" in msg
@@ -109,19 +94,14 @@ class TestFeatureValidationResult:
 
     def test_to_error_message_with_record_index(self):
         """Test error message with record index."""
-        result = FeatureValidationResult(
-            valid=False,
-            missing_features=["f1"],
-            record_index=5
-        )
+        result = FeatureValidationResult(valid=False, missing_features=["f1"], record_index=5)
         msg = result.to_error_message()
         assert "Record 5:" in msg
 
     def test_to_error_message_truncates_long_lists(self):
         """Test that long feature lists are truncated."""
         result = FeatureValidationResult(
-            valid=False,
-            missing_features=[f"feature{i}" for i in range(10)]
+            valid=False, missing_features=[f"feature{i}" for i in range(10)]
         )
         msg = result.to_error_message()
         assert "... and 5 more" in msg
@@ -174,10 +154,7 @@ class TestFeatureSchemaValidator:
     def test_validate_records_all_valid(self):
         """Test validating multiple valid records."""
         validator = FeatureSchemaValidator(["f1", "f2"])
-        records = [
-            {"f1": 1.0, "f2": 2.0},
-            {"f1": 3.0, "f2": 4.0}
-        ]
+        records = [{"f1": 1.0, "f2": 2.0}, {"f1": 3.0, "f2": 4.0}]
         all_valid, results = validator.validate_records(records)
         assert all_valid is True
         assert len(results) == 2
@@ -189,7 +166,7 @@ class TestFeatureSchemaValidator:
         validator = FeatureSchemaValidator(["f1", "f2"])
         records = [
             {"f1": 1.0, "f2": 2.0},  # Valid
-            {"f1": 3.0}  # Missing f2
+            {"f1": 3.0},  # Missing f2
         ]
         all_valid, results = validator.validate_records(records)
         assert all_valid is False
@@ -199,10 +176,7 @@ class TestFeatureSchemaValidator:
     def test_get_validation_summary_all_valid(self):
         """Test summary when all records are valid."""
         validator = FeatureSchemaValidator(["f1"])
-        results = [
-            FeatureValidationResult(valid=True),
-            FeatureValidationResult(valid=True)
-        ]
+        results = [FeatureValidationResult(valid=True), FeatureValidationResult(valid=True)]
         summary = validator.get_validation_summary(results)
         assert "All 2 records valid" in summary
 
@@ -211,7 +185,7 @@ class TestFeatureSchemaValidator:
         validator = FeatureSchemaValidator(["f1", "f2"])
         results = [
             FeatureValidationResult(valid=False, missing_features=["f1"]),
-            FeatureValidationResult(valid=True)
+            FeatureValidationResult(valid=True),
         ]
         summary = validator.get_validation_summary(results)
         assert "1/2 records invalid" in summary
@@ -250,6 +224,7 @@ class TestValidatorBase:
 
     def test_validator_init(self):
         """Test base validator initialization."""
+
         class TestValidator(Validator):
             def validate(self, **kwargs):
                 return ValidationResult(passed=True)
@@ -295,7 +270,7 @@ class TestGitWorkingDirectoryCleanValidator:
 
     def test_clean_directory(self):
         """Test validation passes when directory is clean."""
-        with patch('mlserver.version_control.GitVersionManager') as mock_class:
+        with patch("mlserver.version_control.GitVersionManager") as mock_class:
             mock_mgr = MagicMock()
             mock_mgr.check_working_directory_clean.return_value = (True, None)
             mock_class.return_value = mock_mgr
@@ -307,7 +282,7 @@ class TestGitWorkingDirectoryCleanValidator:
 
     def test_dirty_directory(self):
         """Test validation fails when directory is dirty."""
-        with patch('mlserver.version_control.GitVersionManager') as mock_class:
+        with patch("mlserver.version_control.GitVersionManager") as mock_class:
             mock_mgr = MagicMock()
             mock_mgr.check_working_directory_clean.return_value = (False, "Uncommitted changes")
             mock_class.return_value = mock_mgr
@@ -320,7 +295,7 @@ class TestGitWorkingDirectoryCleanValidator:
 
     def test_git_error(self):
         """Test validation handles git errors."""
-        with patch('mlserver.version_control.GitVersionManager') as mock_class:
+        with patch("mlserver.version_control.GitVersionManager") as mock_class:
             mock_class.side_effect = Exception("Git not found")
 
             validator = GitWorkingDirectoryCleanValidator()
@@ -380,7 +355,7 @@ class TestProjectInitializedValidator:
 
     def test_project_initialized(self):
         """Test validation passes when project is initialized."""
-        with patch('mlserver.init_project.check_project_files') as mock_check:
+        with patch("mlserver.init_project.check_project_files") as mock_check:
             mock_check.return_value = (True, [])
 
             validator = ProjectInitializedValidator()
@@ -390,7 +365,7 @@ class TestProjectInitializedValidator:
 
     def test_project_not_initialized(self):
         """Test validation fails when project not initialized."""
-        with patch('mlserver.init_project.check_project_files') as mock_check:
+        with patch("mlserver.init_project.check_project_files") as mock_check:
             mock_check.return_value = (False, ["mlserver.yaml", "predictor.py"])
 
             validator = ProjectInitializedValidator()
@@ -406,7 +381,7 @@ class TestGitHubActionsConfiguredValidator:
 
     def test_workflow_not_configured(self):
         """Test validation passes but warns when workflow not configured."""
-        with patch('mlserver.github_actions.check_github_actions_setup') as mock_check:
+        with patch("mlserver.github_actions.check_github_actions_setup") as mock_check:
             mock_check.return_value = False
 
             validator = GitHubActionsConfiguredValidator()
@@ -418,8 +393,8 @@ class TestGitHubActionsConfiguredValidator:
 
     def test_workflow_valid(self):
         """Test validation passes when workflow is valid."""
-        with patch('mlserver.github_actions.check_github_actions_setup') as mock_setup:
-            with patch('mlserver.github_actions.validate_workflow_compatibility') as mock_compat:
+        with patch("mlserver.github_actions.check_github_actions_setup") as mock_setup:
+            with patch("mlserver.github_actions.validate_workflow_compatibility") as mock_compat:
                 mock_setup.return_value = True
                 mock_compat.return_value = (True, None, {})
 
@@ -430,8 +405,8 @@ class TestGitHubActionsConfiguredValidator:
 
     def test_workflow_incompatible_strict(self):
         """Test strict mode fails on incompatible workflow."""
-        with patch('mlserver.github_actions.check_github_actions_setup') as mock_setup:
-            with patch('mlserver.github_actions.validate_workflow_compatibility') as mock_compat:
+        with patch("mlserver.github_actions.check_github_actions_setup") as mock_setup:
+            with patch("mlserver.github_actions.validate_workflow_compatibility") as mock_compat:
                 mock_setup.return_value = True
                 mock_compat.return_value = (False, "Version mismatch", {"old": "1.0", "new": "2.0"})
 
@@ -443,8 +418,8 @@ class TestGitHubActionsConfiguredValidator:
 
     def test_workflow_incompatible_lenient(self):
         """Test lenient mode warns on incompatible workflow."""
-        with patch('mlserver.github_actions.check_github_actions_setup') as mock_setup:
-            with patch('mlserver.github_actions.validate_workflow_compatibility') as mock_compat:
+        with patch("mlserver.github_actions.check_github_actions_setup") as mock_setup:
+            with patch("mlserver.github_actions.validate_workflow_compatibility") as mock_compat:
                 mock_setup.return_value = True
                 mock_compat.return_value = (False, "Version mismatch", {})
 

@@ -1,4 +1,5 @@
 """Unit tests for concurrency_limiter module."""
+
 import asyncio
 import threading
 import time
@@ -268,7 +269,9 @@ class TestCreatePredictionLimiter:
 
     def test_create_sync_limiter(self):
         """Test creating sync prediction limiter."""
-        sem, limiter_factory = create_prediction_limiter(max_concurrent_predictions=2, async_mode=False)
+        sem, limiter_factory = create_prediction_limiter(
+            max_concurrent_predictions=2, async_mode=False
+        )
 
         assert isinstance(sem, PredictionSemaphore)
         limiter = limiter_factory()
@@ -289,7 +292,9 @@ class TestCreatePredictionLimiter:
 
     def test_create_async_limiter(self):
         """Test creating async prediction limiter."""
-        sem, limiter_factory = create_prediction_limiter(max_concurrent_predictions=3, async_mode=True)
+        sem, limiter_factory = create_prediction_limiter(
+            max_concurrent_predictions=3, async_mode=True
+        )
 
         assert isinstance(sem, asyncio.Semaphore)
         limiter = limiter_factory()
@@ -297,7 +302,9 @@ class TestCreatePredictionLimiter:
 
     def test_sync_limiter_integration(self):
         """Test full sync limiter workflow."""
-        sem, limiter_factory = create_prediction_limiter(max_concurrent_predictions=1, async_mode=False)
+        sem, limiter_factory = create_prediction_limiter(
+            max_concurrent_predictions=1, async_mode=False
+        )
 
         with limiter_factory():
             assert sem.active_predictions == 1
@@ -307,7 +314,9 @@ class TestCreatePredictionLimiter:
     @pytest.mark.asyncio
     async def test_async_limiter_integration(self):
         """Test full async limiter workflow."""
-        sem, limiter_factory = create_prediction_limiter(max_concurrent_predictions=1, async_mode=True)
+        sem, limiter_factory = create_prediction_limiter(
+            max_concurrent_predictions=1, async_mode=True
+        )
 
         async with limiter_factory():
             pass  # Just verify it works

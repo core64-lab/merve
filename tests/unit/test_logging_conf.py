@@ -1,4 +1,5 @@
 """Unit tests for logging configuration module."""
+
 import json
 import logging
 

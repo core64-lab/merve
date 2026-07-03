@@ -2,6 +2,7 @@
 
 Tests for mlserver validate, mlserver doctor, and related diagnostic checks.
 """
+
 import subprocess
 import tempfile
 from pathlib import Path
@@ -46,11 +47,7 @@ class TestCheckResult:
 
     def test_check_result_creation(self):
         """Test creating a CheckResult."""
-        result = CheckResult(
-            name="Test Check",
-            status=CheckStatus.PASSED,
-            message="All good"
-        )
+        result = CheckResult(name="Test Check", status=CheckStatus.PASSED, message="All good")
         assert result.name == "Test Check"
         assert result.status == CheckStatus.PASSED
         assert result.message == "All good"
@@ -61,7 +58,7 @@ class TestCheckResult:
             name="Test Check",
             status=CheckStatus.FAILED,
             message="Something wrong",
-            suggestion="Try fixing it"
+            suggestion="Try fixing it",
         )
         assert result.suggestion == "Try fixing it"
 
@@ -70,7 +67,7 @@ class TestCheckResult:
         result = CheckResult(
             name="Test Check",
             status=CheckStatus.PASSED,
-            details={"version": "3.12", "path": "/usr/bin/python"}
+            details={"version": "3.12", "path": "/usr/bin/python"},
         )
         assert result.details["version"] == "3.12"
 
@@ -135,7 +132,7 @@ class TestSystemChecks:
 
     def test_check_docker_available(self):
         """Test Docker availability check when Docker is available."""
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="Docker version 24.0.0")
 
             result = check_docker()
@@ -145,7 +142,7 @@ class TestSystemChecks:
 
     def test_check_docker_not_available(self):
         """Test Docker check when Docker is not available."""
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError()
 
             result = check_docker()
@@ -155,7 +152,7 @@ class TestSystemChecks:
 
     def test_check_git_available(self):
         """Test Git availability check."""
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="git version 2.40.0")
 
             result = check_git()
@@ -165,7 +162,7 @@ class TestSystemChecks:
 
     def test_check_git_not_available(self):
         """Test Git check when Git is not available."""
-        with patch('subprocess.run') as mock_run:
+        with patch("subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError()
 
             result = check_git()
@@ -395,9 +392,9 @@ class TestCheckDockerTimeoutAndErrors:
 
     def test_docker_timeout(self):
         """Test Docker check when command times out."""
-        with patch('shutil.which') as mock_which:
+        with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/bin/docker"
-            with patch('subprocess.run') as mock_run:
+            with patch("subprocess.run") as mock_run:
                 mock_run.side_effect = subprocess.TimeoutExpired("docker", 5)
 
                 result = check_docker()
@@ -408,9 +405,9 @@ class TestCheckDockerTimeoutAndErrors:
 
     def test_docker_daemon_not_running(self):
         """Test Docker check when daemon not running."""
-        with patch('shutil.which') as mock_which:
+        with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/bin/docker"
-            with patch('subprocess.run') as mock_run:
+            with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=1, stdout="")
 
                 result = check_docker()
@@ -425,7 +422,7 @@ class TestCheckGitErrors:
 
     def test_git_not_in_path(self):
         """Test Git check when git not in PATH."""
-        with patch('shutil.which') as mock_which:
+        with patch("shutil.which") as mock_which:
             mock_which.return_value = None
 
             result = check_git()
@@ -436,9 +433,9 @@ class TestCheckGitErrors:
 
     def test_git_generic_error(self):
         """Test Git check with generic error."""
-        with patch('shutil.which') as mock_which:
+        with patch("shutil.which") as mock_which:
             mock_which.return_value = "/usr/bin/git"
-            with patch('subprocess.run') as mock_run:
+            with patch("subprocess.run") as mock_run:
                 mock_run.side_effect = Exception("Unknown error")
 
                 result = check_git()
@@ -774,7 +771,7 @@ class TestCheckDependenciesVerbose:
     def test_dependencies_verbose_missing_optional(self):
         """Test dependencies check verbose mode with missing optional deps."""
         # Mock missing optional dependency
-        with patch.dict('sys.modules', {'catboost': None}):
+        with patch.dict("sys.modules", {"catboost": None}):
             result = check_dependencies(verbose=True)
 
             # May have warning about missing optional deps
@@ -787,8 +784,10 @@ class TestCheckPortAvailable:
 
     def test_port_check_socket_error(self):
         """Test port check with socket error."""
-        with patch('socket.socket') as mock_socket:
-            mock_socket.return_value.__enter__.return_value.connect_ex.side_effect = Exception("Socket error")
+        with patch("socket.socket") as mock_socket:
+            mock_socket.return_value.__enter__.return_value.connect_ex.side_effect = Exception(
+                "Socket error"
+            )
 
             result = check_port_available(8000)
 

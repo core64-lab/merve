@@ -1,6 +1,7 @@
 """
 GitHub Actions CI/CD workflow generation for MLServer projects.
 """
+
 import re
 import subprocess
 from pathlib import Path
@@ -10,11 +11,15 @@ from typing import Any, Optional
 def get_git_remote_info(project_path: str = ".") -> Optional[dict[str, str]]:
     """Extract GitHub repository information from git remote."""
     try:
-        remote_url = subprocess.check_output(
-            ["git", "config", "--get", "remote.origin.url"],
-            cwd=project_path,
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
+        remote_url = (
+            subprocess.check_output(
+                ["git", "config", "--get", "remote.origin.url"],
+                cwd=project_path,
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
 
         if not remote_url:
             return None
@@ -30,20 +35,15 @@ def get_git_remote_info(project_path: str = ".") -> Optional[dict[str, str]]:
         # Extract owner and repo
         if remote_url.startswith("git@"):
             # SSH format: git@github.com:owner/repo.git
-            match = re.search(r'github\.com:([^/]+)/(.+?)(?:\.git)?$', remote_url)
+            match = re.search(r"github\.com:([^/]+)/(.+?)(?:\.git)?$", remote_url)
         else:
             # HTTPS format: https://github.com/owner/repo.git
-            match = re.search(r'github\.com/([^/]+)/(.+?)(?:\.git)?$', remote_url)
+            match = re.search(r"github\.com/([^/]+)/(.+?)(?:\.git)?$", remote_url)
 
         if match:
             owner = match.group(1)
             repo = match.group(2)
-            return {
-                "owner": owner,
-                "repo": repo,
-                "url": remote_url,
-                "is_github": True
-            }
+            return {"owner": owner, "repo": repo, "url": remote_url, "is_github": True}
 
         return None
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -58,7 +58,7 @@ def _normalize_git_url(url: str) -> str:
     https://github.com/owner/repo. HTTPS URLs pass through unchanged.
     """
     url = url.strip()
-    match = re.match(r'^(?:ssh://)?git@([^:/]+)[:/](.+?)(?:\.git)?/?$', url)
+    match = re.match(r"^(?:ssh://)?git@([^:/]+)[:/](.+?)(?:\.git)?/?$", url)
     if match:
         host, repo_path = match.groups()
         return f"https://{host}/{repo_path}"
@@ -75,16 +75,21 @@ def get_mlserver_source_url(project_path: str = ".") -> str:
     try:
         # Check if mlserver module has a git repository
         import mlserver
+
         mlserver_path = Path(mlserver.__file__).parent.parent
 
-        if (mlserver_path / '.git').exists():
+        if (mlserver_path / ".git").exists():
             # We're in a git repository - try to get remote URL
             try:
-                remote_url = subprocess.check_output(
-                    ["git", "config", "--get", "remote.origin.url"],
-                    cwd=str(mlserver_path),
-                    stderr=subprocess.DEVNULL
-                ).decode().strip()
+                remote_url = (
+                    subprocess.check_output(
+                        ["git", "config", "--get", "remote.origin.url"],
+                        cwd=str(mlserver_path),
+                        stderr=subprocess.DEVNULL,
+                    )
+                    .decode()
+                    .strip()
+                )
 
                 if remote_url:
                     return _normalize_git_url(remote_url)
@@ -101,7 +106,7 @@ def generate_build_and_push_workflow(
     repo_name: str,
     mlserver_source_url: str,
     python_version: str = "3.11",
-    registry_config: Optional[dict] = None
+    registry_config: Optional[dict] = None,
 ) -> str:
     """Generate the ml-classifier-container-build.yml workflow content.
 
@@ -115,6 +120,7 @@ def generate_build_and_push_workflow(
     # Get MLServer version for workflow versioning
     try:
         from mlserver import _version_info
+
         mlserver_version = _version_info.VERSION
         # v3: build-once commit image + canonical tag trigger (RFC 0001 D4)
         workflow_version = "3.0"  # Increment on incompatible workflow changes
@@ -126,16 +132,16 @@ def generate_build_and_push_workflow(
     if registry_config is None:
         registry_config = {}
 
-    registry_type = registry_config.get('type', 'ghcr')
+    registry_type = registry_config.get("type", "ghcr")
 
     # Extract ECR configuration
-    ecr_config = registry_config.get('ecr', {})
-    ecr_aws_region = ecr_config.get('aws_region', 'eu-central-1')
-    ecr_registry_id = ecr_config.get('registry_id')
-    ecr_repository_prefix = ecr_config.get('repository_prefix', 'ml-classifiers')
+    ecr_config = registry_config.get("ecr", {})
+    ecr_aws_region = ecr_config.get("aws_region", "eu-central-1")
+    ecr_registry_id = ecr_config.get("registry_id")
+    ecr_repository_prefix = ecr_config.get("repository_prefix", "ml-classifiers")
 
     # Validate ECR configuration if type is 'ecr'
-    if registry_type == 'ecr':
+    if registry_type == "ecr":
         if not ecr_registry_id:
             raise ValueError(
                 "ECR registry type selected but registry_id is missing in mlserver.yaml.\n\n"
@@ -149,9 +155,9 @@ def generate_build_and_push_workflow(
     # Region: Use environment variable from workflow env section
 
     # Get GitHub variables configuration
-    github_vars_config = registry_config.get('github_variables', {})
-    role_arn_var_name = github_vars_config.get('aws_role_arn_var', 'AWS_RUNNER_ROLE_ARN')
-    role_arn_direct_value = github_vars_config.get('aws_role_arn_value')
+    github_vars_config = registry_config.get("github_variables", {})
+    role_arn_var_name = github_vars_config.get("aws_role_arn_var", "AWS_RUNNER_ROLE_ARN")
+    role_arn_direct_value = github_vars_config.get("aws_role_arn_value")
 
     if role_arn_direct_value:
         # Bake direct value (less secure, but simpler for some setups)
@@ -172,7 +178,7 @@ def generate_build_and_push_workflow(
         )
 
     # Build header with current registry configuration
-    if registry_type == 'ecr':
+    if registry_type == "ecr":
         # Build role ARN documentation based on configuration
         if role_arn_direct_value:
             role_arn_doc = f"""#   - Role ARN: {role_arn_direct_value} (baked from mlserver.yaml)
@@ -446,7 +452,7 @@ def init_github_actions(
     project_path: str = ".",
     python_version: str = "3.11",
     registry: str = "ghcr.io",
-    force: bool = False
+    force: bool = False,
 ) -> tuple[bool, str, dict[str, str]]:
     """
     Initialize GitHub Actions CI/CD for the project.
@@ -477,6 +483,7 @@ def init_github_actions(
 
     # Get repository name from directory or git
     from .version import get_repository_name
+
     repo_name = get_repository_name(str(project_path))
 
     # Get MLServer source URL
@@ -488,10 +495,11 @@ def init_github_actions(
     if mlserver_yaml_path.exists():
         try:
             import yaml
+
             with open(mlserver_yaml_path) as f:
                 config = yaml.safe_load(f)
-                if config and 'deployment' in config and 'registry' in config['deployment']:
-                    registry_config = config['deployment']['registry']
+                if config and "deployment" in config and "registry" in config["deployment"]:
+                    registry_config = config["deployment"]["registry"]
         except Exception:
             # If we can't read the config, fall back to defaults
             pass
@@ -512,10 +520,10 @@ def init_github_actions(
         repo_name=repo_name,
         mlserver_source_url=mlserver_url,
         python_version=python_version,
-        registry_config=registry_config
+        registry_config=registry_config,
     )
 
-    with open(workflow_file, 'w') as f:
+    with open(workflow_file, "w") as f:
         f.write(workflow_content)
 
     files_created["workflow"] = str(workflow_file.relative_to(project_path))
@@ -636,18 +644,18 @@ git push
 - **GHCR**: Requires `packages: write` (automatically granted with `GITHUB_TOKEN`)
 - **ECR**: Requires `id-token: write` for OIDC authentication and GitHub repository variable (name configured in mlserver.yaml)
 """
-        with open(readme_file, 'w') as f:
+        with open(readme_file, "w") as f:
             f.write(readme_content)
 
         files_created["readme"] = str(readme_file.relative_to(project_path))
 
     # Build registry-specific instructions
-    registry_type = registry_config.get('type', 'ghcr') if registry_config else 'ghcr'
-    if registry_type == 'ecr':
-        ecr_info = registry_config.get('ecr', {})
-        gh_vars = registry_config.get('github_variables', {})
-        var_name = gh_vars.get('aws_role_arn_var', 'AWS_RUNNER_ROLE_ARN')
-        baked_value = gh_vars.get('aws_role_arn_value')
+    registry_type = registry_config.get("type", "ghcr") if registry_config else "ghcr"
+    if registry_type == "ecr":
+        ecr_info = registry_config.get("ecr", {})
+        gh_vars = registry_config.get("github_variables", {})
+        var_name = gh_vars.get("aws_role_arn_var", "AWS_RUNNER_ROLE_ARN")
+        baked_value = gh_vars.get("aws_role_arn_value")
 
         if baked_value:
             role_arn_instruction = f"""⚠️  Role ARN baked into workflow: {baked_value}
@@ -660,8 +668,8 @@ git push
 
         registry_instructions = f"""
 Registry: AWS ECR
-  - Region: {ecr_info.get('aws_region', 'eu-central-1')} (baked into workflow)
-  - Registry ID: {ecr_info.get('registry_id', 'N/A')} (baked into workflow)
+  - Region: {ecr_info.get("aws_region", "eu-central-1")} (baked into workflow)
+  - Registry ID: {ecr_info.get("registry_id", "N/A")} (baked into workflow)
 
 {role_arn_instruction}
 """
@@ -670,13 +678,13 @@ Registry: AWS ECR
 
     success_message = f"""✅ GitHub Actions CI/CD initialized successfully!
 
-Repository: {git_info['owner']}/{git_info['repo']}
+Repository: {git_info["owner"]}/{git_info["repo"]}
 MLServer Source: {mlserver_url}
 {registry_instructions}
 
 Created files:
-  - {files_created.get('workflow', 'N/A')}
-  - {files_created.get('readme', 'N/A')}
+  - {files_created.get("workflow", "N/A")}
+  - {files_created.get("readme", "N/A")}
 
 Next steps:
   1. Review the generated workflow file
@@ -714,16 +722,16 @@ def parse_workflow_version(workflow_path: Path) -> tuple[Optional[str], Optional
         mlserver_version = None
         workflow_version = None
 
-        for line in content.split('\n')[:10]:  # Check first 10 lines
-            if '# Generated by MLServer' in line:
+        for line in content.split("\n")[:10]:  # Check first 10 lines
+            if "# Generated by MLServer" in line:
                 # Extract: # Generated by MLServer 0.3.2.dev9
-                parts = line.split('MLServer')
+                parts = line.split("MLServer")
                 if len(parts) > 1:
                     mlserver_version = parts[1].strip()
-            elif '# Workflow version:' in line:
+            elif "# Workflow version:" in line:
                 # Extract: # Workflow version: 1.0 (with optional comment)
                 # Extract only the version number, ignore comments in parentheses
-                parts = line.split(':')
+                parts = line.split(":")
                 if len(parts) > 1:
                     version_str = parts[1].strip()
                     # Extract just the version number (before any space or parenthesis)
@@ -737,8 +745,7 @@ def parse_workflow_version(workflow_path: Path) -> tuple[Optional[str], Optional
 
 
 def validate_workflow_compatibility(
-    project_path: str = ".",
-    strict: bool = False
+    project_path: str = ".", strict: bool = False
 ) -> tuple[bool, Optional[str], dict[str, str]]:
     """
     Validate that GitHub Actions workflow is compatible with current MLServer version.
@@ -760,6 +767,7 @@ def validate_workflow_compatibility(
     # Get current MLServer version
     try:
         from mlserver import _version_info
+
         current_mlserver_version = _version_info.VERSION
         current_workflow_version = "3.0"  # Should match generate_build_and_push_workflow()
     except Exception:
@@ -822,6 +830,7 @@ def check_workflow_mlserver_url(project_path: str = ".") -> tuple[Optional[str],
         # legacy SSH URLs (git+git@github.com:owner/repo.git@ref) which
         # contain an extra '@' are not truncated.
         import re
+
         match = re.search(r'pip install "git\+(.+)@', content)
         url_in_workflow = match.group(1) if match else None
 
@@ -834,7 +843,7 @@ def check_workflow_mlserver_url(project_path: str = ".") -> tuple[Optional[str],
 
 
 def validate_workflow_comprehensive(
-    project_path: str = "."
+    project_path: str = ".",
 ) -> tuple[bool, list[str], dict[str, Any]]:
     """
     Comprehensive workflow validation checking version, URL, and configuration.
@@ -872,11 +881,9 @@ def validate_workflow_comprehensive(
         # Normalize URLs for comparison (SSH vs HTTPS form, trailing slash,
         # and .git suffix)
         url_workflow_normalized = (
-            _normalize_git_url(url_in_workflow).rstrip('/').removesuffix('.git')
+            _normalize_git_url(url_in_workflow).rstrip("/").removesuffix(".git")
         )
-        url_expected_normalized = (
-            _normalize_git_url(expected_url).rstrip('/').removesuffix('.git')
-        )
+        url_expected_normalized = _normalize_git_url(expected_url).rstrip("/").removesuffix(".git")
 
         if url_workflow_normalized != url_expected_normalized:
             is_valid = False

@@ -29,11 +29,7 @@ class TestServerConfig:
 
     def test_custom_values(self):
         config = ServerConfig(
-            title="Custom Server",
-            host="127.0.0.1",
-            port=9000,
-            log_level="DEBUG",
-            workers=4
+            title="Custom Server", host="127.0.0.1", port=9000, log_level="DEBUG", workers=4
         )
         assert config.title == "Custom Server"
         assert config.host == "127.0.0.1"
@@ -42,10 +38,7 @@ class TestServerConfig:
         assert config.workers == 4
 
     def test_cors_config(self):
-        cors_config = CORSConfig(
-            allow_origins=["http://localhost:3000"],
-            allow_credentials=True
-        )
+        cors_config = CORSConfig(allow_origins=["http://localhost:3000"], allow_credentials=True)
         config = ServerConfig(cors=cors_config)
         assert config.cors.allow_origins == ["http://localhost:3000"]
         assert config.cors.allow_credentials is True
@@ -75,7 +68,7 @@ class TestCORSConfig:
             allow_origins=["http://localhost:3000", "https://app.example.com"],
             allow_methods=["GET", "POST"],
             allow_headers=["Authorization", "Content-Type"],
-            allow_credentials=True
+            allow_credentials=True,
         )
         assert config.allow_origins == ["http://localhost:3000", "https://app.example.com"]
         assert config.allow_methods == ["GET", "POST"]
@@ -87,24 +80,15 @@ class TestPredictorConfig:
     """Test PredictorConfig validation"""
 
     def test_minimal_config(self):
-        config = PredictorConfig(
-            module="my_module",
-            class_name="MyPredictor"
-        )
+        config = PredictorConfig(module="my_module", class_name="MyPredictor")
         assert config.module == "my_module"
         assert config.class_name == "MyPredictor"
         assert config.init_kwargs == {}
 
     def test_with_init_kwargs(self):
-        init_kwargs = {
-            "model_path": "/path/to/model.pkl",
-            "batch_size": 32,
-            "device": "cuda"
-        }
+        init_kwargs = {"model_path": "/path/to/model.pkl", "batch_size": 32, "device": "cuda"}
         config = PredictorConfig(
-            module="my_module",
-            class_name="MyPredictor",
-            init_kwargs=init_kwargs
+            module="my_module", class_name="MyPredictor", init_kwargs=init_kwargs
         )
         assert config.init_kwargs == init_kwargs
 
@@ -139,9 +123,9 @@ class TestApiConfig:
             endpoints={
                 "predict": True,
                 # Note: batch_predict was removed - /predict handles both single and batch
-                "predict_proba": False
+                "predict_proba": False,
             },
-            thread_safe_predict=True
+            thread_safe_predict=True,
         )
         assert config.version == "v2"
         assert config.adapter == "ndarray"
@@ -168,7 +152,7 @@ class TestObservabilityConfig:
             metrics_endpoint="/custom-metrics",
             structured_logging=False,
             log_payloads=True,
-            correlation_ids=False
+            correlation_ids=False,
         )
         assert config.metrics is False
         assert config.metrics_endpoint == "/custom-metrics"
@@ -186,12 +170,9 @@ class TestAppConfig:
 
     def test_minimal_config(self):
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test_module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test_module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig()
+            api=ApiConfig(),
         )
         # Should use defaults for server, observability
         assert isinstance(config.server, ServerConfig)
@@ -202,25 +183,17 @@ class TestAppConfig:
     def test_full_config(self):
         server_config = ServerConfig(title="Test Server", port=9000)
         predictor_config = PredictorConfig(
-            module="test_module",
-            class_name="TestPredictor",
-            init_kwargs={"param": "value"}
+            module="test_module", class_name="TestPredictor", init_kwargs={"param": "value"}
         )
-        api_config = ApiConfig(
-            adapter="ndarray",
-            feature_order=["f1", "f2"]
-        )
-        observability_config = ObservabilityConfig(
-            metrics=False,
-            structured_logging=False
-        )
+        api_config = ApiConfig(adapter="ndarray", feature_order=["f1", "f2"])
+        observability_config = ObservabilityConfig(metrics=False, structured_logging=False)
 
         config = AppConfig(
             server=server_config,
             predictor=predictor_config,
             classifier={"name": "test-classifier", "version": "1.0.0"},
             api=api_config,
-            observability=observability_config
+            observability=observability_config,
         )
 
         assert config.server.title == "Test Server"
@@ -235,12 +208,7 @@ class TestAppConfig:
 
     def test_classifier_defaults_when_missing(self):
         """Test that classifier gets smart defaults when not provided."""
-        config = AppConfig(
-            predictor=PredictorConfig(
-                module="test",
-                class_name="Test"
-            )
-        )
+        config = AppConfig(predictor=PredictorConfig(module="test", class_name="Test"))
         # Should auto-generate classifier metadata
         assert config.classifier is not None
         assert "name" in config.classifier
@@ -249,12 +217,9 @@ class TestAppConfig:
     def test_valid_adapters(self):
         for adapter in ["records", "ndarray", "auto"]:
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
+                predictor=PredictorConfig(module="test", class_name="Test"),
                 classifier={"name": "test-classifier", "version": "1.0.0"},
-                api=ApiConfig(adapter=adapter)
+                api=ApiConfig(adapter=adapter),
             )
             assert config.api.adapter == adapter
 
@@ -264,30 +229,18 @@ class TestConfigFromDict:
 
     def test_from_dict_basic(self):
         config_dict = {
-            "server": {
-                "title": "Test API",
-                "port": 8080
-            },
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "Predictor"
-            },
-            "classifier": {
-                "name": "test-classifier",
-                "version": "1.0.0"
-            },
+            "server": {"title": "Test API", "port": 8080},
+            "predictor": {"module": "my_predictor", "class_name": "Predictor"},
+            "classifier": {"name": "test-classifier", "version": "1.0.0"},
             "api": {
                 "adapter": "records",
                 "endpoints": {
                     "predict": True,
                     # Note: batch_predict was removed - /predict handles both single and batch
-                    "predict_proba": True
-                }
+                    "predict_proba": True,
+                },
             },
-            "observability": {
-                "metrics": True,
-                "structured_logging": False
-            }
+            "observability": {"metrics": True, "structured_logging": False},
         }
 
         config = AppConfig.model_validate(config_dict)
@@ -301,15 +254,9 @@ class TestConfigFromDict:
 
     def test_from_dict_with_defaults(self):
         config_dict = {
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "Predictor"
-            },
-            "classifier": {
-                "name": "test-classifier",
-                "version": "1.0.0"
-            },
-            "api": {}
+            "predictor": {"module": "my_predictor", "class_name": "Predictor"},
+            "classifier": {"name": "test-classifier", "version": "1.0.0"},
+            "api": {},
         }
 
         config = AppConfig.model_validate(config_dict)
@@ -324,15 +271,9 @@ class TestConfigFromDict:
             "server": {
                 "port": "invalid"  # Should be int
             },
-            "predictor": {
-                "module": "test",
-                "class_name": "Test"
-            },
-            "classifier": {
-                "name": "test-classifier",
-                "version": "1.0.0"
-            },
-            "api": {}
+            "predictor": {"module": "test", "class_name": "Test"},
+            "classifier": {"name": "test-classifier", "version": "1.0.0"},
+            "api": {},
         }
 
         with pytest.raises(ValidationError) as exc_info:
@@ -342,20 +283,11 @@ class TestConfigFromDict:
     def test_cors_from_dict(self):
         config_dict = {
             "server": {
-                "cors": {
-                    "allow_origins": ["http://localhost:3000"],
-                    "allow_credentials": True
-                }
+                "cors": {"allow_origins": ["http://localhost:3000"], "allow_credentials": True}
             },
-            "predictor": {
-                "module": "test",
-                "class_name": "Test"
-            },
-            "classifier": {
-                "name": "test-classifier",
-                "version": "1.0.0"
-            },
-            "api": {}
+            "predictor": {"module": "test", "class_name": "Test"},
+            "classifier": {"name": "test-classifier", "version": "1.0.0"},
+            "api": {},
         }
 
         config = AppConfig.model_validate(config_dict)
@@ -368,7 +300,8 @@ class TestResponseFormatDeprecations:
 
     def _deprecation_records(self, caplog):
         return [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno == logging.WARNING and "DeprecationWarning" in r.getMessage()
         ]
 
@@ -404,10 +337,12 @@ class TestResponseFormatDeprecations:
 
     def test_warning_via_full_app_config_load(self, caplog):
         with caplog.at_level(logging.WARNING, logger="mlserver.config"):
-            AppConfig.model_validate({
-                "predictor": {"module": "m", "class_name": "C"},
-                "api": {"response_format": "custom"},
-            })
+            AppConfig.model_validate(
+                {
+                    "predictor": {"module": "m", "class_name": "C"},
+                    "api": {"response_format": "custom"},
+                }
+            )
         assert len(self._deprecation_records(caplog)) == 1
 
 
@@ -443,6 +378,7 @@ class TestDefaultsModule:
         import inspect
 
         import mlserver.config as config_module
+
         source = inspect.getsource(config_module)
         assert "get_settings" not in source
         assert "from .settings" not in source
@@ -455,8 +391,7 @@ class TestGlobalConfigYamlWarning:
 
     def _records(self, caplog):
         return [
-            r for r in caplog.records
-            if "global_config.yaml is no longer read" in r.getMessage()
+            r for r in caplog.records if "global_config.yaml is no longer read" in r.getMessage()
         ]
 
     def test_warns_once_when_global_config_present(self, tmp_path, monkeypatch, caplog):

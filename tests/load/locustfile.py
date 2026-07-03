@@ -42,46 +42,50 @@ class MLServerUser(HttpUser):
         payloads = []
 
         # Small batch
-        payloads.append({
-            "payload": {
-                "records": [
-                    {
-                        "pclass": random.choice([1, 2, 3]),
-                        "sex": random.choice(["male", "female"]),
-                        "age": random.uniform(1, 80),
-                        "sibsp": random.randint(0, 3),
-                        "parch": random.randint(0, 2),
-                        "fare": random.uniform(5, 500),
-                        "embarked": random.choice(["S", "C", "Q"]),
-                        "who": random.choice(["man", "woman", "child"]),
-                        "adult_male": random.choice([True, False]),
-                        "alone": random.choice([True, False])
-                    }
-                    for _ in range(random.randint(1, 3))
-                ]
+        payloads.append(
+            {
+                "payload": {
+                    "records": [
+                        {
+                            "pclass": random.choice([1, 2, 3]),
+                            "sex": random.choice(["male", "female"]),
+                            "age": random.uniform(1, 80),
+                            "sibsp": random.randint(0, 3),
+                            "parch": random.randint(0, 2),
+                            "fare": random.uniform(5, 500),
+                            "embarked": random.choice(["S", "C", "Q"]),
+                            "who": random.choice(["man", "woman", "child"]),
+                            "adult_male": random.choice([True, False]),
+                            "alone": random.choice([True, False]),
+                        }
+                        for _ in range(random.randint(1, 3))
+                    ]
+                }
             }
-        })
+        )
 
         # Medium batch
-        payloads.append({
-            "payload": {
-                "records": [
-                    {
-                        "pclass": random.choice([1, 2, 3]),
-                        "sex": random.choice(["male", "female"]),
-                        "age": random.uniform(1, 80),
-                        "sibsp": random.randint(0, 3),
-                        "parch": random.randint(0, 2),
-                        "fare": random.uniform(5, 500),
-                        "embarked": random.choice(["S", "C", "Q"]),
-                        "who": random.choice(["man", "woman", "child"]),
-                        "adult_male": random.choice([True, False]),
-                        "alone": random.choice([True, False])
-                    }
-                    for _ in range(random.randint(5, 15))
-                ]
+        payloads.append(
+            {
+                "payload": {
+                    "records": [
+                        {
+                            "pclass": random.choice([1, 2, 3]),
+                            "sex": random.choice(["male", "female"]),
+                            "age": random.uniform(1, 80),
+                            "sibsp": random.randint(0, 3),
+                            "parch": random.randint(0, 2),
+                            "fare": random.uniform(5, 500),
+                            "embarked": random.choice(["S", "C", "Q"]),
+                            "who": random.choice(["man", "woman", "child"]),
+                            "adult_male": random.choice([True, False]),
+                            "alone": random.choice([True, False]),
+                        }
+                        for _ in range(random.randint(5, 15))
+                    ]
+                }
             }
-        })
+        )
 
         return payloads
 
@@ -90,25 +94,27 @@ class MLServerUser(HttpUser):
         payloads = []
 
         # Small array
-        payloads.append({
-            "payload": {
-                "ndarray": [
-                    [
-                        random.choice([1, 2, 3]),  # pclass
-                        random.choice(["male", "female"]),  # sex
-                        random.uniform(1, 80),  # age
-                        random.randint(0, 3),  # sibsp
-                        random.randint(0, 2),  # parch
-                        random.uniform(5, 500),  # fare
-                        random.choice(["S", "C", "Q"]),  # embarked
-                        random.choice(["man", "woman", "child"]),  # who
-                        random.choice([True, False]),  # adult_male
-                        random.choice([True, False])  # alone
+        payloads.append(
+            {
+                "payload": {
+                    "ndarray": [
+                        [
+                            random.choice([1, 2, 3]),  # pclass
+                            random.choice(["male", "female"]),  # sex
+                            random.uniform(1, 80),  # age
+                            random.randint(0, 3),  # sibsp
+                            random.randint(0, 2),  # parch
+                            random.uniform(5, 500),  # fare
+                            random.choice(["S", "C", "Q"]),  # embarked
+                            random.choice(["man", "woman", "child"]),  # who
+                            random.choice([True, False]),  # adult_male
+                            random.choice([True, False]),  # alone
+                        ]
+                        for _ in range(random.randint(1, 5))
                     ]
-                    for _ in range(random.randint(1, 5))
-                ]
+                }
             }
-        })
+        )
 
         return payloads
 
@@ -116,22 +122,24 @@ class MLServerUser(HttpUser):
         """Generate single record payloads"""
         payloads = []
 
-        payloads.append({
-            "payload": {
-                "features": {
-                    "pclass": random.choice([1, 2, 3]),
-                    "sex": random.choice(["male", "female"]),
-                    "age": random.uniform(1, 80),
-                    "sibsp": random.randint(0, 3),
-                    "parch": random.randint(0, 2),
-                    "fare": random.uniform(5, 500),
-                    "embarked": random.choice(["S", "C", "Q"]),
-                    "who": random.choice(["man", "woman", "child"]),
-                    "adult_male": random.choice([True, False]),
-                    "alone": random.choice([True, False])
+        payloads.append(
+            {
+                "payload": {
+                    "features": {
+                        "pclass": random.choice([1, 2, 3]),
+                        "sex": random.choice(["male", "female"]),
+                        "age": random.uniform(1, 80),
+                        "sibsp": random.randint(0, 3),
+                        "parch": random.randint(0, 2),
+                        "fare": random.uniform(5, 500),
+                        "embarked": random.choice(["S", "C", "Q"]),
+                        "who": random.choice(["man", "woman", "child"]),
+                        "adult_male": random.choice([True, False]),
+                        "alone": random.choice([True, False]),
+                    }
                 }
             }
-        })
+        )
 
         return payloads
 
@@ -140,11 +148,7 @@ class MLServerUser(HttpUser):
         """Test predict endpoint with records format (most common)"""
         payload = random.choice(self.records_payloads)
 
-        with self.client.post(
-            "/predict",
-            json=payload,
-            catch_response=True
-        ) as response:
+        with self.client.post("/predict", json=payload, catch_response=True) as response:
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -162,11 +166,7 @@ class MLServerUser(HttpUser):
         """Test predict endpoint with ndarray format"""
         payload = random.choice(self.ndarray_payloads)
 
-        with self.client.post(
-            "/predict",
-            json=payload,
-            catch_response=True
-        ) as response:
+        with self.client.post("/predict", json=payload, catch_response=True) as response:
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -184,11 +184,7 @@ class MLServerUser(HttpUser):
         """Test predict endpoint with single record"""
         payload = random.choice(self.single_payloads)
 
-        with self.client.post(
-            "/predict",
-            json=payload,
-            catch_response=True
-        ) as response:
+        with self.client.post("/predict", json=payload, catch_response=True) as response:
             if response.status_code == 200:
                 response.success()
             else:
@@ -199,11 +195,7 @@ class MLServerUser(HttpUser):
         """Test predict_proba endpoint"""
         payload = random.choice(self.records_payloads)
 
-        with self.client.post(
-            "/predict_proba",
-            json=payload,
-            catch_response=True
-        ) as response:
+        with self.client.post("/predict_proba", json=payload, catch_response=True) as response:
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -234,18 +226,14 @@ class MLServerUser(HttpUser):
                         "embarked": random.choice(["S", "C", "Q"]),
                         "who": random.choice(["man", "woman", "child"]),
                         "adult_male": random.choice([True, False]),
-                        "alone": random.choice([True, False])
+                        "alone": random.choice([True, False]),
                     }
                     for _ in range(random.randint(10, 50))
                 ]
             }
         }
 
-        with self.client.post(
-            "/predict",
-            json=batch_payload,
-            catch_response=True
-        ) as response:
+        with self.client.post("/predict", json=batch_payload, catch_response=True) as response:
             if response.status_code == 200:
                 try:
                     data = response.json()
@@ -336,7 +324,7 @@ class HighLoadUser(HttpUser):
                         "embarked": "S",
                         "who": "man",
                         "adult_male": True,
-                        "alone": True
+                        "alone": True,
                     }
                 ]
             }
@@ -377,11 +365,13 @@ class MetricsObserver(HttpUser):
 # Example custom user classes for different scenarios
 class LightUser(MLServerUser):
     """Light usage user"""
+
     wait_time = between(5, 15)
 
 
 class HeavyUser(MLServerUser):
     """Heavy usage user"""
+
     wait_time = between(0.5, 2)
 
     @task(20)  # Much higher weight
@@ -392,7 +382,9 @@ class HeavyUser(MLServerUser):
 
 if __name__ == "__main__":
     # This won't run when used with locust command, but useful for testing
-    print("Locust file loaded. Use 'locust -f locustfile.py --host=http://localhost:8000' to start testing.")
+    print(
+        "Locust file loaded. Use 'locust -f locustfile.py --host=http://localhost:8000' to start testing."
+    )
     print("\nAvailable user types:")
     print("- MLServerUser: Balanced testing of all endpoints")
     print("- HighLoadUser: High-intensity stress testing")

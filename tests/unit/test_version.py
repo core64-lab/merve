@@ -1,4 +1,5 @@
 """Unit tests for version module."""
+
 import subprocess
 import tempfile
 from pathlib import Path
@@ -102,7 +103,7 @@ class TestModelVersion:
         mv = ModelVersion(
             version="2.0.0",
             trained_at="2024-01-01T00:00:00",
-            metrics={"accuracy": 0.95, "f1": 0.92}
+            metrics={"accuracy": 0.95, "f1": 0.92},
         )
         assert mv.metrics["accuracy"] == 0.95
 
@@ -135,7 +136,7 @@ class TestClassifierMetadata:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test-classifier", version="1.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
         assert metadata.classifier.name == "test-classifier"
 
@@ -144,7 +145,7 @@ class TestClassifierMetadata:
         data = {
             "classifier": {"name": "my-clf", "version": "2.0.0"},
             "model": {"version": "1.5.0"},
-            "api": {"version": "v1"}
+            "api": {"version": "v1"},
         }
         metadata = ClassifierMetadata.model_validate(data)
         assert metadata.classifier.version == "2.0.0"
@@ -161,15 +162,15 @@ class TestGetGitInfo:
 
     def test_git_info_structure(self):
         """Test git info structure when mocked."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.side_effect = [
                 b"abc123def456\n",  # commit
                 b"main\n",  # branch
                 b"",  # status (not dirty)
-                subprocess.CalledProcessError(1, 'git')  # no tag
+                subprocess.CalledProcessError(1, "git"),  # no tag
             ]
-            with patch('os.getcwd', return_value="/test"):
-                with patch('os.chdir'):
+            with patch("os.getcwd", return_value="/test"):
+                with patch("os.chdir"):
                     result = get_git_info("/some/path")
                     # May return None if the mock doesn't work correctly
                     assert result is None or isinstance(result, GitInfo)
@@ -180,22 +181,22 @@ class TestGetRepositoryName:
 
     def test_from_https_url(self):
         """Test extraction from HTTPS URL."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.return_value = b"https://github.com/org/my-repo.git\n"
             result = get_repository_name(".")
             assert result == "my-repo"
 
     def test_from_ssh_url(self):
         """Test extraction from SSH URL."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.return_value = b"git@github.com:org/another-repo.git\n"
             result = get_repository_name(".")
             assert result == "another-repo"
 
     def test_fallback_to_directory(self):
         """Test fallback to directory name."""
-        with patch('subprocess.check_output') as mock:
-            mock.side_effect = subprocess.CalledProcessError(1, 'git')
+        with patch("subprocess.check_output") as mock:
+            mock.side_effect = subprocess.CalledProcessError(1, "git")
             with tempfile.TemporaryDirectory() as tmpdir:
                 project = Path(tmpdir) / "MyProject"
                 project.mkdir()
@@ -212,10 +213,10 @@ class TestLoadClassifierMetadata:
             config = {
                 "classifier": {"name": "test-clf", "version": "1.0.0"},
                 "model": {},
-                "api": {"version": "v1"}
+                "api": {"version": "v1"},
             }
             config_file = Path(tmpdir) / "mlserver.yaml"
-            with open(config_file, 'w') as f:
+            with open(config_file, "w") as f:
                 yaml.dump(config, f)
 
             metadata = load_classifier_metadata(tmpdir)
@@ -243,7 +244,7 @@ class TestLoadClassifierMetadata:
         with tempfile.TemporaryDirectory() as tmpdir:
             config = {"model": {}, "api": {}}
             config_file = Path(tmpdir) / "mlserver.yaml"
-            with open(config_file, 'w') as f:
+            with open(config_file, "w") as f:
                 yaml.dump(config, f)
 
             with pytest.raises(ConfigurationError) as exc_info:
@@ -259,7 +260,7 @@ class TestSaveClassifierMetadata:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="save-test", version="1.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -282,10 +283,10 @@ class TestGenerateContainerTags:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test", version="1.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
 
-        with patch('mlserver.version.get_repository_name') as mock:
+        with patch("mlserver.version.get_repository_name") as mock:
             mock.return_value = "my-repo"
             tags = generate_container_tags(metadata)
 
@@ -297,11 +298,11 @@ class TestGenerateContainerTags:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test", version="2.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
         git_info = GitInfo(tag="v2.0.0", commit="abc1234def", branch="main", is_dirty=False)
 
-        with patch('mlserver.version.get_repository_name') as mock:
+        with patch("mlserver.version.get_repository_name") as mock:
             mock.return_value = "repo"
             tags = generate_container_tags(metadata, git_info)
 
@@ -312,10 +313,10 @@ class TestGenerateContainerTags:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="classifier1", version="1.5.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
 
-        with patch('mlserver.version.get_repository_name') as mock:
+        with patch("mlserver.version.get_repository_name") as mock:
             mock.return_value = "ml-classifiers"
             tags = generate_container_tags(metadata, classifier_name="sentiment")
 
@@ -336,12 +337,14 @@ class TestValidateVersionConsistency:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test", version="1.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('mlserver.version.get_git_info') as mock:
-                mock.return_value = GitInfo(tag="v1.0.0", commit="abc", branch="main", is_dirty=False)
+            with patch("mlserver.version.get_git_info") as mock:
+                mock.return_value = GitInfo(
+                    tag="v1.0.0", commit="abc", branch="main", is_dirty=False
+                )
                 issues = validate_version_consistency(metadata, tmpdir)
                 assert len(issues) == 0
 
@@ -350,31 +353,36 @@ class TestValidateVersionConsistency:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test", version="1.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('mlserver.version.get_git_info') as mock:
-                mock.return_value = GitInfo(tag="v2.0.0", commit="abc", branch="main", is_dirty=False)
+            with patch("mlserver.version.get_git_info") as mock:
+                mock.return_value = GitInfo(
+                    tag="v2.0.0", commit="abc", branch="main", is_dirty=False
+                )
                 issues = validate_version_consistency(metadata, tmpdir)
                 assert "git_tag" not in issues
                 assert issues == {}
 
-    @pytest.mark.parametrize("tag", [
-        "test-v9.9.9-mlserver-abc1234",  # legacy tag, different version
-        "test/v9.9.9",                   # canonical tag, different version
-        "test-v9.9.9",                   # bare legacy tag, different version
-    ])
+    @pytest.mark.parametrize(
+        "tag",
+        [
+            "test-v9.9.9-mlserver-abc1234",  # legacy tag, different version
+            "test/v9.9.9",  # canonical tag, different version
+            "test-v9.9.9",  # bare legacy tag, different version
+        ],
+    )
     def test_classifier_tag_version_difference_not_flagged(self, tag):
         """Classifier tags with a different version stay informational (D3)."""
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test", version="1.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('mlserver.version.get_git_info') as mock:
+            with patch("mlserver.version.get_git_info") as mock:
                 mock.return_value = GitInfo(tag=tag, commit="abc", branch="main", is_dirty=False)
                 issues = validate_version_consistency(metadata, tmpdir)
                 assert issues == {}
@@ -384,11 +392,11 @@ class TestValidateVersionConsistency:
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test", version="1.0.0"),
             model=ModelVersion(),
-            api=ApiVersion()
+            api=ApiVersion(),
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('mlserver.version.get_git_info') as mock:
+            with patch("mlserver.version.get_git_info") as mock:
                 mock.return_value = GitInfo(tag=None, commit="abc", branch="main", is_dirty=True)
                 issues = validate_version_consistency(metadata, tmpdir)
                 assert "git_dirty" in issues
@@ -409,13 +417,13 @@ class TestGetVersionInfo:
             config = {
                 "predictor": {"module": "mod", "class_name": "Cls"},
                 "classifier": {"name": "test-clf", "version": "1.0.0"},
-                "api": {"version": "v1", "adapter": "records"}
+                "api": {"version": "v1", "adapter": "records"},
             }
             config_file = Path(tmpdir) / "mlserver.yaml"
-            with open(config_file, 'w') as f:
+            with open(config_file, "w") as f:
                 yaml.dump(config, f)
 
-            with patch('mlserver.version.get_git_info') as mock:
+            with patch("mlserver.version.get_git_info") as mock:
                 mock.return_value = None
                 result = get_version_info(tmpdir)
 

@@ -79,8 +79,13 @@ class MockPredictor:
 
 # Mock predictor with preprocessing
 class MockPredictorWithPreprocessing:
-    def __init__(self, model_path: str = None, preprocessor_path: str = None,
-                 feature_order: list[str] = None, **kwargs):
+    def __init__(
+        self,
+        model_path: str = None,
+        preprocessor_path: str = None,
+        feature_order: list[str] = None,
+        **kwargs,
+    ):
         self.model_path = model_path
         self.preprocessor_path = preprocessor_path
         self.feature_order = feature_order or ["f1", "f2", "f3", "f4", "f5"]
@@ -100,7 +105,7 @@ class MockPredictorWithPreprocessing:
             X = np.asarray(X)
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        return pd.DataFrame(X, columns=self.feature_order[:X.shape[1]])
+        return pd.DataFrame(X, columns=self.feature_order[: X.shape[1]])
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         df = self._as_dataframe(X)
@@ -128,6 +133,7 @@ def reset_metrics_registry():
     """Reset prometheus metrics registry before each test to avoid conflicts"""
     # Clear the global metrics collector
     from mlserver import metrics
+
     metrics._metrics_collector = None
 
     # Clear all collectors from the default registry
@@ -175,7 +181,7 @@ def mock_model_artifacts(temp_dir):
     return {
         "model_path": model_path,
         "preprocessor_path": preprocessor_path,
-        "feature_order_path": feature_order_path
+        "feature_order_path": feature_order_path,
     }
 
 
@@ -183,20 +189,14 @@ def mock_model_artifacts(temp_dir):
 def basic_config():
     """Basic test configuration"""
     return AppConfig(
-        server=ServerConfig(
-            title="Test ML Server",
-            host="127.0.0.1",
-            port=8888,
-            workers=1
-        ),
+        server=ServerConfig(title="Test ML Server", host="127.0.0.1", port=8888, workers=1),
         predictor=PredictorConfig(
-            module="tests.fixtures.mock_predictor",
-            class_name="MockPredictor"
+            module="tests.fixtures.mock_predictor", class_name="MockPredictor"
         ),
         classifier={
             "name": "test-classifier",
             "version": "1.0.0",
-            "description": "Test classifier for unit tests"
+            "description": "Test classifier for unit tests",
         },
         api=ApiConfig(
             version="v1",
@@ -204,16 +204,12 @@ def basic_config():
             feature_order=["f1", "f2", "f3", "f4", "f5"],
             thread_safe_predict=False,
             max_concurrent_predictions=10,  # Allow concurrent requests for testing
-            endpoints={
-                "predict": True,
-                "batch_predict": True,
-                "predict_proba": True
-            }
+            endpoints={"predict": True, "batch_predict": True, "predict_proba": True},
         ),
         observability=ObservabilityConfig(
             metrics=True,
-            structured_logging=False  # Disable for cleaner test output
-        )
+            structured_logging=False,  # Disable for cleaner test output
+        ),
     )
 
 
@@ -222,22 +218,17 @@ def config_with_preprocessing():
     """Configuration with preprocessing"""
     return AppConfig(
         server=ServerConfig(
-            title="Test ML Server with Preprocessing",
-            host="127.0.0.1",
-            port=8889,
-            workers=1
+            title="Test ML Server with Preprocessing", host="127.0.0.1", port=8889, workers=1
         ),
         predictor=PredictorConfig(
             module="tests.fixtures.mock_predictor",
             class_name="MockPredictorWithPreprocessing",
-            init_kwargs={
-                "feature_order": ["f1", "f2", "f3", "f4", "f5"]
-            }
+            init_kwargs={"feature_order": ["f1", "f2", "f3", "f4", "f5"]},
         ),
         classifier={
             "name": "test-classifier-preprocessing",
             "version": "1.0.0",
-            "description": "Test classifier with preprocessing"
+            "description": "Test classifier with preprocessing",
         },
         api=ApiConfig(
             version="v1",
@@ -245,16 +236,9 @@ def config_with_preprocessing():
             feature_order=["f1", "f2", "f3", "f4", "f5"],
             thread_safe_predict=False,
             max_concurrent_predictions=10,  # Allow concurrent requests for testing
-            endpoints={
-                "predict": True,
-                "batch_predict": True,
-                "predict_proba": True
-            }
+            endpoints={"predict": True, "batch_predict": True, "predict_proba": True},
         ),
-        observability=ObservabilityConfig(
-            metrics=True,
-            structured_logging=False
-        )
+        observability=ObservabilityConfig(metrics=True, structured_logging=False),
     )
 
 
@@ -264,30 +248,22 @@ def observability_config():
     return AppConfig(
         server=ServerConfig(title="Test ML Server - Observability"),
         predictor=PredictorConfig(
-            module="tests.fixtures.mock_predictor",
-            class_name="MockPredictor"
+            module="tests.fixtures.mock_predictor", class_name="MockPredictor"
         ),
         classifier={
             "name": "test-classifier-observability",
             "version": "1.0.0",
-            "description": "Test classifier for observability"
+            "description": "Test classifier for observability",
         },
         api=ApiConfig(
             version="v1",
             adapter="records",
             thread_safe_predict=False,
-            endpoints={
-                "predict": True,
-                "batch_predict": True,
-                "predict_proba": True
-            }
+            endpoints={"predict": True, "batch_predict": True, "predict_proba": True},
         ),
         observability=ObservabilityConfig(
-            metrics=True,
-            structured_logging=True,
-            correlation_ids=True,
-            log_payloads=True
-        )
+            metrics=True, structured_logging=True, correlation_ids=True, log_payloads=True
+        ),
     )
 
 
@@ -382,14 +358,18 @@ async def async_client(test_app):
 @pytest.fixture
 async def async_client_preprocessing(test_app_with_preprocessing):
     """Async HTTP client for preprocessing tests"""
-    async with AsyncClient(transport=ASGITransport(app=test_app_with_preprocessing), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=test_app_with_preprocessing), base_url="http://test"
+    ) as client:
         yield client
 
 
 @pytest.fixture
 async def observability_client(observability_app):
     """Async HTTP client for observability tests"""
-    async with AsyncClient(transport=ASGITransport(app=observability_app), base_url="http://test") as client:
+    async with AsyncClient(
+        transport=ASGITransport(app=observability_app), base_url="http://test"
+    ) as client:
         yield client
 
 
@@ -400,7 +380,7 @@ def sample_records_payload():
         "payload": {
             "records": [
                 {"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0},
-                {"f1": 1.5, "f2": 2.5, "f3": 3.5, "f4": 4.5, "f5": 5.5}
+                {"f1": 1.5, "f2": 2.5, "f3": 3.5, "f4": 4.5, "f5": 5.5},
             ]
         }
     }
@@ -409,18 +389,10 @@ def sample_records_payload():
 @pytest.fixture
 def sample_ndarray_payload():
     """Sample ndarray payload for testing"""
-    return {
-        "payload": {
-            "ndarray": [[1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 4.5, 5.5]]
-        }
-    }
+    return {"payload": {"ndarray": [[1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 4.5, 5.5]]}}
 
 
 @pytest.fixture
 def sample_single_record_payload():
     """Sample single record payload for testing"""
-    return {
-        "payload": {
-            "features": {"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0}
-        }
-    }
+    return {"payload": {"features": {"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0}}}

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -106,11 +105,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         # Log request start
         if self.config.observability.structured_logging:
-            log_request(
-                method=request.method,
-                path=request.url.path,
-                correlation_id=correlation_id
-            )
+            log_request(method=request.method, path=request.url.path, correlation_id=correlation_id)
 
         try:
             response = await call_next(request)
@@ -123,10 +118,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
             # Log response
             if self.config.observability.structured_logging:
-                log_response(
-                    status_code=response.status_code,
-                    duration_ms=duration * 1000
-                )
+                log_response(status_code=response.status_code, duration_ms=duration * 1000)
 
             return response
 
@@ -137,11 +129,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                 metrics.dec_active_requests()
 
             if self.config.observability.structured_logging:
-                log_response(
-                    status_code=500,
-                    duration_ms=duration * 1000,
-                    error=str(e)
-                )
+                log_response(status_code=500, duration_ms=duration * 1000, error=str(e))
             raise
 
 
@@ -221,12 +209,11 @@ def _prepare_input_data(payload: dict, config: AppConfig):
         if logger.isEnabledFor(logging.DEBUG):
             raise HTTPException(
                 status_code=400,
-                detail=f"Input parsing failed: {str(e)}. Check server logs for full traceback."
+                detail=f"Input parsing failed: {str(e)}. Check server logs for full traceback.",
             ) from e
         else:
             raise HTTPException(
-                status_code=400,
-                detail="Input parsing failed. Please check your input format."
+                status_code=400, detail="Input parsing failed. Please check your input format."
             ) from e
 
 
@@ -279,14 +266,18 @@ def _validate_input_features(payload: dict, feature_order: list, logger) -> None
             suggestion += f" ... and {len(feature_order) - 5} more"
 
         raise HTTPException(
-            status_code=400,
-            detail=f"Feature validation failed: {error_msg}. {suggestion}"
+            status_code=400, detail=f"Feature validation failed: {error_msg}. {suggestion}"
         )
 
 
-def _track_prediction_metrics(endpoint_path: str, duration_seconds: float,
-                             input_samples: int, output_samples: int,
-                             model_name: str, config: AppConfig) -> None:
+def _track_prediction_metrics(
+    endpoint_path: str,
+    duration_seconds: float,
+    input_samples: int,
+    output_samples: int,
+    model_name: str,
+    config: AppConfig,
+) -> None:
     """Track prediction metrics and logging.
 
     Args:
@@ -305,7 +296,7 @@ def _track_prediction_metrics(endpoint_path: str, duration_seconds: float,
                 endpoint_path,
                 duration_seconds,
                 input_samples=input_samples,
-                output_samples=output_samples
+                output_samples=output_samples,
             )
 
     # Log prediction
@@ -314,7 +305,7 @@ def _track_prediction_metrics(endpoint_path: str, duration_seconds: float,
             model_name=model_name,
             duration_ms=duration_seconds * 1000,
             sample_count=output_samples,
-            batch_size=input_samples
+            batch_size=input_samples,
         )
 
 
@@ -340,17 +331,25 @@ def _log_payload(endpoint_path: str, request_payload: Any, response: Any) -> Non
     else:
         response_data = _to_jsonable(response)
 
-    logging.getLogger("mlserver.payload").info("Prediction payload", extra={
-        "event": "payload",
-        "endpoint": endpoint_path,
-        "payload": _to_jsonable(request_payload),
-        "response": response_data,
-    })
+    logging.getLogger("mlserver.payload").info(
+        "Prediction payload",
+        extra={
+            "event": "payload",
+            "endpoint": endpoint_path,
+            "payload": _to_jsonable(request_payload),
+            "response": response_data,
+        },
+    )
 
 
-def _create_predict_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
-                           prediction_limiter: Optional[PredictionSemaphore] = None):
+def _create_predict_handler(
+    app: FastAPI,
+    config: AppConfig,
+    endpoint_path: str,
+    prediction_limiter: Optional[PredictionSemaphore] = None,
+):
     """Create a predict endpoint handler with concurrency control."""
+
     def predict(body: Optional[dict[str, Any]] = None):
         payload = _resolve_request_payload(body if body is not None else {})
         # Use prediction limiter if configured
@@ -361,6 +360,7 @@ def _create_predict_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
                 return _execute_prediction(app, config, endpoint_path, payload)
         else:
             return _execute_prediction(app, config, endpoint_path, payload)
+
     return predict
 
 
@@ -381,11 +381,11 @@ def _get_classifier_metadata(
 
     # Get config_file from environment if not provided (for containerized deployments)
     if not config_file_name:
-        config_file_name = os.environ.get('MLSERVER_CONFIG_FILE')
+        config_file_name = os.environ.get("MLSERVER_CONFIG_FILE")
 
     metadata = ClassifierMetadataResponse(
         project=git_data.get("repository") or get_project_name(config.project_path or "."),
-        classifier=config.classifier.get('name', 'unknown'),
+        classifier=config.classifier.get("name", "unknown"),
         predictor_class=predictor_class_name,
         predictor_module=config.predictor.module if config.predictor else None,
         config_file=config_file_name,
@@ -394,7 +394,7 @@ def _get_classifier_metadata(
         deployed_at=None,  # Will be set at runtime
         mlserver_version=mlserver_info.get("package_version", "unknown"),
         mlserver_api_commit=mlserver_info.get("api_commit"),
-        mlserver_api_tag=mlserver_info.get("api_tag")
+        mlserver_api_tag=mlserver_info.get("api_tag"),
     )
 
     # Note: deployed_at will be added at runtime from app.state.deployed_at
@@ -420,25 +420,26 @@ def _format_response(
     response_format = config.api.response_format
 
     # Passthrough format - return exactly what predictor returned
-    if response_format == 'passthrough':
+    if response_format == "passthrough":
         return predictions
 
     # Convert to JSON-serializable format
     json_safe = _to_jsonable(predictions)
 
     # Custom format - flexible structure with result field
-    if response_format == 'custom':
+    if response_format == "custom":
         # For dictionaries, include the whole structure
         if isinstance(json_safe, dict):
             # Extract predictions if configured or if the dict contains a 'predictions' key
             predictions_list = None
             if config.api.extract_values:
                 predictions_list = list(json_safe.values())
-            elif 'predictions' in json_safe:
+            elif "predictions" in json_safe:
                 # Use the predictions field if it exists in the response
                 predictions_list = (
-                    json_safe['predictions'] if isinstance(json_safe['predictions'], list)
-                    else [json_safe['predictions']]
+                    json_safe["predictions"]
+                    if isinstance(json_safe["predictions"], list)
+                    else [json_safe["predictions"]]
                 )
 
             response = CustomPredictResponse(
@@ -446,7 +447,7 @@ def _format_response(
                 predictions=predictions_list,
                 time_ms=timing_ms,
                 predictor_class=model_name,
-                metadata=metadata
+                metadata=metadata,
             )
             return response
         else:
@@ -456,7 +457,7 @@ def _format_response(
                 predictions=json_safe if isinstance(json_safe, list) else [json_safe],
                 time_ms=timing_ms,
                 predictor_class=model_name,
-                metadata=metadata
+                metadata=metadata,
             )
 
     # Standard format (default) - backward compatible
@@ -475,24 +476,18 @@ def _format_response(
             predictions=predictions_list,
             time_ms=timing_ms,
             predictor_class=model_name,
-            metadata=metadata
+            metadata=metadata,
         )
 
     # Standard format for list/array responses
     if isinstance(json_safe, list):
         return PredictResponse(
-            predictions=json_safe,
-            time_ms=timing_ms,
-            predictor_class=model_name,
-            metadata=metadata
+            predictions=json_safe, time_ms=timing_ms, predictor_class=model_name, metadata=metadata
         )
 
     # Single value response - wrap in list for consistency
     return PredictResponse(
-        predictions=[json_safe],
-        time_ms=timing_ms,
-        predictor_class=model_name,
-        metadata=metadata
+        predictions=[json_safe], time_ms=timing_ms, predictor_class=model_name, metadata=metadata
     )
 
 
@@ -512,7 +507,7 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, pay
         logging.error(f"Prediction error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="Prediction failed. Please contact support if the issue persists."
+            detail="Prediction failed. Please contact support if the issue persists.",
         ) from e
 
     duration_ms = (time.perf_counter() - start_time) * 1000
@@ -526,25 +521,21 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, pay
         input_samples=input_sample_count,
         output_samples=output_sample_count,
         model_name=app.state.predictor.name,
-        config=config
+        config=config,
     )
 
     # Include cached metadata if available
-    metadata = getattr(app.state, 'metadata', None)
+    metadata = getattr(app.state, "metadata", None)
 
     # Add deployed_at timestamp to metadata
     if metadata:
-        deployed_at = getattr(app.state, 'deployed_at', None)
+        deployed_at = getattr(app.state, "deployed_at", None)
         if deployed_at:
             metadata.deployed_at = deployed_at
 
     # Use the new formatting function
     response = _format_response(
-        predictions,
-        config,
-        duration_ms,
-        app.state.predictor.name,
-        metadata
+        predictions, config, duration_ms, app.state.predictor.name, metadata
     )
 
     # Log request/response payloads if enabled (privacy-sensitive, opt-in)
@@ -554,9 +545,14 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, pay
     return response
 
 
-def _create_predict_proba_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
-                                 prediction_limiter: Optional[PredictionSemaphore] = None):
+def _create_predict_proba_handler(
+    app: FastAPI,
+    config: AppConfig,
+    endpoint_path: str,
+    prediction_limiter: Optional[PredictionSemaphore] = None,
+):
     """Create a predict_proba endpoint handler with concurrency control."""
+
     def predict_proba(body: Optional[dict[str, Any]] = None):
         payload = _resolve_request_payload(body if body is not None else {})
         # Use prediction limiter if configured
@@ -567,12 +563,11 @@ def _create_predict_proba_handler(app: FastAPI, config: AppConfig, endpoint_path
                 return _execute_predict_proba(app, config, endpoint_path, payload)
         else:
             return _execute_predict_proba(app, config, endpoint_path, payload)
+
     return predict_proba
 
 
-def _execute_predict_proba(
-    app: FastAPI, config: AppConfig, endpoint_path: str, payload: dict
-):
+def _execute_predict_proba(app: FastAPI, config: AppConfig, endpoint_path: str, payload: dict):
     """Execute the actual probability prediction."""
     start_time = time.perf_counter()
 
@@ -585,15 +580,14 @@ def _execute_predict_proba(
         probabilities = app.state.predictor.predict_proba(X)
     except AttributeError as e:
         raise HTTPException(
-            status_code=501,
-            detail="Probability prediction not available for this model."
+            status_code=501, detail="Probability prediction not available for this model."
         ) from e
     except Exception as e:
         # Log full error internally, return sanitized message to client
         logging.error(f"Predict_proba error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="Probability prediction failed. Please contact support if the issue persists."
+            detail="Probability prediction failed. Please contact support if the issue persists.",
         ) from e
 
     duration_ms = (time.perf_counter() - start_time) * 1000
@@ -607,15 +601,15 @@ def _execute_predict_proba(
         input_samples=input_sample_count,
         output_samples=output_sample_count,
         model_name=app.state.predictor.name,
-        config=config
+        config=config,
     )
 
     # Include cached metadata if available
-    metadata = getattr(app.state, 'metadata', None)
+    metadata = getattr(app.state, "metadata", None)
 
     # Add deployed_at timestamp to metadata
     if metadata:
-        deployed_at = getattr(app.state, 'deployed_at', None)
+        deployed_at = getattr(app.state, "deployed_at", None)
         if deployed_at:
             metadata.deployed_at = deployed_at
 
@@ -625,7 +619,7 @@ def _execute_predict_proba(
         time_ms=duration_ms,
         classes=None,  # Could be populated if predictor provides class names
         predictor_class=app.state.predictor.name,
-        metadata=metadata
+        metadata=metadata,
     )
 
     # Log request/response payloads if enabled (privacy-sensitive, opt-in)
@@ -635,8 +629,9 @@ def _execute_predict_proba(
     return response
 
 
-def _register_endpoint(app: FastAPI, endpoint_name: str, handler,
-                     base_path: str, response_model=None) -> None:
+def _register_endpoint(
+    app: FastAPI, endpoint_name: str, handler, base_path: str, response_model=None
+) -> None:
     """Register a versioned endpoint."""
     # Only register versioned endpoint
     if base_path:
@@ -654,8 +649,9 @@ def _register_endpoint(app: FastAPI, endpoint_name: str, handler,
             app.post(fallback_path)(handler)
 
 
-def _register_prediction_endpoints(app: FastAPI, config: AppConfig,
-                                  prediction_limiter: Optional[PredictionSemaphore] = None) -> None:
+def _register_prediction_endpoints(
+    app: FastAPI, config: AppConfig, prediction_limiter: Optional[PredictionSemaphore] = None
+) -> None:
     """Register versioned prediction endpoints with optional concurrency control."""
     base_path = config.get_base_path()
 
@@ -672,9 +668,7 @@ def _register_prediction_endpoints(app: FastAPI, config: AppConfig,
     if config.is_endpoint_enabled("predict"):
         endpoint_path = f"{base_path}/predict" if base_path else "/predict"
         predict_handler = _create_predict_handler(app, config, endpoint_path, prediction_limiter)
-        _register_endpoint(
-            app, "predict", predict_handler, base_path, response_model
-        )
+        _register_endpoint(app, "predict", predict_handler, base_path, response_model)
 
     # Note: batch_predict endpoint removed - /predict already handles batches naturally
 
@@ -684,9 +678,7 @@ def _register_prediction_endpoints(app: FastAPI, config: AppConfig,
         predict_proba_handler = _create_predict_proba_handler(
             app, config, endpoint_path, prediction_limiter
         )
-        _register_endpoint(
-            app, "predict_proba", predict_proba_handler, base_path
-        )
+        _register_endpoint(app, "predict_proba", predict_proba_handler, base_path)
 
 
 def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
@@ -704,7 +696,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
             config.predictor.module,
             config.predictor.class_name,
             config.predictor.init_kwargs,
-            config_dir=config_dir
+            config_dir=config_dir,
         )
 
         # Optional load() hook (RFC 0001 D13): called exactly once after
@@ -712,9 +704,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
         # aborts startup so the pod never reports ready with a broken model.
         load_hook = getattr(predictor, "load", None)
         if callable(load_hook):
-            startup_logger.info(
-                f"Calling {type(predictor).__name__}.load() before serving..."
-            )
+            startup_logger.info(f"Calling {type(predictor).__name__}.load() before serving...")
             try:
                 load_hook()
             except Exception as e:
@@ -727,9 +717,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
                     ),
                 ) from e
 
-        predictor_wrapper = PredictorWrapper(
-            predictor, thread_safe=config.api.thread_safe_predict
-        )
+        predictor_wrapper = PredictorWrapper(predictor, thread_safe=config.api.thread_safe_predict)
         app.state.predictor = predictor_wrapper
 
         # Cache metadata at startup
@@ -743,7 +731,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
 
         # Initialize metrics if enabled
         if config.observability.metrics:
-            model_version = config.classifier.get('version') if config.classifier else None
+            model_version = config.classifier.get("version") if config.classifier else None
             init_metrics(predictor_wrapper.name, model_version=model_version)
 
         # Model warmup: run a dummy prediction to initialize model internals
@@ -802,7 +790,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
     if config.api.max_concurrent_predictions > 0:
         prediction_limiter = PredictionSemaphore(
             max_concurrent=config.api.max_concurrent_predictions,
-            timeout=0  # Immediate rejection for Kubernetes pod scaling
+            timeout=0,  # Immediate rejection for Kubernetes pod scaling
         )
     # Exposed for introspection/tests (e.g. asserting Retry-After behavior)
     app.state.prediction_limiter = prediction_limiter
@@ -816,13 +804,13 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
     def info():
         """Get simplified classifier information with auto-detected metadata."""
         predictor = getattr(app.state, "predictor", None)
-        deployed_at = getattr(app.state, 'deployed_at', None)
+        deployed_at = getattr(app.state, "deployed_at", None)
 
         # Use the new simplified info response
         info_response = get_simplified_info_response(
             config.model_dump(),
             predictor.name if predictor else "unknown",
-            config.project_path or "."
+            config.project_path or ".",
         )
 
         # Use the cached deployed_at timestamp from startup
@@ -839,7 +827,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
             "health": "/healthz",
             "metrics": (
                 config.observability.metrics_endpoint if config.observability.metrics else None
-            )
+            ),
         }
 
         return info_response
@@ -852,14 +840,14 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
                 "prediction_slots_available": prediction_limiter.is_available,
                 "active_predictions": prediction_limiter.active_predictions,
                 "max_concurrent_predictions": config.api.max_concurrent_predictions,
-                "concurrency_control_enabled": True
+                "concurrency_control_enabled": True,
             }
         else:
             return {
                 "prediction_slots_available": True,
                 "active_predictions": 0,
                 "max_concurrent_predictions": None,
-                "concurrency_control_enabled": False
+                "concurrency_control_enabled": False,
             }
 
     # Add metrics endpoint if enabled
@@ -872,7 +860,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
             if metrics_collector:
                 return Response(
                     content=metrics_collector.generate_metrics(),
-                    media_type=metrics_collector.get_content_type()
+                    media_type=metrics_collector.get_content_type(),
                 )
             return Response(content="# No metrics available\n", media_type="text/plain")
 
@@ -891,6 +879,7 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _create_warmup_data(config: AppConfig) -> Optional[np.ndarray]:
     """Create minimal warmup data for model initialization.
@@ -939,6 +928,7 @@ def _to_jsonable(x, _depth=0):
         RecursionError: If recursion depth exceeds maximum limit
     """
     import logging
+
     _logger = logging.getLogger(__name__)
 
     # Maximum recursion depth to prevent stack overflow
@@ -967,7 +957,7 @@ def _to_jsonable(x, _depth=0):
 
         # pd.NaT - Not a Time (pandas null for timestamps)
         # Check type name first to avoid calling pd.isna() on arrays
-        if hasattr(x, '__class__') and x.__class__.__name__ == 'NaTType':
+        if hasattr(x, "__class__") and x.__class__.__name__ == "NaTType":
             return None
 
         # pd.Timedelta - Convert to seconds
@@ -984,7 +974,7 @@ def _to_jsonable(x, _depth=0):
         # DataFrame - Convert to list of records
         if isinstance(x, pd.DataFrame):
             # Recursively convert to handle nested types
-            records = x.to_dict('records')
+            records = x.to_dict("records")
             return _to_jsonable(records, _depth + 1)
 
         # Series - Convert to list
@@ -1030,12 +1020,14 @@ def _to_jsonable(x, _depth=0):
         if isinstance(x, np.datetime64):
             # Convert to ISO string via pandas for consistency
             import pandas as pd
+
             return pd.Timestamp(x).isoformat()
 
         # np.timedelta64 - Convert to seconds
         if isinstance(x, np.timedelta64):
             # Convert to pandas Timedelta for consistent handling
             import pandas as pd
+
             return pd.Timedelta(x).total_seconds()
 
         # np.ndarray - Convert to nested list
@@ -1054,10 +1046,7 @@ def _to_jsonable(x, _depth=0):
 
     # Dictionary - Recursively convert keys and values
     if isinstance(x, dict):
-        return {
-            _to_jsonable(k, _depth + 1): _to_jsonable(v, _depth + 1)
-            for k, v in x.items()
-        }
+        return {_to_jsonable(k, _depth + 1): _to_jsonable(v, _depth + 1) for k, v in x.items()}
 
     # List/tuple - Recursively convert items
     if isinstance(x, (list, tuple)):
@@ -1076,6 +1065,7 @@ def _to_jsonable(x, _depth=0):
     # decimal.Decimal - Convert to float
     try:
         from decimal import Decimal
+
         if isinstance(x, Decimal):
             return float(x)
     except ImportError:
@@ -1084,7 +1074,8 @@ def _to_jsonable(x, _depth=0):
     # bytes - Convert to base64 string
     if isinstance(x, bytes):
         import base64
-        return base64.b64encode(x).decode('ascii')
+
+        return base64.b64encode(x).decode("ascii")
 
     # === Fallback ===
     # If we reach here, the type isn't explicitly handled
@@ -1110,6 +1101,7 @@ def _to_jsonable(x, _depth=0):
 def _tolist2d(arr):
     try:
         import numpy as _np
+
         if isinstance(arr, _np.ndarray):
             return arr.tolist()
     except Exception:
@@ -1133,10 +1125,7 @@ def app() -> FastAPI:
     )
 
     # Try to find config file
-    config_paths = [
-        os.environ.get('MLSERVER_CONFIG_PATH'),
-        'mlserver.yaml'
-    ]
+    config_paths = [os.environ.get("MLSERVER_CONFIG_PATH"), "mlserver.yaml"]
 
     config_file = None
     for path in config_paths:
@@ -1146,8 +1135,7 @@ def app() -> FastAPI:
 
     if not config_file:
         raise RuntimeError(
-            "No configuration file found. Please specify mlserver.yaml "
-            "or set MLSERVER_CONFIG_PATH"
+            "No configuration file found. Please specify mlserver.yaml or set MLSERVER_CONFIG_PATH"
         )
 
     # Check for multi-classifier config
@@ -1158,7 +1146,7 @@ def app() -> FastAPI:
             raise RuntimeError(f"No classifiers defined in multi-classifier config: {config_file}")
 
         # Resolve classifier name: env var, then default_classifier, then first
-        classifier_name = os.environ.get('MLSERVER_CLASSIFIER')
+        classifier_name = os.environ.get("MLSERVER_CLASSIFIER")
         if not classifier_name or classifier_name not in mc.classifiers:
             if mc.default_classifier and mc.default_classifier in mc.classifiers:
                 classifier_name = mc.default_classifier

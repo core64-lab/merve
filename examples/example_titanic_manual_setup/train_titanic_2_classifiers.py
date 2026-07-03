@@ -15,6 +15,7 @@ def prepare_data():
     """Load and prepare Titanic dataset."""
     # Load Titanic dataset
     from sklearn.datasets import fetch_openml
+
     titanic = fetch_openml("titanic", version=1, as_frame=True, return_X_y=False)
     df = titanic.frame
 
@@ -22,35 +23,47 @@ def prepare_data():
     df.columns = [col.lower() for col in df.columns]
 
     # Handle missing values
-    df['age'].fillna(df['age'].median(), inplace=True)
-    df['fare'].fillna(df['fare'].median(), inplace=True)
-    df['embarked'].fillna(df['embarked'].mode()[0], inplace=True)
+    df["age"].fillna(df["age"].median(), inplace=True)
+    df["fare"].fillna(df["fare"].median(), inplace=True)
+    df["embarked"].fillna(df["embarked"].mode()[0], inplace=True)
 
     # Feature engineering
-    df['FamilySize'] = df['sibsp'] + df['parch'] + 1
-    df['IsAlone'] = (df['FamilySize'] == 1).astype(int)
+    df["FamilySize"] = df["sibsp"] + df["parch"] + 1
+    df["IsAlone"] = (df["FamilySize"] == 1).astype(int)
 
     # Extract title from name
-    df['Title'] = df['name'].str.extract(r' ([A-Za-z]+)\.', expand=False)
-    df['Title'] = df['Title'].replace(['Lady', 'Countess','Capt', 'Col','Don',
-                                       'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'], 'Rare')
-    df['Title'] = df['Title'].replace('Mlle', 'Miss')
-    df['Title'] = df['Title'].replace('Ms', 'Miss')
-    df['Title'] = df['Title'].replace('Mme', 'Mrs')
+    df["Title"] = df["name"].str.extract(r" ([A-Za-z]+)\.", expand=False)
+    df["Title"] = df["Title"].replace(
+        ["Lady", "Countess", "Capt", "Col", "Don", "Dr", "Major", "Rev", "Sir", "Jonkheer", "Dona"],
+        "Rare",
+    )
+    df["Title"] = df["Title"].replace("Mlle", "Miss")
+    df["Title"] = df["Title"].replace("Ms", "Miss")
+    df["Title"] = df["Title"].replace("Mme", "Mrs")
 
     # Select features
-    feature_cols = ['pclass', 'sex', 'age', 'sibsp', 'parch',
-                   'fare', 'embarked', 'FamilySize', 'IsAlone', 'Title']
+    feature_cols = [
+        "pclass",
+        "sex",
+        "age",
+        "sibsp",
+        "parch",
+        "fare",
+        "embarked",
+        "FamilySize",
+        "IsAlone",
+        "Title",
+    ]
 
     # Encode categorical variables
     label_encoders = {}
-    for col in ['sex', 'embarked', 'Title']:
+    for col in ["sex", "embarked", "Title"]:
         le = LabelEncoder()
         df[col] = le.fit_transform(df[col].astype(str))
         label_encoders[col] = le
 
     X = df[feature_cols]
-    y = df['survived'].astype(int)
+    y = df["survived"].astype(int)
 
     return X, y, feature_cols, label_encoders
 
@@ -61,11 +74,7 @@ def train_catboost_model(X_train, y_train, X_test, y_test, feature_cols):
 
     # Create model
     model = CatBoostClassifier(
-        iterations=100,
-        depth=6,
-        learning_rate=0.1,
-        random_state=42,
-        verbose=False
+        iterations=100, depth=6, learning_rate=0.1, random_state=42, verbose=False
     )
 
     # Train
@@ -109,11 +118,7 @@ def train_randomforest_model(X_train, y_train, X_test, y_test, feature_cols, lab
     X_test_scaled = scaler.transform(X_test)
 
     # Create model
-    model = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=10,
-        random_state=42
-    )
+    model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
 
     # Train
     model.fit(X_train_scaled, y_train)

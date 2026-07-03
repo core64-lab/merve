@@ -19,7 +19,7 @@ from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_sc
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 def load_and_prepare_data():
@@ -29,19 +29,21 @@ def load_and_prepare_data():
     df = pd.read_csv(url)
 
     # Feature engineering
-    df['Age'].fillna(df['Age'].median(), inplace=True)
-    df['Embarked'].fillna(df['Embarked'].mode()[0], inplace=True)
-    df['Fare'].fillna(df['Fare'].median(), inplace=True)
-    df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
-    df['IsAlone'] = (df['FamilySize'] == 1).astype(int)
-    df['Title'] = df['Name'].str.extract(r' ([A-Za-z]+)\.', expand=False)
+    df["Age"].fillna(df["Age"].median(), inplace=True)
+    df["Embarked"].fillna(df["Embarked"].mode()[0], inplace=True)
+    df["Fare"].fillna(df["Fare"].median(), inplace=True)
+    df["FamilySize"] = df["SibSp"] + df["Parch"] + 1
+    df["IsAlone"] = (df["FamilySize"] == 1).astype(int)
+    df["Title"] = df["Name"].str.extract(r" ([A-Za-z]+)\.", expand=False)
 
     # Simplify titles
-    df['Title'] = df['Title'].replace(['Lady', 'Countess','Capt', 'Col','Don',
-                                      'Dr', 'Major', 'Rev', 'Sir', 'Jonkheer', 'Dona'], 'Rare')
-    df['Title'] = df['Title'].replace('Mlle', 'Miss')
-    df['Title'] = df['Title'].replace('Ms', 'Miss')
-    df['Title'] = df['Title'].replace('Mme', 'Mrs')
+    df["Title"] = df["Title"].replace(
+        ["Lady", "Countess", "Capt", "Col", "Don", "Dr", "Major", "Rev", "Sir", "Jonkheer", "Dona"],
+        "Rare",
+    )
+    df["Title"] = df["Title"].replace("Mlle", "Miss")
+    df["Title"] = df["Title"].replace("Ms", "Miss")
+    df["Title"] = df["Title"].replace("Mme", "Mrs")
 
     return df
 
@@ -49,14 +51,24 @@ def load_and_prepare_data():
 def create_features_catboost(df):
     """Create features for CatBoost classifier."""
     # CatBoost handles categorical features natively
-    features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare',
-                'Embarked', 'FamilySize', 'IsAlone', 'Title']
+    features = [
+        "Pclass",
+        "Sex",
+        "Age",
+        "SibSp",
+        "Parch",
+        "Fare",
+        "Embarked",
+        "FamilySize",
+        "IsAlone",
+        "Title",
+    ]
 
     X = df[features].copy()
-    y = df['Survived']
+    y = df["Survived"]
 
     # Identify categorical columns
-    categorical_features = ['Sex', 'Embarked', 'Title']
+    categorical_features = ["Sex", "Embarked", "Title"]
     cat_features_indices = [features.index(cat) for cat in categorical_features]
 
     return X, y, features, cat_features_indices
@@ -65,15 +77,25 @@ def create_features_catboost(df):
 def create_features_randomforest(df):
     """Create features for RandomForest classifier."""
     # RandomForest needs encoded categorical features
-    features = ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'Fare',
-                'Embarked', 'FamilySize', 'IsAlone', 'Title']
+    features = [
+        "Pclass",
+        "Sex",
+        "Age",
+        "SibSp",
+        "Parch",
+        "Fare",
+        "Embarked",
+        "FamilySize",
+        "IsAlone",
+        "Title",
+    ]
 
     X = df[features].copy()
-    y = df['Survived']
+    y = df["Survived"]
 
     # Encode categorical variables
     label_encoders = {}
-    categorical_features = ['Sex', 'Embarked', 'Title']
+    categorical_features = ["Sex", "Embarked", "Title"]
 
     for cat in categorical_features:
         le = LabelEncoder()
@@ -82,7 +104,7 @@ def create_features_randomforest(df):
 
     # Scale numerical features
     scaler = StandardScaler()
-    numerical_features = ['Age', 'Fare', 'FamilySize']
+    numerical_features = ["Age", "Fare", "FamilySize"]
     X[numerical_features] = scaler.fit_transform(X[numerical_features])
 
     return X, y, features, label_encoders, scaler
@@ -98,7 +120,7 @@ def train_catboost_classifier(X_train, y_train, X_test, y_test, cat_features_ind
         depth=5,
         cat_features=cat_features_indices,
         verbose=False,
-        random_state=42
+        random_state=42,
     )
 
     model.fit(X_train, y_train, eval_set=(X_test, y_test), verbose=False)
@@ -106,10 +128,10 @@ def train_catboost_classifier(X_train, y_train, X_test, y_test, cat_features_ind
     # Evaluate
     y_pred = model.predict(X_test)
     metrics = {
-        'accuracy': accuracy_score(y_test, y_pred),
-        'precision': precision_score(y_test, y_pred),
-        'recall': recall_score(y_test, y_pred),
-        'f1_score': f1_score(y_test, y_pred)
+        "accuracy": accuracy_score(y_test, y_pred),
+        "precision": precision_score(y_test, y_pred),
+        "recall": recall_score(y_test, y_pred),
+        "f1_score": f1_score(y_test, y_pred),
     }
 
     print(f"CatBoost Accuracy: {metrics['accuracy']:.4f}")
@@ -123,11 +145,7 @@ def train_randomforest_classifier(X_train, y_train, X_test, y_test):
     print("\n=== Training RandomForest Classifier ===")
 
     model = RandomForestClassifier(
-        n_estimators=100,
-        max_depth=5,
-        min_samples_split=10,
-        min_samples_leaf=5,
-        random_state=42
+        n_estimators=100, max_depth=5, min_samples_split=10, min_samples_leaf=5, random_state=42
     )
 
     model.fit(X_train, y_train)
@@ -135,10 +153,10 @@ def train_randomforest_classifier(X_train, y_train, X_test, y_test):
     # Evaluate
     y_pred = model.predict(X_test)
     metrics = {
-        'accuracy': accuracy_score(y_test, y_pred),
-        'precision': precision_score(y_test, y_pred),
-        'recall': recall_score(y_test, y_pred),
-        'f1_score': f1_score(y_test, y_pred)
+        "accuracy": accuracy_score(y_test, y_pred),
+        "precision": precision_score(y_test, y_pred),
+        "recall": recall_score(y_test, y_pred),
+        "f1_score": f1_score(y_test, y_pred),
     }
 
     print(f"RandomForest Accuracy: {metrics['accuracy']:.4f}")
@@ -155,11 +173,11 @@ def save_artifacts(base_path: Path, classifier_name: str, artifacts: dict):
     for name, artifact in artifacts.items():
         file_path = classifier_path / name
 
-        if name.endswith('.json'):
-            with open(file_path, 'w') as f:
+        if name.endswith(".json"):
+            with open(file_path, "w") as f:
                 json.dump(artifact, f, indent=2)
-        elif name.endswith('.pkl'):
-            with open(file_path, 'wb') as f:
+        elif name.endswith(".pkl"):
+            with open(file_path, "wb") as f:
                 pickle.dump(artifact, f)
 
     print(f"Saved artifacts for {classifier_name} to {classifier_path}")
@@ -177,9 +195,9 @@ def main():
     # ========================================
     # Classifier 1: CatBoost
     # ========================================
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("CLASSIFIER 1: CATBOOST")
-    print("="*50)
+    print("=" * 50)
 
     X_cb, y_cb, features_cb, cat_indices = create_features_catboost(df)
     X_train_cb, X_test_cb, y_train_cb, y_test_cb = train_test_split(
@@ -198,16 +216,16 @@ def main():
             "model.pkl": catboost_model,
             "features.json": features_cb,
             "metrics.json": catboost_metrics,
-            "categorical_indices.json": cat_indices
-        }
+            "categorical_indices.json": cat_indices,
+        },
     )
 
     # ========================================
     # Classifier 2: RandomForest
     # ========================================
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("CLASSIFIER 2: RANDOMFOREST")
-    print("="*50)
+    print("=" * 50)
 
     X_rf, y_rf, features_rf, encoders_rf, scaler_rf = create_features_randomforest(df)
     X_train_rf, X_test_rf, y_train_rf, y_test_rf = train_test_split(
@@ -227,16 +245,16 @@ def main():
             "features.json": features_rf,
             "metrics.json": rf_metrics,
             "label_encoders.pkl": encoders_rf,
-            "scaler.pkl": scaler_rf
-        }
+            "scaler.pkl": scaler_rf,
+        },
     )
 
     # ========================================
     # Summary
     # ========================================
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("TRAINING SUMMARY")
-    print("="*50)
+    print("=" * 50)
 
     print("\nCatBoost Classifier:")
     print(f"  - Accuracy: {catboost_metrics['accuracy']:.4f}")

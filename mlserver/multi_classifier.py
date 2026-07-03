@@ -127,16 +127,13 @@ def load_multi_classifier_config(config_file: str) -> MultiClassifierConfig:
         raw_config = yaml.safe_load(f)
 
     if isinstance(raw_config, dict) and "classifiers" in raw_config:
-        raw_config["classifiers"] = _normalize_classifiers_section(
-            raw_config["classifiers"]
-        )
+        raw_config["classifiers"] = _normalize_classifiers_section(raw_config["classifiers"])
 
     return MultiClassifierConfig.model_validate(raw_config)
 
 
 def extract_single_classifier_config(
-    multi_config: MultiClassifierConfig,
-    classifier_name: str
+    multi_config: MultiClassifierConfig, classifier_name: str
 ) -> AppConfig:
     """Extract a single classifier configuration from multi-classifier config.
 
@@ -154,16 +151,14 @@ def extract_single_classifier_config(
     if classifier_name not in multi_config.classifiers:
         available = list(multi_config.classifiers.keys())
         raise ValueError(
-            f"Classifier '{classifier_name}' not found. "
-            f"Available classifiers: {available}"
+            f"Classifier '{classifier_name}' not found. Available classifiers: {available}"
         )
 
     classifier_config = multi_config.classifiers[classifier_name]
 
     if "predictor" not in classifier_config:
         raise ConfigurationError(
-            f"Classifier '{classifier_name}' is missing the required "
-            f"'predictor' section",
+            f"Classifier '{classifier_name}' is missing the required 'predictor' section",
             suggestion=(
                 f"Add a predictor block for '{classifier_name}' in your "
                 f"multi-classifier config:\n"
@@ -180,24 +175,19 @@ def extract_single_classifier_config(
         # Use global server and observability settings
         "server": multi_config.server.model_dump(),
         "observability": multi_config.observability.model_dump(),
-
         # Use classifier-specific predictor settings
         "predictor": classifier_config["predictor"],
-
         # Use classifier metadata (handle both old 'metadata' and new 'classifier' keys)
         "classifier": {
             **classifier_config.get("classifier", classifier_config.get("metadata", {})),
-            "repository": multi_config.repository.get("name", "unknown")
+            "repository": multi_config.repository.get("name", "unknown"),
         },
-
         # Use classifier-specific API settings
         "api": classifier_config.get("api", {}),
-
         # Model metadata if available (for backward compatibility)
         "model": classifier_config.get("model", {}),
-
         # Build configuration if available
-        "build": classifier_config.get("build")
+        "build": classifier_config.get("build"),
     }
 
     return AppConfig.model_validate(app_config_dict)
@@ -247,8 +237,8 @@ def detect_multi_classifier_config(config_file: str) -> bool:
 
         # Check for multi-classifier structure (supports both dict and list formats)
         return "classifiers" in raw_config and (
-            isinstance(raw_config["classifiers"], dict) or
-            isinstance(raw_config["classifiers"], list)
+            isinstance(raw_config["classifiers"], dict)
+            or isinstance(raw_config["classifiers"], list)
         )
     except Exception:
         return False
@@ -280,9 +270,7 @@ def get_default_classifier(config_file: str) -> Optional[str]:
 
 
 def generate_dockerfile_for_classifier(
-    multi_config: MultiClassifierConfig,
-    classifier_name: str,
-    output_dir: str = "."
+    multi_config: MultiClassifierConfig, classifier_name: str, output_dir: str = "."
 ) -> str:
     """Generate a Dockerfile for a specific classifier.
 
@@ -329,16 +317,14 @@ CMD ["merve", "serve", "--classifier", "{classifier_name}"]
 
     # Write Dockerfile
     dockerfile_path = os.path.join(output_dir, f"Dockerfile.{classifier_name}")
-    with open(dockerfile_path, 'w') as f:
+    with open(dockerfile_path, "w") as f:
         f.write(dockerfile_content)
 
     return dockerfile_path
 
 
 def build_all_classifiers(
-    config_file: str,
-    registry: Optional[str] = None,
-    parallel: bool = False
+    config_file: str, registry: Optional[str] = None, parallel: bool = False
 ) -> dict[str, Any]:
     """Build containers for all classifiers in a multi-classifier config.
 
@@ -357,16 +343,14 @@ def build_all_classifiers(
         print(f"\n=== Building classifier: {classifier_name} ===")
 
         # Generate Dockerfile
-        dockerfile_path = generate_dockerfile_for_classifier(
-            multi_config, classifier_name
-        )
+        dockerfile_path = generate_dockerfile_for_classifier(multi_config, classifier_name)
 
         # Build container (would integrate with existing container.py)
         # For now, just record the intent
         results[classifier_name] = {
             "dockerfile": dockerfile_path,
             "status": "pending",
-            "registry": registry
+            "registry": registry,
         }
 
         if not parallel:

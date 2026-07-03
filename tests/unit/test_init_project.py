@@ -1,4 +1,5 @@
 """Unit tests for init_project module."""
+
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -55,7 +56,7 @@ class TestGenerateMlserverYaml:
         yaml_content = generate_mlserver_yaml(
             classifier_name="sentiment",
             predictor_module="sentiment_predictor",
-            predictor_class="SentimentPredictor"
+            predictor_class="SentimentPredictor",
         )
 
         # Verify it's valid YAML
@@ -71,7 +72,7 @@ class TestGenerateMlserverYaml:
             classifier_name="test",
             predictor_module="test_pred",
             predictor_class="TestPredictor",
-            version="2.0.0"
+            version="2.0.0",
         )
 
         config = yaml.safe_load(yaml_content)
@@ -84,7 +85,7 @@ class TestGenerateMlserverYaml:
             classifier_name="test",
             predictor_module="test_pred",
             predictor_class="TestPredictor",
-            description="My custom classifier"
+            description="My custom classifier",
         )
 
         config = yaml.safe_load(yaml_content)
@@ -93,9 +94,7 @@ class TestGenerateMlserverYaml:
     def test_default_description(self):
         """Test generation uses default description."""
         yaml_content = generate_mlserver_yaml(
-            classifier_name="mymodel",
-            predictor_module="mod",
-            predictor_class="Cls"
+            classifier_name="mymodel", predictor_module="mod", predictor_class="Cls"
         )
 
         config = yaml.safe_load(yaml_content)
@@ -104,9 +103,7 @@ class TestGenerateMlserverYaml:
     def test_includes_server_config(self):
         """Test generated YAML includes server config."""
         yaml_content = generate_mlserver_yaml(
-            classifier_name="test",
-            predictor_module="test",
-            predictor_class="Test"
+            classifier_name="test", predictor_module="test", predictor_class="Test"
         )
 
         config = yaml.safe_load(yaml_content)
@@ -117,9 +114,7 @@ class TestGenerateMlserverYaml:
     def test_includes_observability_config(self):
         """Test generated YAML includes observability config."""
         yaml_content = generate_mlserver_yaml(
-            classifier_name="test",
-            predictor_module="test",
-            predictor_class="Test"
+            classifier_name="test", predictor_module="test", predictor_class="Test"
         )
 
         config = yaml.safe_load(yaml_content)
@@ -133,8 +128,7 @@ class TestGeneratePredictorSkeleton:
     def test_basic_generation(self):
         """Test basic predictor skeleton generation."""
         code = generate_predictor_skeleton(
-            class_name="SentimentPredictor",
-            classifier_name="Sentiment Classifier"
+            class_name="SentimentPredictor", classifier_name="Sentiment Classifier"
         )
 
         assert "class SentimentPredictor:" in code
@@ -144,10 +138,7 @@ class TestGeneratePredictorSkeleton:
 
     def test_includes_imports(self):
         """Test skeleton includes necessary imports."""
-        code = generate_predictor_skeleton(
-            class_name="TestPredictor",
-            classifier_name="test"
-        )
+        code = generate_predictor_skeleton(class_name="TestPredictor", classifier_name="test")
 
         assert "import numpy" in code
         assert "from typing import" in code
@@ -155,21 +146,17 @@ class TestGeneratePredictorSkeleton:
     def test_includes_records_to_array(self):
         """Test skeleton includes helper method."""
         code = generate_predictor_skeleton(
-            class_name="MyPredictor",
-            classifier_name="my-classifier"
+            class_name="MyPredictor", classifier_name="my-classifier"
         )
 
         assert "_records_to_array" in code
 
     def test_is_valid_python(self):
         """Test generated code is valid Python."""
-        code = generate_predictor_skeleton(
-            class_name="ValidPredictor",
-            classifier_name="valid"
-        )
+        code = generate_predictor_skeleton(class_name="ValidPredictor", classifier_name="valid")
 
         # This should not raise a SyntaxError
-        compile(code, '<string>', 'exec')
+        compile(code, "<string>", "exec")
 
 
 class TestGenerateGitignore:
@@ -209,13 +196,13 @@ class TestInitMlserverProject:
     def test_basic_init(self):
         """Test basic project initialization."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('mlserver.github_actions.init_github_actions') as mock_gh:
+            with patch("mlserver.github_actions.init_github_actions") as mock_gh:
                 mock_gh.return_value = (True, "Created", {})
 
                 success, message, files = init_mlserver_project(
                     project_path=tmpdir,
                     classifier_name="test-classifier",
-                    include_github_actions=True
+                    include_github_actions=True,
                 )
 
                 assert success is True
@@ -226,9 +213,7 @@ class TestInitMlserverProject:
         """Test init without GitHub Actions."""
         with tempfile.TemporaryDirectory() as tmpdir:
             success, message, files = init_mlserver_project(
-                project_path=tmpdir,
-                classifier_name="test",
-                include_github_actions=False
+                project_path=tmpdir, classifier_name="test", include_github_actions=False
             )
 
             assert success is True
@@ -240,9 +225,7 @@ class TestInitMlserverProject:
         """Test init creates predictor Python file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             success, message, files = init_mlserver_project(
-                project_path=tmpdir,
-                classifier_name="mymodel",
-                include_github_actions=False
+                project_path=tmpdir, classifier_name="mymodel", include_github_actions=False
             )
 
             assert success is True
@@ -254,9 +237,7 @@ class TestInitMlserverProject:
         """Test init creates .gitignore."""
         with tempfile.TemporaryDirectory() as tmpdir:
             success, message, files = init_mlserver_project(
-                project_path=tmpdir,
-                classifier_name="test",
-                include_github_actions=False
+                project_path=tmpdir, classifier_name="test", include_github_actions=False
             )
 
             assert success is True
@@ -273,7 +254,7 @@ class TestInitMlserverProject:
                 project_path=tmpdir,
                 classifier_name="test",
                 include_github_actions=False,
-                force=False
+                force=False,
             )
 
             # Should succeed but not overwrite
@@ -291,7 +272,7 @@ class TestInitMlserverProject:
                 project_path=tmpdir,
                 classifier_name="test",
                 include_github_actions=False,
-                force=True
+                force=True,
             )
 
             # Should have overwritten
@@ -308,7 +289,7 @@ class TestInitMlserverProject:
                 classifier_name="mymodel",
                 predictor_file="custom_predictor",
                 predictor_class="CustomClass",
-                include_github_actions=False
+                include_github_actions=False,
             )
 
             assert success is True
@@ -337,8 +318,7 @@ class TestInitMlserverProject:
             project_dir.mkdir()
 
             success, message, files = init_mlserver_project(
-                project_path=str(project_dir),
-                include_github_actions=False
+                project_path=str(project_dir), include_github_actions=False
             )
 
             assert success is True
@@ -480,9 +460,7 @@ class TestInitProjectEdgeCases:
             predictor_file.write_text("# existing code")
 
             success, message, files = init_mlserver_project(
-                project_path=tmpdir,
-                classifier_name="test",
-                include_github_actions=False
+                project_path=tmpdir, classifier_name="test", include_github_actions=False
             )
 
             # Predictor should not be in files created

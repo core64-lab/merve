@@ -17,7 +17,9 @@ class TestHierarchicalVersioningWorkflow:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Initialize git repo
             subprocess.run(["git", "init"], cwd=tmpdir, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True
+            )
             subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmpdir, check=True)
 
             yield tmpdir
@@ -26,30 +28,19 @@ class TestHierarchicalVersioningWorkflow:
     def single_classifier_config(self, temp_git_repo):
         """Create a single classifier configuration."""
         config = {
-            "server": {
-                "title": "Test ML Server",
-                "host": "0.0.0.0",
-                "port": 8000
-            },
-            "predictor": {
-                "module": "tests.fixtures.mock_predictor",
-                "class_name": "MockPredictor"
-            },
+            "server": {"title": "Test ML Server", "host": "0.0.0.0", "port": 8000},
+            "predictor": {"module": "tests.fixtures.mock_predictor", "class_name": "MockPredictor"},
             "classifier": {
                 "name": "sentiment",
                 "version": "1.0.0",
                 "description": "Sentiment analysis classifier",
-                "repository": "mlserver"
+                "repository": "mlserver",
             },
-            "api": {
-                "version": "v1",
-                "adapter": "records",
-                "endpoints": {"predict": True}
-            }
+            "api": {"version": "v1", "adapter": "records", "endpoints": {"predict": True}},
         }
 
         config_path = Path(temp_git_repo) / "mlserver.yaml"
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             yaml.dump(config, f)
 
         # Initial commit
@@ -65,50 +56,40 @@ class TestHierarchicalVersioningWorkflow:
             "classifiers": [
                 {
                     "name": "sentiment",
-                    "server": {
-                        "title": "Sentiment Analysis Server"
-                    },
+                    "server": {"title": "Sentiment Analysis Server"},
                     "predictor": {
                         "module": "tests.fixtures.mock_predictor",
-                        "class_name": "MockPredictor"
+                        "class_name": "MockPredictor",
                     },
                     "classifier": {
                         "name": "sentiment",
                         "version": "1.0.0",
                         "description": "Sentiment analysis",
-                        "repository": "mlserver"
+                        "repository": "mlserver",
                     },
-                    "api": {
-                        "adapter": "records",
-                        "endpoints": {"predict": True}
-                    }
+                    "api": {"adapter": "records", "endpoints": {"predict": True}},
                 },
                 {
                     "name": "intent",
-                    "server": {
-                        "title": "Intent Classification Server"
-                    },
+                    "server": {"title": "Intent Classification Server"},
                     "predictor": {
                         "module": "tests.fixtures.mock_predictor",
-                        "class_name": "MockPredictor"
+                        "class_name": "MockPredictor",
                     },
                     "classifier": {
                         "name": "intent",
                         "version": "2.0.0",
                         "description": "Intent classification",
-                        "repository": "mlserver"
+                        "repository": "mlserver",
                     },
-                    "api": {
-                        "adapter": "records",
-                        "endpoints": {"predict": True}
-                    }
-                }
+                    "api": {"adapter": "records", "endpoints": {"predict": True}},
+                },
             ],
-            "default_classifier": "sentiment"
+            "default_classifier": "sentiment",
         }
 
         config_path = Path(temp_git_repo) / "mlserver.yaml"
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             yaml.dump(config, f)
 
         # Initial commit
@@ -213,7 +194,10 @@ class TestHierarchicalVersioningWorkflow:
         # Intent should have no tags
         assert status["intent"]["on_tagged_commit"] is False
         assert status["intent"]["status"] == "No tags"
-        assert status["intent"]["recommendation"] == "mlserver tag --classifier intent <major|minor|patch>"
+        assert (
+            status["intent"]["recommendation"]
+            == "mlserver tag --classifier intent <major|minor|patch>"
+        )
 
     def test_version_bump_sequence(self, single_classifier_config):
         """Test proper version bumping sequence with hierarchical tags."""
@@ -308,14 +292,10 @@ class TestHierarchicalVersioningWorkflow:
 
         # Get all tags from git
         result = subprocess.run(
-            ["git", "tag"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            check=True
+            ["git", "tag"], cwd=repo_path, capture_output=True, text=True, check=True
         )
 
-        tags = result.stdout.strip().split('\n')
+        tags = result.stdout.strip().split("\n")
 
         # Canonical <classifier>/vX.Y.Z format (RFC 0001 D1/D2)
         sentiment_tag_found = "sentiment/v1.0.0" in tags
@@ -376,7 +356,9 @@ class TestValidatePushReadiness:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Initialize git repo
             subprocess.run(["git", "init"], cwd=tmpdir, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True
+            )
             subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmpdir, check=True)
 
             # Create initial commit
@@ -521,7 +503,9 @@ class TestPhase2HierarchicalTagParsing:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Initialize git repo
             subprocess.run(["git", "init"], cwd=tmpdir, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True
+            )
             subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmpdir, check=True)
 
             # Create initial commit
@@ -546,6 +530,7 @@ class TestPhase2HierarchicalTagParsing:
 
         # Parse the tag we just created (now canonical, RFC 0001 D1/D2)
         from mlserver.version_control import parse_classifier_tag
+
         parsed = parse_classifier_tag(tag_name)
 
         assert parsed["format"] == "canonical"
@@ -632,6 +617,6 @@ class TestPhase2HierarchicalTagParsing:
             cwd=repo_path,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         assert tag_name in result.stdout

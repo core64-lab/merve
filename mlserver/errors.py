@@ -38,10 +38,7 @@ class MLServerError(Exception):
     """
 
     def __init__(
-        self,
-        message: str,
-        suggestion: Optional[str] = None,
-        docs_url: Optional[str] = None
+        self, message: str, suggestion: Optional[str] = None, docs_url: Optional[str] = None
     ):
         self.message = message
         self.suggestion = suggestion
@@ -67,6 +64,7 @@ class ConfigurationError(MLServerError):
     - File not found (config file, feature order file)
     - Path traversal attempts
     """
+
     pass
 
 
@@ -80,6 +78,7 @@ class PredictorError(MLServerError):
     - Model warmup failed
     - Prediction method crashed
     """
+
     pass
 
 
@@ -92,6 +91,7 @@ class AdapterError(MLServerError):
     - Feature type mismatch
     - Too many records (exceeds limits)
     """
+
     pass
 
 
@@ -104,6 +104,7 @@ class ContainerError(MLServerError):
     - Push to registry failed
     - Invalid registry configuration
     """
+
     pass
 
 
@@ -116,6 +117,7 @@ class ValidationError(MLServerError):
     - Version format invalid
     - Git repository not initialized
     """
+
     pass
 
 
@@ -128,6 +130,7 @@ class VersionControlError(MLServerError):
     - Tag already exists
     - Remote push failed
     """
+
     pass
 
 

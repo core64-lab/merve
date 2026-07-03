@@ -1,6 +1,7 @@
 """
 Docker containerization utilities for ML classifier projects.
 """
+
 import ast
 import os
 import re
@@ -37,15 +38,15 @@ def _normalize_git_url_to_https(url: str) -> str:
     """
     url = url.strip()
     if url.startswith("git+"):
-        url = url[len("git+"):]
+        url = url[len("git+") :]
 
     # SSH forms: git@host:org/repo(.git) or ssh://git@host/org/repo(.git)
-    match = re.match(r'^(?:ssh://)?git@([^:/]+)[:/](.+?)(?:\.git)?/?$', url)
+    match = re.match(r"^(?:ssh://)?git@([^:/]+)[:/](.+?)(?:\.git)?/?$", url)
     if match:
         return f"https://{match.group(1)}/{match.group(2)}"
 
     # HTTP(S) forms: strip trailing .git and slash
-    match = re.match(r'^https?://(.+?)(?:\.git)?/?$', url)
+    match = re.match(r"^https?://(.+?)(?:\.git)?/?$", url)
     if match:
         return f"https://{match.group(1)}"
 
@@ -53,9 +54,7 @@ def _normalize_git_url_to_https(url: str) -> str:
 
 
 def generate_container_labels(
-    project_path: str,
-    classifier_name: Optional[str] = None,
-    config: Optional['AppConfig'] = None
+    project_path: str, classifier_name: Optional[str] = None, config: Optional["AppConfig"] = None
 ) -> dict[str, str]:
     """Generate Docker labels for full container traceability.
 
@@ -107,7 +106,8 @@ def generate_container_labels(
     mlserver_version = None
     try:
         import mlserver
-        mlserver_version = getattr(mlserver, '__version__', None)
+
+        mlserver_version = getattr(mlserver, "__version__", None)
         if mlserver_version:
             labels["com.mlserver.version"] = mlserver_version
     except Exception:
@@ -133,7 +133,7 @@ def generate_container_labels(
             cwd=project_path,
             capture_output=True,
             text=True,
-            check=False
+            check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
             labels["com.classifier.git_url"] = result.stdout.strip()
@@ -245,7 +245,7 @@ def _get_mlserver_git_url() -> Optional[str]:
         import subprocess
 
         # Strategy 0: Check environment variable override
-        env_git_url = os.environ.get('MLSERVER_GIT_URL')
+        env_git_url = os.environ.get("MLSERVER_GIT_URL")
         if env_git_url:
             print(f"Using MLSERVER_GIT_URL from environment: {env_git_url}")
             return env_git_url
@@ -258,7 +258,7 @@ def _get_mlserver_git_url() -> Optional[str]:
 
         # Get the package distribution (renamed merve; old name kept as fallback)
         dist = None
-        for _dist_name in ('merve', 'mlserver-fastapi-wrapper'):
+        for _dist_name in ("merve", "mlserver-fastapi-wrapper"):
             try:
                 dist = distribution(_dist_name)
                 break
@@ -272,19 +272,20 @@ def _get_mlserver_git_url() -> Optional[str]:
 
         # Strategy 1: Check if it's installed via pip from git (check direct_url.json)
         try:
-            direct_url_file = Path(dist._path) / 'direct_url.json'
+            direct_url_file = Path(dist._path) / "direct_url.json"
             if direct_url_file.exists():
                 import json
+
                 with open(direct_url_file) as f:
                     direct_url_data = json.load(f)
-                    if 'url' in direct_url_data and 'git+' in direct_url_data['url']:
+                    if "url" in direct_url_data and "git+" in direct_url_data["url"]:
                         # This is a git installation, return the URL directly
-                        return direct_url_data['url']
-                    elif 'vcs_info' in direct_url_data:
-                        vcs = direct_url_data['vcs_info']
-                        if 'vcs' in vcs and vcs['vcs'] == 'git':
-                            url = direct_url_data.get('url', '')
-                            commit = vcs.get('commit_id', vcs.get('requested_revision', 'main'))
+                        return direct_url_data["url"]
+                    elif "vcs_info" in direct_url_data:
+                        vcs = direct_url_data["vcs_info"]
+                        if "vcs" in vcs and vcs["vcs"] == "git":
+                            url = direct_url_data.get("url", "")
+                            commit = vcs.get("commit_id", vcs.get("requested_revision", "main"))
                             if url:
                                 return f"git+{url}@{commit}"
         except Exception:
@@ -293,12 +294,12 @@ def _get_mlserver_git_url() -> Optional[str]:
         # Strategy 2: Check location for editable installs
         try:
             location = str(dist._path.parent.parent)  # Get site-packages parent
-            if '/src/' in location:
+            if "/src/" in location:
                 # Editable install - find the git directory
-                parts = location.split('/src/')
+                parts = location.split("/src/")
                 if len(parts) > 1:
-                    for _src_name in ('merve', 'mlserver-fastapi-wrapper'):
-                        base_path = parts[0] + '/src/' + _src_name
+                    for _src_name in ("merve", "mlserver-fastapi-wrapper"):
+                        base_path = parts[0] + "/src/" + _src_name
                         if Path(base_path).exists():
                             source_dir = base_path
                             break
@@ -308,27 +309,27 @@ def _get_mlserver_git_url() -> Optional[str]:
         # Strategy 3: Check if we're running from the git repo itself
         if not source_dir:
             source_path = Path(__file__).parent.parent
-            if (source_path / '.git').exists():
+            if (source_path / ".git").exists():
                 source_dir = str(source_path)
 
         # If we found a source directory with git, extract the URL
         if source_dir:
-            git_config = Path(source_dir) / '.git' / 'config'
+            git_config = Path(source_dir) / ".git" / "config"
             if git_config.exists():
                 # Parse git config for remote URL
                 with open(git_config) as f:
                     lines = f.readlines()
                     for line in lines:
-                        if 'url = ' in line:
-                            url = line.split('url = ')[1].strip()
+                        if "url = " in line:
+                            url = line.split("url = ")[1].strip()
 
                             # Get current branch/commit
                             try:
                                 result = subprocess.run(
-                                    ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                                     cwd=source_dir,
                                     capture_output=True,
-                                    text=True
+                                    text=True,
                                 )
                                 if result.returncode == 0:
                                     branch = result.stdout.strip()
@@ -351,7 +352,7 @@ def _get_mlserver_git_url() -> Optional[str]:
 def _find_mlserver_source() -> Optional[str]:
     """Find mlserver source directory with multiple detection strategies."""
     # Strategy 1: Check environment variable
-    env_path = os.environ.get('MLSERVER_SOURCE_PATH')
+    env_path = os.environ.get("MLSERVER_SOURCE_PATH")
     if env_path and Path(env_path).exists():
         return env_path
 
@@ -375,7 +376,8 @@ def _find_mlserver_source() -> Optional[str]:
                 with open(pyproject_path, "rb") as f:
                     pyproject = tomllib.load(f)
                     if pyproject.get("project", {}).get("name") in (
-                        "merve", "mlserver-fastapi-wrapper"
+                        "merve",
+                        "mlserver-fastapi-wrapper",
                     ):
                         return str(current_path)
             except Exception:
@@ -396,11 +398,12 @@ def _build_mlserver_wheel(mlserver_source_path: str, project_path: str) -> Optio
         # Build wheel in mlserver source directory
         # Use sys.executable to ensure we use the same Python that's running this script
         import sys
+
         result = subprocess.run(
             [sys.executable, "-m", "build", "--wheel"],
             cwd=mlserver_source_path,
             capture_output=True,
-            text=True
+            text=True,
         )
 
         if result.returncode != 0:
@@ -421,6 +424,7 @@ def _build_mlserver_wheel(mlserver_source_path: str, project_path: str) -> Optio
         # Copy to project directory
         dest_path = Path(project_path) / latest_wheel.name
         import shutil
+
         shutil.copy2(latest_wheel, dest_path)
 
         print(f"✓ Built and copied wheel: {latest_wheel.name}")
@@ -437,9 +441,9 @@ def _add_file_or_directory(path: str, project_path: str, file_set: set) -> None:
         return
 
     # Resolve relative paths
-    if path.startswith('./'):
+    if path.startswith("./"):
         file_path = path[2:]
-    elif path.startswith('../'):
+    elif path.startswith("../"):
         # Skip files outside project directory
         return
     else:
@@ -453,7 +457,7 @@ def _add_file_or_directory(path: str, project_path: str, file_set: set) -> None:
             # Add entire directory with relative paths
             for root, dirs, files in os.walk(full_path):
                 # Skip __pycache__ directories
-                dirs[:] = [d for d in dirs if d != '__pycache__']
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
                 for file in files:
                     # Ensure we get relative paths from project root
                     abs_file_path = os.path.join(root, file)
@@ -478,7 +482,7 @@ def detect_required_files(project_path: str, config: AppConfig) -> dict[str, Any
         "artifact_files": set(),
         "dependency_files": set(),
         "config_files": set(),
-        "auto_excludes": set()
+        "auto_excludes": set(),
     }
 
     # 1. Add the predictor module file
@@ -499,7 +503,7 @@ def detect_required_files(project_path: str, config: AppConfig) -> dict[str, Any
             _add_file_or_directory(value, project_path, analysis["artifact_files"])
 
     # 2a. Parse API config for file paths (especially feature_order)
-    if hasattr(config, 'api') and config.api:
+    if hasattr(config, "api") and config.api:
         # Check feature_order - can be a file path string
         if isinstance(config.api.feature_order, str):
             _add_file_or_directory(
@@ -511,8 +515,14 @@ def detect_required_files(project_path: str, config: AppConfig) -> dict[str, Any
         """Recursively scan config object for file paths."""
         if isinstance(obj, str):
             # Check if this looks like a file path
-            if ('/' in obj or obj.endswith('.json') or obj.endswith('.yaml') or
-                obj.endswith('.pkl') or obj.endswith('.txt') or obj.endswith('.csv')):
+            if (
+                "/" in obj
+                or obj.endswith(".json")
+                or obj.endswith(".yaml")
+                or obj.endswith(".pkl")
+                or obj.endswith(".txt")
+                or obj.endswith(".csv")
+            ):
                 _add_file_or_directory(obj, project_path, path_set)
         elif isinstance(obj, dict):
             for value in obj.values():
@@ -520,7 +530,7 @@ def detect_required_files(project_path: str, config: AppConfig) -> dict[str, Any
         elif isinstance(obj, (list, tuple)):
             for item in obj:
                 scan_config_for_paths(item, path_set)
-        elif hasattr(obj, '__dict__'):
+        elif hasattr(obj, "__dict__"):
             # For Pydantic models and other objects
             scan_config_for_paths(obj.__dict__, path_set)
 
@@ -537,15 +547,15 @@ def detect_required_files(project_path: str, config: AppConfig) -> dict[str, Any
     try:
         predictor_deps = _analyze_python_imports(project_path, predictor_file)
         for dep in predictor_deps:
-            if dep.endswith('/'):
+            if dep.endswith("/"):
                 # It's a directory - include all Python files in it
-                dir_path = os.path.join(project_path, dep.rstrip('/'))
+                dir_path = os.path.join(project_path, dep.rstrip("/"))
                 if os.path.exists(dir_path):
                     for root, dirs, files in os.walk(dir_path):
                         # Skip __pycache__ directories
-                        dirs[:] = [d for d in dirs if d != '__pycache__']
+                        dirs[:] = [d for d in dirs if d != "__pycache__"]
                         for file in files:
-                            if file.endswith(('.py', '.json', '.pkl')):
+                            if file.endswith((".py", ".json", ".pkl")):
                                 rel_path = os.path.relpath(os.path.join(root, file), project_path)
                                 analysis["dependency_files"].add(rel_path)
             else:
@@ -557,9 +567,22 @@ def detect_required_files(project_path: str, config: AppConfig) -> dict[str, Any
 
     # 5. Auto-exclude common non-essential files
     auto_excludes = {
-        "__pycache__", "*.pyc", "*.pyo", "*.pyd", ".git", ".gitignore",
-        ".vscode", ".idea", "*.log", "*.tmp", "catboost_info", "*.swp",
-        ".DS_Store", "Thumbs.db", "Dockerfile", ".dockerignore"
+        "__pycache__",
+        "*.pyc",
+        "*.pyo",
+        "*.pyd",
+        ".git",
+        ".gitignore",
+        ".vscode",
+        ".idea",
+        "*.log",
+        "*.tmp",
+        "catboost_info",
+        "*.swp",
+        ".DS_Store",
+        "Thumbs.db",
+        "Dockerfile",
+        ".dockerignore",
     }
     analysis["auto_excludes"] = auto_excludes
 
@@ -571,20 +594,22 @@ def detect_required_files(project_path: str, config: AppConfig) -> dict[str, Any
 
     return {
         "required_files": sorted(list(required_files)),
-        "analysis": {k: sorted(list(v)) if isinstance(v, set) else v for k, v in analysis.items()}
+        "analysis": {k: sorted(list(v)) if isinstance(v, set) else v for k, v in analysis.items()},
     }
 
 
 def _looks_like_file_path(key: str, value: str) -> bool:
     """Check if a key-value pair likely represents a file path."""
-    path_indicators = ['path', 'file', 'model', 'preprocessor', 'artifact', 'data', 'dir', 'folder']
+    path_indicators = ["path", "file", "model", "preprocessor", "artifact", "data", "dir", "folder"]
     key_suggests_path = any(indicator in key.lower() for indicator in path_indicators)
 
     # Check if value looks like a file path
     is_path_like = (
-        '/' in value or '\\' in value or
-        value.startswith('./') or value.startswith('../') or
-        '.' in value  # Has file extension
+        "/" in value
+        or "\\" in value
+        or value.startswith("./")
+        or value.startswith("../")
+        or "." in value  # Has file extension
     )
 
     return key_suggests_path and is_path_like
@@ -599,7 +624,7 @@ def _analyze_python_imports(project_path: str, python_file: str) -> set[str]:
         if not os.path.exists(file_path):
             return local_files
 
-        with open(file_path, encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             tree = ast.parse(f.read())
 
         for node in ast.walk(tree):
@@ -624,13 +649,13 @@ def _analyze_python_imports(project_path: str, python_file: str) -> set[str]:
 def _resolve_local_import(project_path: str, module_name: str) -> Optional[str]:
     """Resolve a module name to a local file if it exists."""
     # Convert module.submodule to module/submodule.py
-    module_path = module_name.replace('.', '/')
+    module_path = module_name.replace(".", "/")
 
     # Try various file patterns
     candidates = [
         f"{module_path}.py",
         f"{module_path}/__init__.py",
-        f"{module_name}.py"  # Direct file name
+        f"{module_name}.py",  # Direct file name
     ]
 
     for candidate in candidates:
@@ -641,8 +666,9 @@ def _resolve_local_import(project_path: str, module_name: str) -> Optional[str]:
     return None
 
 
-def generate_dockerignore(project_path: str, auto_excludes: set[str],
-                         additional_excludes: Optional[list[str]] = None) -> str:
+def generate_dockerignore(
+    project_path: str, auto_excludes: set[str], additional_excludes: Optional[list[str]] = None
+) -> str:
     """Generate .dockerignore content."""
     excludes = list(auto_excludes)
     if additional_excludes:
@@ -701,6 +727,7 @@ def _get_installed_mlserver_version() -> Optional[str]:
     installs that predate the rename.
     """
     from importlib.metadata import PackageNotFoundError, version
+
     for dist_name in ("merve", "mlserver-fastapi-wrapper"):
         try:
             return version(dist_name)
@@ -710,6 +737,7 @@ def _get_installed_mlserver_version() -> Optional[str]:
             break
     try:
         import mlserver
+
         return getattr(mlserver, "__version__", None)
     except Exception:
         return None
@@ -728,12 +756,17 @@ def _is_release_version(version: Optional[str]) -> bool:
     return not any(marker in version for marker in (".dev", "+", ".post"))
 
 
-def generate_dockerfile(project_path: str, config: AppConfig,
-                       required_files: list[str], base_image: str = None,
-                       has_wheel: bool = False, needs_git: bool = False,
-                       classifier_name: Optional[str] = None,
-                       bake_classifier_env: Optional[str] = None,
-                       commit_image: bool = False) -> str:
+def generate_dockerfile(
+    project_path: str,
+    config: AppConfig,
+    required_files: list[str],
+    base_image: str = None,
+    has_wheel: bool = False,
+    needs_git: bool = False,
+    classifier_name: Optional[str] = None,
+    bake_classifier_env: Optional[str] = None,
+    commit_image: bool = False,
+) -> str:
     """
     Generate a two-stage Dockerfile for the classifier project (RFC 0001, D15).
 
@@ -782,11 +815,11 @@ def generate_dockerfile(project_path: str, config: AppConfig,
 
     def has_glob_chars(path):
         """Check if path contains characters that Docker treats as glob patterns."""
-        return any(char in path for char in ['[', ']', '*', '?'])
+        return any(char in path for char in ["[", "]", "*", "?"])
 
     def get_parent_without_glob(path):
         """Get the nearest parent directory that doesn't contain glob characters."""
-        parts = path.split('/')
+        parts = path.split("/")
         safe_parts = []
 
         for part in parts:
@@ -796,17 +829,17 @@ def generate_dockerfile(project_path: str, config: AppConfig,
             safe_parts.append(part)
 
         if safe_parts:
-            return '/'.join(safe_parts)
+            return "/".join(safe_parts)
         else:
             # Everything has special chars, use root
-            return '.'
+            return "."
 
     # Group files by directory for efficient copying
     dirs_to_copy = set()
     files_to_copy = []
 
     for file_path in required_files:
-        if '/' in file_path:
+        if "/" in file_path:
             # File in subdirectory
             dir_name = os.path.dirname(file_path)
 
@@ -822,20 +855,20 @@ def generate_dockerfile(project_path: str, config: AppConfig,
 
     # Remove child directories when parent is already included
     # Sort by depth (shortest first) to process parents before children
-    sorted_dirs = sorted(dirs_to_copy, key=lambda x: x.count('/'))
+    sorted_dirs = sorted(dirs_to_copy, key=lambda x: x.count("/"))
     minimal_dirs = []
 
     for dir_name in sorted_dirs:
         # Skip if this is a child of an already-included directory
         is_redundant = False
 
-        if dir_name != '.':
+        if dir_name != ".":
             for existing in minimal_dirs:
-                if existing == '.':
+                if existing == ".":
                     # Root covers everything
                     is_redundant = True
                     break
-                if dir_name.startswith(existing + '/'):
+                if dir_name.startswith(existing + "/"):
                     # This is a child of an existing directory
                     is_redundant = True
                     break
@@ -845,7 +878,7 @@ def generate_dockerfile(project_path: str, config: AppConfig,
 
     # Add copy commands for directories
     for dir_name in minimal_dirs:
-        if dir_name == '.':
+        if dir_name == ".":
             copy_commands.append("COPY . .")
         else:
             copy_commands.append(f"COPY {dir_name}/ ./{dir_name}/")
@@ -874,7 +907,7 @@ def generate_dockerfile(project_path: str, config: AppConfig,
     if _is_release_version(installed_mlserver_version):
         wheel_install_section = (
             f"# Release build: pin the exact framework version (RFC 0001, D16)\n"
-            f'RUN pip install --no-cache-dir '
+            f"RUN pip install --no-cache-dir "
             f'"merve=={installed_mlserver_version}"'
         )
     else:
@@ -916,8 +949,8 @@ RUN pip install --no-cache-dir merve"""
 
     if config.classifier:
         if isinstance(config.classifier, dict):
-            config_classifier_name = config.classifier.get('name')
-            classifier_version = config.classifier.get('version', '1.0.0')
+            config_classifier_name = config.classifier.get("name")
+            classifier_version = config.classifier.get("version", "1.0.0")
         else:
             config_classifier_name = config.classifier.classifier.name
             classifier_version = config.classifier.classifier.version
@@ -947,6 +980,7 @@ RUN pip install --no-cache-dir merve"""
 
     # Capture git info at build time (before containerization)
     from .version import get_git_info
+
     git_info = get_git_info(project_path)
     git_commit = git_info.commit if git_info else None
     git_tag = git_info.tag if git_info else None
@@ -954,6 +988,7 @@ RUN pip install --no-cache-dir merve"""
 
     # Also capture MLServer framework git info
     from .auto_detect import get_mlserver_git_info
+
     mlserver_git_info = get_mlserver_git_info()
     mlserver_api_commit = mlserver_git_info.get("api_commit", "")
     mlserver_api_tag = mlserver_git_info.get("api_tag", "")
@@ -1008,12 +1043,12 @@ ENV PYTHONPATH=/app
 
 # Embed build-time metadata as environment variables
 ENV MLSERVER_CONFIG_FILE="{config_file}"{classifier_env_line}
-ENV MLSERVER_GIT_COMMIT="{git_commit or ''}"
-ENV MLSERVER_GIT_TAG="{git_tag or ''}"
-ENV MLSERVER_GIT_BRANCH="{git_branch or ''}"
-ENV MLSERVER_API_COMMIT="{mlserver_api_commit or ''}"
-ENV MLSERVER_API_TAG="{mlserver_api_tag or ''}"
-ENV MLSERVER_API_BRANCH="{mlserver_api_branch or ''}"
+ENV MLSERVER_GIT_COMMIT="{git_commit or ""}"
+ENV MLSERVER_GIT_TAG="{git_tag or ""}"
+ENV MLSERVER_GIT_BRANCH="{git_branch or ""}"
+ENV MLSERVER_API_COMMIT="{mlserver_api_commit or ""}"
+ENV MLSERVER_API_TAG="{mlserver_api_tag or ""}"
+ENV MLSERVER_API_BRANCH="{mlserver_api_branch or ""}"
 ENV MLSERVER_BUILD_TIME="{datetime.now().isoformat()}"
 
 # Create non-root user
@@ -1039,7 +1074,7 @@ CMD ["merve", "serve", "{config_file}"]
 
 
 def _generate_label_directives(
-    project_path: str, classifier_name: Optional[str], config: Optional['AppConfig'] = None
+    project_path: str, classifier_name: Optional[str], config: Optional["AppConfig"] = None
 ) -> str:
     """Generate LABEL directives for Dockerfile from container labels.
 
@@ -1064,7 +1099,7 @@ def _generate_label_directives(
 
 def _load_container_config(
     project_path: str, config_file: Optional[str] = None, classifier_name: Optional[str] = None
-) -> 'AppConfig':
+) -> "AppConfig":
     """Load and validate configuration for container build."""
     import yaml
 
@@ -1093,8 +1128,10 @@ def _load_container_config(
             return extract_single_classifier_config(multi_config, classifier_name)
         else:
             # Use default or first classifier
-            if (multi_config.default_classifier
-                    and multi_config.default_classifier in multi_config.classifiers):
+            if (
+                multi_config.default_classifier
+                and multi_config.default_classifier in multi_config.classifiers
+            ):
                 return extract_single_classifier_config(
                     multi_config, multi_config.default_classifier
                 )
@@ -1126,7 +1163,7 @@ def _find_git_source_directory() -> Optional[str]:
             from importlib_metadata import distribution
 
         dist = None
-        for _dist_name in ('merve', 'mlserver-fastapi-wrapper'):
+        for _dist_name in ("merve", "mlserver-fastapi-wrapper"):
             try:
                 dist = distribution(_dist_name)
                 break
@@ -1137,17 +1174,17 @@ def _find_git_source_directory() -> Optional[str]:
 
         # Check for editable install location
         location = str(dist._path.parent.parent)
-        if '/src/' in location:
-            parts = location.split('/src/')
+        if "/src/" in location:
+            parts = location.split("/src/")
             if len(parts) > 1:
-                for _src_name in ('merve', 'mlserver-fastapi-wrapper'):
-                    base_path = parts[0] + '/src/' + _src_name
-                    if Path(base_path).exists() and (Path(base_path) / '.git').exists():
+                for _src_name in ("merve", "mlserver-fastapi-wrapper"):
+                    base_path = parts[0] + "/src/" + _src_name
+                    if Path(base_path).exists() and (Path(base_path) / ".git").exists():
                         return base_path
 
         # Check if current package is from git repo
         source_path = Path(__file__).parent.parent
-        if (source_path / '.git').exists():
+        if (source_path / ".git").exists():
             return str(source_path)
 
     except Exception:
@@ -1156,8 +1193,9 @@ def _find_git_source_directory() -> Optional[str]:
     return None
 
 
-def _handle_wheel_preparation(project_path: str, mlserver_source_path: Optional[str] = None,
-                              git_url: Optional[str] = None) -> tuple[Optional[str], bool]:
+def _handle_wheel_preparation(
+    project_path: str, mlserver_source_path: Optional[str] = None, git_url: Optional[str] = None
+) -> tuple[Optional[str], bool]:
     """
     Check for existing wheels or build one if needed.
 
@@ -1214,7 +1252,7 @@ def _handle_wheel_preparation(project_path: str, mlserver_source_path: Optional[
     return None, False
 
 
-def _prepare_container_metadata(config: 'AppConfig', project_path: str) -> 'ClassifierMetadata':
+def _prepare_container_metadata(config: "AppConfig", project_path: str) -> "ClassifierMetadata":
     """Extract or create container metadata from configuration."""
     from .auto_detect import get_git_info, get_project_name
     from .version import ClassifierMetadata
@@ -1223,18 +1261,18 @@ def _prepare_container_metadata(config: 'AppConfig', project_path: str) -> 'Clas
     git_info = get_git_info(project_path)
 
     # Extract version from classifier tag if present (canonical or legacy)
-    version_from_tag = '1.0.0'
-    if git_info.get('tag'):
-        tag = git_info.get('tag')
+    version_from_tag = "1.0.0"
+    if git_info.get("tag"):
+        tag = git_info.get("tag")
         parsed = parse_classifier_tag(tag)
         if parsed:
-            version_from_tag = parsed['version']
+            version_from_tag = parsed["version"]
         else:
             # Fallback: try to extract version with simpler regex
-            match = re.search(r'-v(\d+\.\d+\.\d+)', tag)
+            match = re.search(r"-v(\d+\.\d+\.\d+)", tag)
             if match:
                 version_from_tag = match.group(1)
-            elif re.match(r'^\d+\.\d+\.\d+$', tag):
+            elif re.match(r"^\d+\.\d+\.\d+$", tag):
                 # Tag is already just a version
                 version_from_tag = tag
 
@@ -1243,40 +1281,47 @@ def _prepare_container_metadata(config: 'AppConfig', project_path: str) -> 'Clas
         if isinstance(config.classifier, dict):
             # Ensure required fields have defaults
             classifier_data = config.classifier.copy()
-            if 'repository' not in classifier_data or not classifier_data['repository']:
-                classifier_data['repository'] = (
-                    git_info.get('repository') or get_project_name(project_path)
+            if "repository" not in classifier_data or not classifier_data["repository"]:
+                classifier_data["repository"] = git_info.get("repository") or get_project_name(
+                    project_path
                 )
-            if 'version' not in classifier_data or not classifier_data['version']:
-                classifier_data['version'] = version_from_tag
+            if "version" not in classifier_data or not classifier_data["version"]:
+                classifier_data["version"] = version_from_tag
 
             model_data = config.model or {}
-            if 'version' not in model_data or not model_data['version']:
-                model_data['version'] = version_from_tag
+            if "version" not in model_data or not model_data["version"]:
+                model_data["version"] = version_from_tag
 
-            return ClassifierMetadata.model_validate({
-                "classifier": classifier_data,
-                "model": model_data,
-                "api": config.api.model_dump() if config.api else {}
-            })
+            return ClassifierMetadata.model_validate(
+                {
+                    "classifier": classifier_data,
+                    "model": model_data,
+                    "api": config.api.model_dump() if config.api else {},
+                }
+            )
         else:
             return config.classifier
 
     # If no classifier metadata found, return error
     from .errors import ConfigurationError
+
     raise ConfigurationError(
         message=f"mlserver.yaml in {project_path} missing required 'classifier' section",
         suggestion=(
             "Run 'mlserver init' to create a proper configuration, "
             "or add a 'classifier:' section with 'name:' and 'version:' fields"
-        )
+        ),
     )
 
 
-def _generate_container_tags(metadata: 'ClassifierMetadata', config: 'AppConfig',
-                            project_path: str, tag_prefix: Optional[str] = None,
-                            registry: Optional[str] = None,
-                            classifier_name: Optional[str] = None) -> list[str]:
+def _generate_container_tags(
+    metadata: "ClassifierMetadata",
+    config: "AppConfig",
+    project_path: str,
+    tag_prefix: Optional[str] = None,
+    registry: Optional[str] = None,
+    classifier_name: Optional[str] = None,
+) -> list[str]:
     """Generate final container tags with prefixes and registry."""
     from .version_control import GitVersionManager
 
@@ -1316,10 +1361,12 @@ def _generate_container_tags(metadata: 'ClassifierMetadata', config: 'AppConfig'
     return final_tags
 
 
-def _prepare_docker_build_command(final_tags: list[str],
-                                 build_args: Optional[dict[str, str]] = None,
-                                 no_cache: bool = False,
-                                 platform: Optional[str] = None) -> list[str]:
+def _prepare_docker_build_command(
+    final_tags: list[str],
+    build_args: Optional[dict[str, str]] = None,
+    no_cache: bool = False,
+    platform: Optional[str] = None,
+) -> list[str]:
     """Prepare Docker build command with all arguments."""
     build_cmd = ["docker", "build", ".", "-f", "Dockerfile"]
 
@@ -1343,11 +1390,16 @@ def _prepare_docker_build_command(final_tags: list[str],
     return build_cmd
 
 
-def _write_docker_files(project_path: str, config: 'AppConfig', required_files: list[str],
-                       analysis: dict[str, Any], has_wheel: bool, needs_git: bool,
-                       classifier_name: Optional[str] = None,
-                       bake_classifier_env: Optional[str] = None
-                       ) -> tuple[Path, Path, Optional[Path]]:
+def _write_docker_files(
+    project_path: str,
+    config: "AppConfig",
+    required_files: list[str],
+    analysis: dict[str, Any],
+    has_wheel: bool,
+    needs_git: bool,
+    classifier_name: Optional[str] = None,
+    bake_classifier_env: Optional[str] = None,
+) -> tuple[Path, Path, Optional[Path]]:
     """Generate and write Dockerfile and .dockerignore files.
 
     Args:
@@ -1384,6 +1436,7 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
         if original_path.exists() and detect_multi_classifier_config(str(original_path)):
             # Write a temporary single-classifier config
             import yaml
+
             temp_config_file = Path(project_path) / f".mlserver.{classifier_name}.yaml"
 
             # Convert AppConfig to dict for the single classifier
@@ -1392,13 +1445,14 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
                 "predictor": config.predictor.model_dump(exclude_none=True),
                 "observability": (
                     config.observability.model_dump(exclude_none=True)
-                    if config.observability else {}
+                    if config.observability
+                    else {}
                 ),
-                "api": config.api.model_dump(exclude_none=True) if config.api else {}
+                "api": config.api.model_dump(exclude_none=True) if config.api else {},
             }
 
             # Handle classifier field (could be dict or object)
-            if hasattr(config, 'classifier') and config.classifier:
+            if hasattr(config, "classifier") and config.classifier:
                 if isinstance(config.classifier, dict):
                     config_dict["classifier"] = config.classifier
                 else:
@@ -1407,7 +1461,7 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
             # Remove empty sections
             config_dict = {k: v for k, v in config_dict.items() if v}
 
-            with open(temp_config_file, 'w') as f:
+            with open(temp_config_file, "w") as f:
                 yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
 
             # Update required_files to include the temp config instead of original
@@ -1417,8 +1471,14 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
 
     # Generate Dockerfile
     dockerfile_content = generate_dockerfile(
-        project_path, config, required_files, base_image, has_wheel, needs_git, classifier_name,
-        bake_classifier_env=bake_classifier_env
+        project_path,
+        config,
+        required_files,
+        base_image,
+        has_wheel,
+        needs_git,
+        classifier_name,
+        bake_classifier_env=bake_classifier_env,
     )
 
     # If we created a temp config, update Dockerfile to rename it to mlserver.yaml
@@ -1426,51 +1486,46 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
         # Find the COPY line for the temp config and replace it
         temp_filename = f".mlserver.{classifier_name}.yaml"
         # Look for the pattern in various formats
-        for pattern in [
-            f"COPY {temp_filename} ./",
-            f"{temp_filename} ./",
-            f"{temp_filename}"
-        ]:
+        for pattern in [f"COPY {temp_filename} ./", f"{temp_filename} ./", f"{temp_filename}"]:
             if pattern in dockerfile_content:
                 # Replace just the destination part to rename to mlserver.yaml
                 if pattern == f"COPY {temp_filename} ./":
                     dockerfile_content = dockerfile_content.replace(
-                        f"COPY {temp_filename} ./",
-                        f"COPY {temp_filename} ./mlserver.yaml"
+                        f"COPY {temp_filename} ./", f"COPY {temp_filename} ./mlserver.yaml"
                     )
                 elif " ./" in dockerfile_content and temp_filename in dockerfile_content:
                     # Handle case where it's part of a multi-file COPY
-                    lines = dockerfile_content.split('\n')
+                    lines = dockerfile_content.split("\n")
                     for i, line in enumerate(lines):
-                        if 'COPY ' in line and temp_filename in line:
+                        if "COPY " in line and temp_filename in line:
                             # Replace the temp file with proper renaming
-                            if temp_filename + ' ./' in line:
+                            if temp_filename + " ./" in line:
                                 # Multiple files in one COPY - split them
                                 other_files = (
-                                    line.replace('COPY ', '').replace('./', '').strip().split()
+                                    line.replace("COPY ", "").replace("./", "").strip().split()
                                 )
                                 other_files.remove(temp_filename)
                                 if other_files:
                                     lines[i] = f"COPY {' '.join(other_files)} ./"
-                                    lines.insert(i+1, f"COPY {temp_filename} ./mlserver.yaml")
+                                    lines.insert(i + 1, f"COPY {temp_filename} ./mlserver.yaml")
                                 else:
                                     lines[i] = f"COPY {temp_filename} ./mlserver.yaml"
                             break
-                    dockerfile_content = '\n'.join(lines)
+                    dockerfile_content = "\n".join(lines)
                 break
 
     dockerfile_path = Path(project_path) / "Dockerfile"
-    with open(dockerfile_path, 'w') as f:
+    with open(dockerfile_path, "w") as f:
         f.write(dockerfile_content)
 
     # Generate .dockerignore
     dockerignore_content = generate_dockerignore(
         project_path,
         analysis["auto_excludes"],
-        config.build.exclude_patterns if config.build else None
+        config.build.exclude_patterns if config.build else None,
     )
     dockerignore_path = Path(project_path) / ".dockerignore"
-    with open(dockerignore_path, 'w') as f:
+    with open(dockerignore_path, "w") as f:
         f.write(dockerignore_content)
 
     return dockerfile_path, dockerignore_path, temp_config_file
@@ -1516,12 +1571,12 @@ def _execute_docker_build(build_cmd: list[str], project_path: str) -> tuple[int,
     )
 
     output_lines = []
-    for line in iter(process.stdout.readline, ''):
+    for line in iter(process.stdout.readline, ""):
         print(line.rstrip())  # Print to console in real-time
         output_lines.append(line)
 
     process.wait()
-    full_output = ''.join(output_lines)
+    full_output = "".join(output_lines)
 
     print("=" * 60)
     print(f"Build completed with exit code: {process.returncode}")
@@ -1579,7 +1634,7 @@ def _build_commit_container(
         if not classifier_names:
             raise ContainerError(
                 message="Multi-classifier config has no classifiers to build",
-                suggestion="Add at least one classifier under 'classifiers:'"
+                suggestion="Add at least one classifier under 'classifiers:'",
             )
 
         # Union required files + auto-excludes across ALL classifiers so the
@@ -1613,24 +1668,28 @@ def _build_commit_container(
         if representative_config.build and representative_config.build.base_image:
             base_image = representative_config.build.base_image
 
-        print("Building single commit image bundling classifiers: "
-              f"{', '.join(classifier_names)}")
+        print(f"Building single commit image bundling classifiers: {', '.join(classifier_names)}")
         print(f"  Total files to copy: {len(required_files_list)}")
 
         # Commit-image Dockerfile: no baked classifier, repo-level labels, full
         # multi-classifier config shipped as-is (no per-classifier extraction).
         dockerfile_content = generate_dockerfile(
-            project_path, representative_config, required_files_list,
-            base_image, has_wheel, needs_git,
-            classifier_name=None, commit_image=True,
+            project_path,
+            representative_config,
+            required_files_list,
+            base_image,
+            has_wheel,
+            needs_git,
+            classifier_name=None,
+            commit_image=True,
         )
         dockerfile_path = Path(project_path) / "Dockerfile"
         dockerfile_path.write_text(dockerfile_content)
 
         dockerignore_content = generate_dockerignore(
-            project_path, auto_excludes,
-            representative_config.build.exclude_patterns
-            if representative_config.build else None
+            project_path,
+            auto_excludes,
+            representative_config.build.exclude_patterns if representative_config.build else None,
         )
         dockerignore_path = Path(project_path) / ".dockerignore"
         dockerignore_path.write_text(dockerignore_content)
@@ -1666,7 +1725,7 @@ def _build_commit_container(
                 suggestion=(
                     "Check the build output above for errors. Common issues: missing files, "
                     "invalid Dockerfile syntax, or network issues pulling base image"
-                )
+                ),
             )
 
         git_info = get_git_info(project_path)
@@ -1683,10 +1742,7 @@ def _build_commit_container(
         }
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def build_container(
@@ -1699,7 +1755,7 @@ def build_container(
     no_cache: bool = False,
     mlserver_source_path: Optional[str] = None,
     platform: Optional[str] = None,
-    per_classifier_image: bool = False
+    per_classifier_image: bool = False,
 ) -> dict[str, Any]:
     """
     Build Docker container for the classifier project with intelligent file detection.
@@ -1740,15 +1796,25 @@ def build_container(
             and detect_multi_classifier_config(str(resolved_config_path))
         ):
             return _build_commit_container(
-                project_path, str(resolved_config_path), tag_prefix, registry,
-                build_args, no_cache, mlserver_source_path, platform
+                project_path,
+                str(resolved_config_path),
+                tag_prefix,
+                registry,
+                build_args,
+                no_cache,
+                mlserver_source_path,
+                platform,
             )
 
         # Per-classifier-image (or single-classifier) path bakes the classifier
         # selection into the image (multi-classifier repos only).
         bake_env = None
-        if per_classifier_image and classifier_name and resolved_config_path and \
-                detect_multi_classifier_config(str(resolved_config_path)):
+        if (
+            per_classifier_image
+            and classifier_name
+            and resolved_config_path
+            and detect_multi_classifier_config(str(resolved_config_path))
+        ):
             bake_env = classifier_name
 
         # Load configuration
@@ -1777,8 +1843,14 @@ def build_container(
 
         # Write Docker files (Dockerfile and .dockerignore)
         dockerfile_path, dockerignore_path, temp_config_file = _write_docker_files(
-            project_path, config, required_files, analysis, has_wheel, needs_git, classifier_name,
-            bake_classifier_env=bake_env
+            project_path,
+            config,
+            required_files,
+            analysis,
+            has_wheel,
+            needs_git,
+            classifier_name,
+            bake_classifier_env=bake_env,
         )
 
         # Prepare container metadata and tags
@@ -1792,8 +1864,7 @@ def build_container(
 
         # Execute build
         print(
-            f"Building container for {metadata.classifier.name} "
-            f"v{metadata.classifier.version}..."
+            f"Building container for {metadata.classifier.name} v{metadata.classifier.version}..."
         )
         print(f"Tags: {', '.join(final_tags)}")
 
@@ -1823,7 +1894,7 @@ def build_container(
                 suggestion=(
                     "Check the build output above for errors. Common issues: missing files, "
                     "invalid Dockerfile syntax, or network issues pulling base image"
-                )
+                ),
             )
 
         return {
@@ -1835,14 +1906,11 @@ def build_container(
             "file_analysis": analysis,
             "metadata": metadata.model_dump(),
             "git_info": get_git_info(project_path).__dict__ if get_git_info(project_path) else None,
-            "build_output": full_output
+            "build_output": full_output,
         }
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def push_container(
@@ -1850,7 +1918,7 @@ def push_container(
     registry: Optional[str] = None,
     tag_prefix: Optional[str] = None,
     classifier_name: Optional[str] = None,
-    version: Optional[str] = None
+    version: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Push container to registry.
@@ -1874,7 +1942,7 @@ def push_container(
                 suggestion=(
                     "Specify registry with --registry flag or configure it in "
                     "mlserver.yaml under deployment.registry.url"
-                )
+                ),
             )
 
         # Load classifier metadata (multi-classifier aware)
@@ -1901,9 +1969,7 @@ def push_container(
 
         # Generate container tags
         base_tags = generate_container_tags(
-            metadata, git_info,
-            project_path=project_path,
-            classifier_name=classifier_name
+            metadata, git_info, project_path=project_path, classifier_name=classifier_name
         )
 
         # Apply prefix and registry
@@ -1920,11 +1986,7 @@ def push_container(
 
         for tag in push_tags:
             print(f"Pushing {tag}...")
-            result = subprocess.run(
-                ["docker", "push", tag],
-                capture_output=True,
-                text=True
-            )
+            result = subprocess.run(["docker", "push", tag], capture_output=True, text=True)
 
             if result.returncode == 0:
                 pushed_tags.append(tag)
@@ -1940,14 +2002,11 @@ def push_container(
             "pushed_tags": pushed_tags,
             "failed_tags": push_errors,
             "registry": registry,
-            "metadata": metadata.model_dump()
+            "metadata": metadata.model_dump(),
         }
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def push_classifier_alias(
@@ -1987,7 +2046,7 @@ def push_classifier_alias(
         if not registry:
             raise ContainerError(
                 message="Registry URL is required for push operation",
-                suggestion="Specify registry with --registry flag"
+                suggestion="Specify registry with --registry flag",
             )
 
         repository = get_repository_name(project_path)
@@ -2019,23 +2078,15 @@ def push_classifier_alias(
         for alias in alias_tags:
             # Re-tag the commit image (no rebuild), then push the alias
             tag_result = subprocess.run(
-                ["docker", "tag", source_image, alias],
-                capture_output=True,
-                text=True
+                ["docker", "tag", source_image, alias], capture_output=True, text=True
             )
             if tag_result.returncode != 0:
-                failed_tags.append(
-                    f"Failed to tag {source_image} as {alias}: {tag_result.stderr}"
-                )
+                failed_tags.append(f"Failed to tag {source_image} as {alias}: {tag_result.stderr}")
                 print(f"✗ Failed to tag {source_image} as {alias}")
                 continue
 
             print(f"Pushing {alias} (alias of {source_image})...")
-            push_result = subprocess.run(
-                ["docker", "push", alias],
-                capture_output=True,
-                text=True
-            )
+            push_result = subprocess.run(["docker", "push", alias], capture_output=True, text=True)
             if push_result.returncode == 0:
                 pushed_tags.append(alias)
                 print(f"✓ Successfully pushed {alias}")
@@ -2055,10 +2106,7 @@ def push_classifier_alias(
         }
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def list_images(
@@ -2082,24 +2130,28 @@ def list_images(
         # Use simpler Docker format without table to avoid parsing issues
         # Format: REPOSITORY:TAG|IMAGE_ID|CREATED|SIZE
         result = subprocess.run(
-            ["docker", "images", "--format",
-             "{{.Repository}}:{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}"],
+            [
+                "docker",
+                "images",
+                "--format",
+                "{{.Repository}}:{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}",
+            ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         if result.returncode != 0:
             return []
 
         images = []
-        lines = result.stdout.strip().split('\n')
+        lines = result.stdout.strip().split("\n")
 
         for line in lines:
             if not line:  # Skip empty lines
                 continue
 
             # Parse using pipe delimiter
-            parts = line.split('|')
+            parts = line.split("|")
             if len(parts) >= 4:
                 repo_tag = parts[0]
                 # Check if this image belongs to our repository/classifier
@@ -2109,18 +2161,19 @@ def list_images(
                 if classifier_filter and repo_tag.startswith(classifier_filter):
                     match = True
                 elif not classifier_filter and (
-                    repo_tag.startswith(repository + "/")
-                    or repo_tag.startswith(repository + ":")
+                    repo_tag.startswith(repository + "/") or repo_tag.startswith(repository + ":")
                 ):
                     match = True
 
                 if match:
-                    images.append({
-                        "tag": repo_tag,
-                        "image_id": parts[1],
-                        "created": parts[2],
-                        "size": parts[3]
-                    })
+                    images.append(
+                        {
+                            "tag": repo_tag,
+                            "image_id": parts[1],
+                            "created": parts[2],
+                            "size": parts[3],
+                        }
+                    )
 
         return images
 
@@ -2128,6 +2181,7 @@ def list_images(
         # Log the error for debugging (in real usage, use proper logging)
         import sys
         import traceback
+
         print(f"Error in list_images: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return []
@@ -2160,24 +2214,17 @@ def remove_images(project_path: str = ".", force: bool = False) -> dict[str, Any
         return {
             "success": len(removed_images) > 0,
             "removed_images": removed_images,
-            "errors": removal_errors
+            "errors": removal_errors,
         }
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+        return {"success": False, "error": str(e)}
 
 
 def check_docker_availability() -> bool:
     """Check if Docker is available and running."""
     try:
-        result = subprocess.run(
-            ["docker", "--version"],
-            capture_output=True,
-            text=True
-        )
+        result = subprocess.run(["docker", "--version"], capture_output=True, text=True)
         return result.returncode == 0
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False

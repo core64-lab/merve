@@ -3,7 +3,7 @@
 # Run on all files: pre-commit run --all-files
 #
 # Lint policy: RFC 0001 (docs/rfcs/0001-design-decisions-and-sprint-plan.md), W0.2.
-# Formatting (ruff-format) is deliberately NOT enabled yet - see W2.7.
+# Formatting (ruff-format) enabled in Wave 2 (W2.7).
 
 exclude: '^(build/|dist/|htmlcov/|examples/example_titanic_raw/)'
 
@@ -21,6 +21,4 @@ repos:
     rev: v0.15.20
     hooks:
       - id: ruff-check
-      # ruff-format is enabled in Wave 2 (RFC 0001 W2.7) - formatting lands as
-      # a single isolated commit after the breaking batch, not before.
-      # - id: ruff-format
+      - id: ruff-format

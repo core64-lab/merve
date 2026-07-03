@@ -40,7 +40,9 @@ class MockClassifierRepo:
     def _init_git(self):
         """Initialize git repository."""
         subprocess.run(["git", "init"], cwd=self.repo_path, check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.repo_path, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"], cwd=self.repo_path, check=True
+        )
         subprocess.run(["git", "config", "user.name", "Test User"], cwd=self.repo_path, check=True)
 
     def _create_predictor_files(self):
@@ -141,45 +143,28 @@ class IntentPredictor(TestPredictor):
     def _create_single_classifier_config(self):
         """Create single classifier configuration."""
         config = {
-            "server": {
-                "title": "Test ML Server",
-                "host": "0.0.0.0",
-                "port": 8000,
-                "workers": 1
-            },
+            "server": {"title": "Test ML Server", "host": "0.0.0.0", "port": 8000, "workers": 1},
             "predictor": {
                 "module": "predictors.test_predictor",
                 "class_name": "TestPredictor",
-                "init_kwargs": {
-                    "model_path": "models/model.pkl"
-                }
+                "init_kwargs": {"model_path": "models/model.pkl"},
             },
             "classifier": {
                 "name": "test-classifier",
                 "version": "1.0.0",
                 "description": "Test classifier for testing",
-                "repository": "mlserver"
+                "repository": "mlserver",
             },
             "api": {
                 "version": "v1",
                 "adapter": "records",
-                "endpoints": {
-                    "predict": True,
-                    "batch_predict": True,
-                    "predict_proba": True
-                }
+                "endpoints": {"predict": True, "batch_predict": True, "predict_proba": True},
             },
-            "observability": {
-                "metrics": True,
-                "structured_logging": False
-            },
-            "model": {
-                "version": "1.0.0",
-                "trained_at": "2024-01-01T00:00:00Z"
-            }
+            "observability": {"metrics": True, "structured_logging": False},
+            "model": {"version": "1.0.0", "trained_at": "2024-01-01T00:00:00Z"},
         }
 
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, "w") as f:
             yaml.dump(config, f)
 
     def _create_multi_classifier_config(self):
@@ -191,82 +176,64 @@ class IntentPredictor(TestPredictor):
                     "server": {
                         "title": "Sentiment Analysis Server",
                         "host": "0.0.0.0",
-                        "port": 8000
+                        "port": 8000,
                     },
                     "predictor": {
                         "module": "predictors.test_predictor",
                         "class_name": "SentimentPredictor",
-                        "init_kwargs": {
-                            "model_path": "models/model.pkl"
-                        }
+                        "init_kwargs": {"model_path": "models/model.pkl"},
                     },
                     "classifier": {
                         "name": "sentiment",
                         "version": "1.0.0",
                         "description": "Sentiment analysis classifier",
-                        "repository": "mlserver"
+                        "repository": "mlserver",
                     },
                     "api": {
                         "adapter": "records",
-                        "endpoints": {
-                            "predict": True,
-                            "batch_predict": True
-                        }
+                        "endpoints": {"predict": True, "batch_predict": True},
                     },
-                    "observability": {
-                        "metrics": True
-                    },
-                    "model": {
-                        "version": "1.0.0",
-                        "trained_at": "2024-01-01T00:00:00Z"
-                    }
+                    "observability": {"metrics": True},
+                    "model": {"version": "1.0.0", "trained_at": "2024-01-01T00:00:00Z"},
                 },
                 {
                     "name": "intent",
                     "server": {
                         "title": "Intent Classification Server",
                         "host": "0.0.0.0",
-                        "port": 8001
+                        "port": 8001,
                     },
                     "predictor": {
                         "module": "predictors.test_predictor",
                         "class_name": "IntentPredictor",
-                        "init_kwargs": {
-                            "model_path": "models/model.pkl"
-                        }
+                        "init_kwargs": {"model_path": "models/model.pkl"},
                     },
                     "classifier": {
                         "name": "intent",
                         "version": "2.0.0",
                         "description": "Intent classification",
-                        "repository": "mlserver"
+                        "repository": "mlserver",
                     },
                     "api": {
                         "adapter": "records",
-                        "endpoints": {
-                            "predict": True,
-                            "batch_predict": True
-                        }
+                        "endpoints": {"predict": True, "batch_predict": True},
                     },
-                    "observability": {
-                        "metrics": True
-                    },
-                    "model": {
-                        "version": "1.0.0",
-                        "trained_at": "2024-01-01T00:00:00Z"
-                    }
-                }
+                    "observability": {"metrics": True},
+                    "model": {"version": "1.0.0", "trained_at": "2024-01-01T00:00:00Z"},
+                },
             ],
-            "default_classifier": "sentiment"
+            "default_classifier": "sentiment",
         }
 
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, "w") as f:
             yaml.dump(config, f)
 
     def _commit_all(self, message: str):
         """Add all files and commit."""
         subprocess.run(["git", "add", "."], cwd=self.repo_path, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", message], cwd=self.repo_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", message], cwd=self.repo_path, check=True, capture_output=True
+        )
 
     def make_change(self, filename: str = "update.txt", content: str = "update"):
         """Make a change to the repository."""
@@ -284,16 +251,18 @@ class IntentPredictor(TestPredictor):
         """Get list of classifier names."""
         if self.multi_classifier:
             from mlserver.multi_classifier import list_available_classifiers
+
             return list_available_classifiers(str(self.config_path))
         else:
             # Single classifier
             with open(self.config_path) as f:
                 config = yaml.safe_load(f)
-            return [config['classifier']['name']]
+            return [config["classifier"]["name"]]
 
     def run_cli_command(self, *args) -> subprocess.CompletedProcess:
         """Run a CLI command in the repository context."""
         import sys
+
         # Build full command using current Python interpreter
         cmd = [sys.executable, "-m", "mlserver.cli"] + list(args)
 
@@ -303,7 +272,7 @@ class IntentPredictor(TestPredictor):
             cwd=self.repo_path,
             capture_output=True,
             text=True,
-            env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent.parent)}
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent.parent)},
         )
 
         return result
@@ -337,7 +306,7 @@ class IntentPredictor(TestPredictor):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent.parent)}
+            env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent.parent)},
         )
 
         if wait_for_ready:

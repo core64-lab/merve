@@ -107,7 +107,9 @@ class TestMetricsAccuracy:
         # but we can check that metrics are being generated
         assert len(final_content) >= len(initial_content)
 
-    async def test_different_endpoints_counted_separately(self, observability_client, sample_records_payload):
+    async def test_different_endpoints_counted_separately(
+        self, observability_client, sample_records_payload
+    ):
         # Make requests to different endpoints
         await observability_client.get("/healthz")
         await observability_client.post("/predict", json=sample_records_payload)
@@ -144,8 +146,10 @@ class TestMetricsAccuracy:
 class TestStructuredLogging:
     """Test structured logging functionality"""
 
-    @patch('mlserver.logging_conf.logging.getLogger')
-    async def test_correlation_ids_generated(self, mock_get_logger, observability_client, sample_records_payload):
+    @patch("mlserver.logging_conf.logging.getLogger")
+    async def test_correlation_ids_generated(
+        self, mock_get_logger, observability_client, sample_records_payload
+    ):
         mock_logger = mock_get_logger.return_value
 
         # Make request
@@ -200,8 +204,7 @@ class TestObservabilityMiddleware:
 
         # Make concurrent requests
         tasks = [
-            observability_client.post("/predict", json=sample_records_payload)
-            for _ in range(3)
+            observability_client.post("/predict", json=sample_records_payload) for _ in range(3)
         ]
 
         responses = await asyncio.gather(*tasks)
@@ -229,13 +232,12 @@ class TestMetricsDisabled:
         config = AppConfig(
             server=ServerConfig(host="127.0.0.1", port=8889),
             predictor=PredictorConfig(
-                module="tests.fixtures.mock_predictor",
-                class_name="MockPredictor"
+                module="tests.fixtures.mock_predictor", class_name="MockPredictor"
             ),
             observability=ObservabilityConfig(
                 metrics=False,  # Metrics disabled!
-                structured_logging=False
-            )
+                structured_logging=False,
+            ),
         )
 
         app = create_app(config)
@@ -244,7 +246,7 @@ class TestMetricsDisabled:
             predictor = load_predictor(
                 config.predictor.module,
                 config.predictor.class_name,
-                config.predictor.init_kwargs or {}
+                config.predictor.init_kwargs or {},
             )
             app.state.predictor = PredictorWrapper(predictor, thread_safe=False)
 
@@ -256,7 +258,9 @@ class TestMetricsDisabled:
         response = await no_metrics_client.get("/metrics")
         assert response.status_code == 404
 
-    async def test_normal_operation_without_metrics(self, no_metrics_client, sample_records_payload):
+    async def test_normal_operation_without_metrics(
+        self, no_metrics_client, sample_records_payload
+    ):
         # Should work normally without metrics
         response = await no_metrics_client.post("/predict", json=sample_records_payload)
         assert response.status_code == 200
@@ -285,7 +289,9 @@ class TestMetricsConfiguration:
 class TestObservabilityIntegration:
     """Test full observability integration"""
 
-    async def test_complete_observability_workflow(self, observability_client, sample_records_payload):
+    async def test_complete_observability_workflow(
+        self, observability_client, sample_records_payload
+    ):
         # Complete workflow: request -> prediction -> metrics -> logs
 
         # 1. Make prediction request

@@ -17,6 +17,7 @@ from typing import Any
 @dataclass
 class CoverageMetrics:
     """Coverage metrics data structure."""
+
     total_statements: int
     covered_statements: int
     missing_statements: int
@@ -57,27 +58,30 @@ class CoverageAnalyzer:
         if not self.coverage_data:
             raise ValueError("Coverage data not loaded. Call load_coverage_data() first.")
 
-        totals = self.coverage_data.get('totals', {})
-        files = self.coverage_data.get('files', {})
+        totals = self.coverage_data.get("totals", {})
+        files = self.coverage_data.get("files", {})
 
         # Filter to only mlserver files (exclude tests, examples, etc.)
         mlserver_files = {
-            path: data for path, data in files.items()
-            if 'mlserver/' in path and not any(exclude in path for exclude in [
-                '/tests/', '/test_', '__pycache__', '/examples/', '/docs/', '.pyc'
-            ])
+            path: data
+            for path, data in files.items()
+            if "mlserver/" in path
+            and not any(
+                exclude in path
+                for exclude in ["/tests/", "/test_", "__pycache__", "/examples/", "/docs/", ".pyc"]
+            )
         }
 
         # Calculate metrics
-        total_statements = totals.get('num_statements', 0)
-        covered_statements = totals.get('covered_lines', 0)
-        missing_statements = totals.get('missing_lines', 0)
-        coverage_percent = totals.get('percent_covered', 0.0)
+        total_statements = totals.get("num_statements", 0)
+        covered_statements = totals.get("covered_lines", 0)
+        missing_statements = totals.get("missing_lines", 0)
+        coverage_percent = totals.get("percent_covered", 0.0)
 
         # Branch coverage (if available)
-        branch_coverage = totals.get('percent_covered_display', '0%')
+        branch_coverage = totals.get("percent_covered_display", "0%")
         if isinstance(branch_coverage, str):
-            branch_coverage = float(branch_coverage.rstrip('%'))
+            branch_coverage = float(branch_coverage.rstrip("%"))
         else:
             branch_coverage = coverage_percent
 
@@ -87,7 +91,7 @@ class CoverageAnalyzer:
             missing_statements=missing_statements,
             coverage_percent=coverage_percent,
             branch_coverage=branch_coverage,
-            file_coverage=mlserver_files
+            file_coverage=mlserver_files,
         )
 
         return self.metrics
@@ -134,13 +138,13 @@ class CoverageAnalyzer:
         # Sort files by coverage percentage (lowest first)
         sorted_files = sorted(
             self.metrics.file_coverage.items(),
-            key=lambda x: x[1].get('summary', {}).get('percent_covered', 0)
+            key=lambda x: x[1].get("summary", {}).get("percent_covered", 0),
         )
 
         printed_files = 0
         for file_path, file_data in sorted_files:
-            summary = file_data.get('summary', {})
-            coverage = summary.get('percent_covered', 0.0)
+            summary = file_data.get("summary", {})
+            coverage = summary.get("percent_covered", 0.0)
 
             # Skip files above minimum coverage threshold unless showing all
             if not show_all and coverage > min_coverage:
@@ -149,7 +153,7 @@ class CoverageAnalyzer:
             # Clean up file path for display
             # Clean up paths - remove common prefixes
             display_path = file_path
-            for prefix in ['mlserver/', 'tests/', './']:
+            for prefix in ["mlserver/", "tests/", "./"]:
                 if display_path.startswith(prefix):
                     break
 
@@ -163,8 +167,8 @@ class CoverageAnalyzer:
             else:
                 emoji = "🔴"
 
-            statements = summary.get('num_statements', 0)
-            missing = summary.get('missing_lines', 0)
+            statements = summary.get("num_statements", 0)
+            missing = summary.get("missing_lines", 0)
             covered = statements - missing
 
             print(f"{emoji} {coverage:5.1f}% | {covered:3d}/{statements:3d} | {display_path}")
@@ -180,19 +184,24 @@ class CoverageAnalyzer:
 
         gaps = []
         for file_path, file_data in self.metrics.file_coverage.items():
-            summary = file_data.get('summary', {})
-            coverage = summary.get('percent_covered', 0.0)
+            summary = file_data.get("summary", {})
+            coverage = summary.get("percent_covered", 0.0)
 
             if coverage < 80:  # Below 80% coverage
-                gaps.append((file_path, {
-                    'coverage': coverage,
-                    'statements': summary.get('num_statements', 0),
-                    'missing': summary.get('missing_lines', 0),
-                    'missing_line_numbers': file_data.get('missing_lines', [])
-                }))
+                gaps.append(
+                    (
+                        file_path,
+                        {
+                            "coverage": coverage,
+                            "statements": summary.get("num_statements", 0),
+                            "missing": summary.get("missing_lines", 0),
+                            "missing_line_numbers": file_data.get("missing_lines", []),
+                        },
+                    )
+                )
 
         # Sort by coverage percentage (worst first)
-        gaps.sort(key=lambda x: x[1]['coverage'])
+        gaps.sort(key=lambda x: x[1]["coverage"])
         return gaps
 
     def generate_recommendations(self) -> list[str]:
@@ -215,8 +224,7 @@ class CoverageAnalyzer:
             )
         elif coverage < 80:
             recommendations.append(
-                "📈 Coverage is approaching good levels. "
-                "Focus on edge cases and error conditions."
+                "📈 Coverage is approaching good levels. Focus on edge cases and error conditions."
             )
         elif coverage < 90:
             recommendations.append(
@@ -232,7 +240,7 @@ class CoverageAnalyzer:
         if gaps:
             recommendations.append("\n📋 Priority files to improve:")
             for file_path, gap_data in gaps[:5]:  # Top 5 worst files
-                clean_path = file_path.split('/')[-1]  # Just filename
+                clean_path = file_path.split("/")[-1]  # Just filename
                 recommendations.append(
                     f"   • {clean_path}: {gap_data['coverage']:.1f}% "
                     f"({gap_data['missing']} uncovered lines)"
@@ -254,19 +262,19 @@ class CoverageAnalyzer:
         files = self.metrics.file_coverage
 
         # Check CLI module
-        cli_files = [f for f in files.keys() if 'cli.py' in f]
+        cli_files = [f for f in files.keys() if "cli.py" in f]
         if cli_files:
-            cli_coverage = files[cli_files[0]].get('summary', {}).get('percent_covered', 0)
+            cli_coverage = files[cli_files[0]].get("summary", {}).get("percent_covered", 0)
             if cli_coverage < 60:
                 recommendations.append(
                     "\n🔧 CLI Module: Add tests for command parsing and error handling"
                 )
 
         # Check container module
-        container_files = [f for f in files.keys() if 'container.py' in f]
+        container_files = [f for f in files.keys() if "container.py" in f]
         if container_files:
             container_coverage = (
-                files[container_files[0]].get('summary', {}).get('percent_covered', 0)
+                files[container_files[0]].get("summary", {}).get("percent_covered", 0)
             )
             if container_coverage < 60:
                 recommendations.append(
@@ -274,11 +282,9 @@ class CoverageAnalyzer:
                 )
 
         # Check version module
-        version_files = [f for f in files.keys() if 'version.py' in f]
+        version_files = [f for f in files.keys() if "version.py" in f]
         if version_files:
-            version_coverage = (
-                files[version_files[0]].get('summary', {}).get('percent_covered', 0)
-            )
+            version_coverage = files[version_files[0]].get("summary", {}).get("percent_covered", 0)
             if version_coverage < 60:
                 recommendations.append(
                     "🏷️  Version Module: Add tests for git info extraction and version validation"
@@ -293,25 +299,25 @@ class CoverageAnalyzer:
             return False
 
         export_data = {
-            'timestamp': Path().cwd().name,  # Using cwd as timestamp placeholder
-            'overall_coverage': self.metrics.coverage_percent,
-            'branch_coverage': self.metrics.branch_coverage,
-            'total_statements': self.metrics.total_statements,
-            'covered_statements': self.metrics.covered_statements,
-            'missing_statements': self.metrics.missing_statements,
-            'coverage_gaps': [
+            "timestamp": Path().cwd().name,  # Using cwd as timestamp placeholder
+            "overall_coverage": self.metrics.coverage_percent,
+            "branch_coverage": self.metrics.branch_coverage,
+            "total_statements": self.metrics.total_statements,
+            "covered_statements": self.metrics.covered_statements,
+            "missing_statements": self.metrics.missing_statements,
+            "coverage_gaps": [
                 {
-                    'file': gap[0].split('/')[-1],
-                    'coverage': gap[1]['coverage'],
-                    'missing_lines': gap[1]['missing']
+                    "file": gap[0].split("/")[-1],
+                    "coverage": gap[1]["coverage"],
+                    "missing_lines": gap[1]["missing"],
                 }
                 for gap in self.identify_coverage_gaps()
             ],
-            'recommendations': self.generate_recommendations()
+            "recommendations": self.generate_recommendations(),
         }
 
         try:
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
                 json.dump(export_data, f, indent=2)
             print(f"✅ Coverage metrics exported to {output_path}")
             return True
@@ -324,31 +330,27 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Analyze test coverage metrics")
     parser.add_argument(
-        '--coverage-file',
-        default='coverage.json',
-        help='Path to coverage.json file (default: coverage.json)'
+        "--coverage-file",
+        default="coverage.json",
+        help="Path to coverage.json file (default: coverage.json)",
     )
     parser.add_argument(
-        '--show-all-files',
-        action='store_true',
-        help='Show coverage for all files, not just low coverage ones'
+        "--show-all-files",
+        action="store_true",
+        help="Show coverage for all files, not just low coverage ones",
     )
     parser.add_argument(
-        '--min-coverage',
+        "--min-coverage",
         type=float,
         default=80.0,
-        help='Minimum coverage threshold for file display (default: 80.0)'
+        help="Minimum coverage threshold for file display (default: 80.0)",
     )
+    parser.add_argument("--export", metavar="FILE", help="Export metrics to JSON file")
     parser.add_argument(
-        '--export',
-        metavar='FILE',
-        help='Export metrics to JSON file'
-    )
-    parser.add_argument(
-        '--check-threshold',
+        "--check-threshold",
         type=float,
-        metavar='PERCENT',
-        help='Exit with error code if coverage below threshold'
+        metavar="PERCENT",
+        help="Exit with error code if coverage below threshold",
     )
 
     args = parser.parse_args()
@@ -364,10 +366,7 @@ def main():
 
     # Print summary and breakdown
     analyzer.print_summary()
-    analyzer.print_file_breakdown(
-        show_all=args.show_all_files,
-        min_coverage=args.min_coverage
-    )
+    analyzer.print_file_breakdown(show_all=args.show_all_files, min_coverage=args.min_coverage)
 
     # Print recommendations
     print("\n" + "=" * 60)

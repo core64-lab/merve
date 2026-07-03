@@ -16,7 +16,9 @@ class TestContainerLabelsWithHierarchicalTags:
         with tempfile.TemporaryDirectory() as tmpdir:
             # Initialize git repo
             subprocess.run(["git", "init"], cwd=tmpdir, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"], cwd=tmpdir, check=True
+            )
             subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmpdir, check=True)
 
             # Create minimal mlserver.yaml
@@ -50,14 +52,14 @@ api:
             predictor_dir.mkdir(parents=True, exist_ok=True)
 
             predictor_file = predictor_dir / "mock_predictor.py"
-            predictor_content = '''
+            predictor_content = """
 class MockPredictor:
     def __init__(self):
         pass
 
     def predict(self, data):
         return [{"prediction": "mock"}]
-'''
+"""
             predictor_file.write_text(predictor_content)
 
             # Initial commit
@@ -87,14 +89,13 @@ class MockPredictor:
             cwd=repo_path,
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         classifier_commit = classifier_commit_result.stdout.strip()
 
         # Generate container labels
         labels = generate_container_labels(
-            project_path=repo_path,
-            classifier_name="test_classifier"
+            project_path=repo_path, classifier_name="test_classifier"
         )
 
         # Verify mlserver labels
@@ -135,8 +136,7 @@ class MockPredictor:
 
         # Generate labels
         labels = generate_container_labels(
-            project_path=repo_path,
-            classifier_name="test_classifier"
+            project_path=repo_path, classifier_name="test_classifier"
         )
 
         # Verify all label values are strings
@@ -167,15 +167,14 @@ class MockPredictor:
 
         # Generate labels
         labels = generate_container_labels(
-            project_path=repo_path,
-            classifier_name="test_classifier"
+            project_path=repo_path, classifier_name="test_classifier"
         )
 
         # Verify we have all information needed for reproducibility
         required_for_rebuild = [
-            "com.classifier.git_tag",        # Full hierarchical tag
-            "com.classifier.git_commit",     # Classifier repo commit
-            "com.mlserver.commit",            # MLServer tool commit
+            "com.classifier.git_tag",  # Full hierarchical tag
+            "com.classifier.git_commit",  # Classifier repo commit
+            "com.mlserver.commit",  # MLServer tool commit
         ]
 
         # These are optional (might not be available in temp repos):
@@ -192,6 +191,7 @@ class MockPredictor:
 
         # Verify the git tag can be parsed back to a version (canonical format).
         from mlserver.version_control import parse_classifier_tag
+
         git_tag = labels["com.classifier.git_tag"]
         parsed = parse_classifier_tag(git_tag)
         assert parsed is not None
@@ -211,8 +211,7 @@ class MockPredictor:
 
         # Generate labels
         labels = generate_container_labels(
-            project_path=repo_path,
-            classifier_name="test_classifier"
+            project_path=repo_path, classifier_name="test_classifier"
         )
 
         # Count label categories
@@ -221,8 +220,12 @@ class MockPredictor:
         oci_labels = [k for k in labels if k.startswith("org.opencontainers.")]
 
         # Verify we have labels in each category
-        assert len(mlserver_labels) >= 3, f"Expected at least 3 mlserver labels, got {len(mlserver_labels)}"
-        assert len(classifier_labels) >= 5, f"Expected at least 5 classifier labels, got {len(classifier_labels)}"
+        assert len(mlserver_labels) >= 3, (
+            f"Expected at least 3 mlserver labels, got {len(mlserver_labels)}"
+        )
+        assert len(classifier_labels) >= 5, (
+            f"Expected at least 5 classifier labels, got {len(classifier_labels)}"
+        )
         assert len(oci_labels) >= 3, f"Expected at least 3 OCI labels, got {len(oci_labels)}"
 
         # Total should be at least 15 labels
@@ -247,8 +250,7 @@ class MockPredictor:
 
         # Generate labels
         labels = generate_container_labels(
-            project_path=repo_path,
-            classifier_name="test_classifier"
+            project_path=repo_path, classifier_name="test_classifier"
         )
 
         # Verify version in labels matches parsed version

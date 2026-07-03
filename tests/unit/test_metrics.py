@@ -41,7 +41,7 @@ class TestCountSamples:
     # pandas DataFrames and Series
     def test_pandas_dataframe(self):
         """DataFrame returns number of rows."""
-        df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         assert count_samples(df) == 3
 
     def test_pandas_series(self):
@@ -57,7 +57,7 @@ class TestCountSamples:
     # Lists and tuples
     def test_list_of_dicts(self):
         """List of dicts (records format) returns count."""
-        data = [{'a': 1}, {'a': 2}, {'a': 3}]
+        data = [{"a": 1}, {"a": 2}, {"a": 3}]
         assert count_samples(data) == 3
 
     def test_list_of_lists(self):
@@ -76,33 +76,33 @@ class TestCountSamples:
 
     def test_tuple_of_dicts(self):
         """Tuple of dicts returns count."""
-        data = ({'a': 1}, {'a': 2})
+        data = ({"a": 1}, {"a": 2})
         assert count_samples(data) == 2
 
     # Dictionaries
     def test_dict_with_predictions_key(self):
         """Dict with 'predictions' key counts those."""
-        data = {'predictions': [1, 2, 3, 4]}
+        data = {"predictions": [1, 2, 3, 4]}
         assert count_samples(data) == 4
 
     def test_dict_with_instances_key(self):
         """Dict with 'instances' key counts those."""
-        data = {'instances': [{'f1': 1}, {'f1': 2}]}
+        data = {"instances": [{"f1": 1}, {"f1": 2}]}
         assert count_samples(data) == 2
 
     def test_dict_with_records_key(self):
         """Dict with 'records' key counts those."""
-        data = {'records': [{'a': 1}, {'a': 2}, {'a': 3}]}
+        data = {"records": [{"a": 1}, {"a": 2}, {"a": 3}]}
         assert count_samples(data) == 3
 
     def test_dict_columnar_format(self):
         """Dict in columnar format counts rows."""
-        data = {'col1': [1, 2, 3], 'col2': [4, 5, 6]}
+        data = {"col1": [1, 2, 3], "col2": [4, 5, 6]}
         assert count_samples(data) == 3
 
     def test_single_dict(self):
         """Single dict without special keys returns 1."""
-        data = {'feature1': 1.0, 'feature2': 2.0}
+        data = {"feature1": 1.0, "feature2": 2.0}
         assert count_samples(data) == 1
 
 
@@ -157,9 +157,9 @@ class TestMetricsCollector:
         output_samples = 2
 
         # Track prediction with new signature
-        collector.track_prediction(endpoint, duration,
-                                   input_samples=input_samples,
-                                   output_samples=output_samples)
+        collector.track_prediction(
+            endpoint, duration, input_samples=input_samples, output_samples=output_samples
+        )
 
         # Should complete without error
 
@@ -289,6 +289,7 @@ class TestMetricsModule:
     def test_get_metrics_before_init(self):
         # Reset global collector
         import mlserver.metrics
+
         mlserver.metrics._metrics_collector = None
 
         collector = get_metrics()
@@ -309,6 +310,7 @@ class TestMetricsModule:
 
         # Reset global collector
         from mlserver import metrics
+
         metrics._metrics_collector = None
 
         # Initialize again with different name
@@ -339,7 +341,9 @@ class TestMetricsIntegration:
 
         # Track prediction
         prediction_duration = 0.05
-        collector.track_prediction("/predict", prediction_duration, input_samples=2, output_samples=2)
+        collector.track_prediction(
+            "/predict", prediction_duration, input_samples=2, output_samples=2
+        )
 
         # Track complete request
         total_duration = 0.1

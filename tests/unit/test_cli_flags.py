@@ -17,6 +17,7 @@ The registration test guards the W2.1 package split: the command handlers live i
 separate modules under ``mlserver/cli/`` and are wired onto the shared ``app`` via
 import side effects in ``mlserver/cli/__init__.py``.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,9 +33,22 @@ runner = CliRunner()
 
 # The full command surface (canonical CLI names, hyphenated where applicable).
 EXPECTED_COMMANDS = {
-    "serve", "version", "build", "push", "images", "tag", "clean", "run",
-    "list-classifiers", "status", "init", "init-github", "validate",
-    "doctor", "test", "schema",
+    "serve",
+    "version",
+    "build",
+    "push",
+    "images",
+    "tag",
+    "clean",
+    "run",
+    "list-classifiers",
+    "status",
+    "init",
+    "init-github",
+    "validate",
+    "doctor",
+    "test",
+    "schema",
 }
 
 # Path-taking commands whose long flag is --path with the -C short flag (W2.2).
@@ -178,9 +192,7 @@ class TestRunVolumeFlag:
 
     def test_volume_long_form_accepted(self, tmp_path):
         with patch("mlserver.cli.build.check_docker_availability", return_value=False):
-            result = runner.invoke(
-                app, ["run", "--volume", "/host:/cont", "--path", str(tmp_path)]
-            )
+            result = runner.invoke(app, ["run", "--volume", "/host:/cont", "--path", str(tmp_path)])
         assert result.exit_code == 1  # docker unavailable, but --volume parsed fine
         assert "No such option" not in result.output
 
@@ -194,9 +206,7 @@ class TestClassifierFlag:
     """`--classifier` / `-c` is unchanged by the flag pass."""
 
     def test_c_short_flag_accepted(self, tmp_path):
-        result = runner.invoke(
-            app, ["version", "-c", "mymodel", "-C", str(tmp_path), "--json"]
-        )
+        result = runner.invoke(app, ["version", "-c", "mymodel", "-C", str(tmp_path), "--json"])
         assert result.exit_code == 0, result.output
 
     def test_classifier_long_flag_accepted(self, tmp_path):

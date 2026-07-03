@@ -3,6 +3,7 @@
 Tests for consistent, predictable path resolution across all contexts.
 These tests define expected behavior FIRST as part of TDD.
 """
+
 import tempfile
 from pathlib import Path
 
@@ -24,13 +25,8 @@ class TestRelativePathResolution:
             features_file.write_text('["f1", "f2", "f3"]')
 
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
-                api=ApiConfig(
-                    feature_order="features.json"
-                )
+                predictor=PredictorConfig(module="test", class_name="Test"),
+                api=ApiConfig(feature_order="features.json"),
             )
 
             # Resolve with base_path
@@ -47,13 +43,8 @@ class TestRelativePathResolution:
             features_file.write_text('["a", "b", "c"]')
 
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
-                api=ApiConfig(
-                    feature_order="config/features.json"
-                )
+                predictor=PredictorConfig(module="test", class_name="Test"),
+                api=ApiConfig(feature_order="config/features.json"),
             )
 
             features = config.api.get_resolved_feature_order(base_path=Path(tmpdir))
@@ -64,7 +55,7 @@ class TestRelativePathResolution:
         config = AppConfig(
             predictor=PredictorConfig(
                 module="my_predictor",  # Should work as module name
-                class_name="MyPredictor"
+                class_name="MyPredictor",
             )
         )
         assert config.predictor.module == "my_predictor"
@@ -80,13 +71,10 @@ class TestAbsolutePathHandling:
             features_file.write_text('["x", "y", "z"]')
 
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
+                predictor=PredictorConfig(module="test", class_name="Test"),
                 api=ApiConfig(
                     feature_order=str(features_file)  # Absolute path
-                )
+                ),
             )
 
             # Should work without base_path for absolute
@@ -101,13 +89,8 @@ class TestPathTraversalPrevention:
         """Test that '../' path traversal is rejected."""
         with tempfile.TemporaryDirectory() as tmpdir:
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
-                api=ApiConfig(
-                    feature_order="../secret.json"
-                )
+                predictor=PredictorConfig(module="test", class_name="Test"),
+                api=ApiConfig(feature_order="../secret.json"),
             )
 
             # Should raise ConfigurationError for security
@@ -125,13 +108,8 @@ class TestPathTraversalPrevention:
             outside_path = "/etc/passwd"
 
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
-                api=ApiConfig(
-                    feature_order=outside_path
-                )
+                predictor=PredictorConfig(module="test", class_name="Test"),
+                api=ApiConfig(feature_order=outside_path),
             )
 
             # Should raise ConfigurationError for security when base_path is provided
@@ -149,13 +127,8 @@ class TestMissingPathHandling:
         """Test graceful handling of missing feature_order file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
-                api=ApiConfig(
-                    feature_order="nonexistent.json"
-                )
+                predictor=PredictorConfig(module="test", class_name="Test"),
+                api=ApiConfig(feature_order="nonexistent.json"),
             )
 
             result = config.api.get_resolved_feature_order(base_path=Path(tmpdir))
@@ -165,10 +138,7 @@ class TestMissingPathHandling:
         """Test that missing predictor module is caught at runtime."""
         # This tests the validation, not the import
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="nonexistent_module_xyz",
-                class_name="Test"
-            )
+            predictor=PredictorConfig(module="nonexistent_module_xyz", class_name="Test")
         )
         # Config should be valid, but module won't import
         assert config.predictor.module == "nonexistent_module_xyz"
@@ -185,9 +155,7 @@ class TestPathValidation:
 
             config = AppConfig(
                 predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test",
-                    init_kwargs={"model_path": str(model_path)}
+                    module="test", class_name="Test", init_kwargs={"model_path": str(model_path)}
                 )
             )
 
@@ -206,10 +174,7 @@ class TestConfigFilePathContext:
             project.mkdir()
 
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="predictor",
-                    class_name="MyPredictor"
-                )
+                predictor=PredictorConfig(module="predictor", class_name="MyPredictor")
             )
 
             config.set_project_path(str(project))
@@ -252,13 +217,10 @@ class TestCrossPlatformPaths:
     def test_forward_slash_paths_work_everywhere(self):
         """Test that forward slashes work on all platforms."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test",
-                class_name="Test"
-            ),
+            predictor=PredictorConfig(module="test", class_name="Test"),
             api=ApiConfig(
                 feature_order="config/features.json"  # Forward slashes
-            )
+            ),
         )
         assert "config/features.json" in str(config.api.feature_order)
 
@@ -272,13 +234,8 @@ class TestCrossPlatformPaths:
             features_file.write_text('["a"]')
 
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="test",
-                    class_name="Test"
-                ),
-                api=ApiConfig(
-                    feature_order="config/data/features.json"
-                )
+                predictor=PredictorConfig(module="test", class_name="Test"),
+                api=ApiConfig(feature_order="config/data/features.json"),
             )
 
             features = config.api.get_resolved_feature_order(base_path=Path(tmpdir))
@@ -296,8 +253,8 @@ class TestContainerPathContext:
                 class_name="Predictor",
                 init_kwargs={
                     "model_path": "./models/model.pkl",
-                    "config_path": "config/settings.yaml"
-                }
+                    "config_path": "config/settings.yaml",
+                },
             )
         )
 
@@ -312,10 +269,7 @@ class TestContainerPathContext:
             project.mkdir()
 
             config = AppConfig(
-                predictor=PredictorConfig(
-                    module="predictor",
-                    class_name="Predictor"
-                )
+                predictor=PredictorConfig(module="predictor", class_name="Predictor")
             )
             config.set_project_path(str(project))
 

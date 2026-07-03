@@ -1,4 +1,5 @@
 """RandomForest predictor for Titanic survival."""
+
 import json
 import pickle
 from typing import Union
@@ -10,14 +11,10 @@ import pandas as pd
 class RandomForestSurvivalPredictor:
     """RandomForest predictor for Titanic survival prediction."""
 
-    def __init__(self,
-                 model_path: str,
-                 features_path: str,
-                 encoders_path: str,
-                 scaler_path: str):
+    def __init__(self, model_path: str, features_path: str, encoders_path: str, scaler_path: str):
         """Initialize predictor with model and preprocessing artifacts."""
         # Load model
-        with open(model_path, 'rb') as f:
+        with open(model_path, "rb") as f:
             self.model = pickle.load(f)
 
         # Load features
@@ -25,11 +22,11 @@ class RandomForestSurvivalPredictor:
             self.feature_names = json.load(f)
 
         # Load encoders
-        with open(encoders_path, 'rb') as f:
+        with open(encoders_path, "rb") as f:
             self.label_encoders = pickle.load(f)
 
         # Load scaler
-        with open(scaler_path, 'rb') as f:
+        with open(scaler_path, "rb") as f:
             self.scaler = pickle.load(f)
 
     def preprocess(self, data: pd.DataFrame) -> np.ndarray:
@@ -38,13 +35,13 @@ class RandomForestSurvivalPredictor:
         for feature in self.feature_names:
             if feature not in data.columns:
                 # Handle feature engineering
-                if feature == 'FamilySize':
-                    data['FamilySize'] = data.get('SibSp', 0) + data.get('Parch', 0) + 1
-                elif feature == 'IsAlone':
-                    data['IsAlone'] = (data.get('FamilySize', 1) == 1).astype(int)
+                if feature == "FamilySize":
+                    data["FamilySize"] = data.get("SibSp", 0) + data.get("Parch", 0) + 1
+                elif feature == "IsAlone":
+                    data["IsAlone"] = (data.get("FamilySize", 1) == 1).astype(int)
 
         # Apply label encoding for categorical features
-        for col in ['sex', 'embarked', 'Title']:
+        for col in ["sex", "embarked", "Title"]:
             if col in data.columns and col in self.label_encoders:
                 # Map string values to encoded values
                 data[col] = self.label_encoders[col].transform(data[col].astype(str))
@@ -62,9 +59,9 @@ class RandomForestSurvivalPredictor:
         # Convert to DataFrame if necessary
         if isinstance(X, (list, np.ndarray)):
             if isinstance(X, np.ndarray) and len(X.shape) == 2:
-                X = pd.DataFrame(X, columns=self.feature_names[:X.shape[1]])
+                X = pd.DataFrame(X, columns=self.feature_names[: X.shape[1]])
             elif isinstance(X, list) and len(X) > 0:
-                X = pd.DataFrame(X, columns=self.feature_names[:len(X[0])])
+                X = pd.DataFrame(X, columns=self.feature_names[: len(X[0])])
 
         # Preprocess
         X_processed = self.preprocess(X)
@@ -79,9 +76,9 @@ class RandomForestSurvivalPredictor:
         # Convert to DataFrame if necessary
         if isinstance(X, (list, np.ndarray)):
             if isinstance(X, np.ndarray) and len(X.shape) == 2:
-                X = pd.DataFrame(X, columns=self.feature_names[:X.shape[1]])
+                X = pd.DataFrame(X, columns=self.feature_names[: X.shape[1]])
             elif isinstance(X, list) and len(X) > 0:
-                X = pd.DataFrame(X, columns=self.feature_names[:len(X[0])])
+                X = pd.DataFrame(X, columns=self.feature_names[: len(X[0])])
 
         # Preprocess
         X_processed = self.preprocess(X)

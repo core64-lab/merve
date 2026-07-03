@@ -70,9 +70,7 @@ class TestPredictEndpoint:
 
     async def test_predict_invalid_json(self, async_client):
         response = await async_client.post(
-            "/predict",
-            content="invalid json",
-            headers={"content-type": "application/json"}
+            "/predict", content="invalid json", headers={"content-type": "application/json"}
         )
         assert response.status_code == 422
 
@@ -104,7 +102,9 @@ class TestPredictProbaEndpoint:
     """Test predict_proba endpoint functionality"""
 
     async def test_predict_proba_success(self, async_client_preprocessing, sample_records_payload):
-        response = await async_client_preprocessing.post("/predict_proba", json=sample_records_payload)
+        response = await async_client_preprocessing.post(
+            "/predict_proba", json=sample_records_payload
+        )
         assert response.status_code == 200
 
         data = response.json()
@@ -124,8 +124,12 @@ class TestPredictProbaEndpoint:
         data = response.json()
         assert data["predictor_class"] == "MockPredictorWithPreprocessing"
 
-    async def test_predict_proba_response_structure(self, async_client_preprocessing, sample_records_payload):
-        response = await async_client_preprocessing.post("/predict_proba", json=sample_records_payload)
+    async def test_predict_proba_response_structure(
+        self, async_client_preprocessing, sample_records_payload
+    ):
+        response = await async_client_preprocessing.post(
+            "/predict_proba", json=sample_records_payload
+        )
         data = response.json()
 
         # Probabilities should be list of lists (for binary/multiclass)
@@ -144,9 +148,10 @@ class TestPredictProbaEndpoint:
 
     async def test_predict_proba_predictor_without_method(self, async_client):
         # Test with basic mock predictor that might not have predict_proba
-        response = await async_client.post("/predict_proba", json={
-            "payload": {"records": [{"f1": 1, "f2": 2, "f3": 3, "f4": 4, "f5": 5}]}
-        })
+        response = await async_client.post(
+            "/predict_proba",
+            json={"payload": {"records": [{"f1": 1, "f2": 2, "f3": 3, "f4": 4, "f5": 5}]}},
+        )
         # Should still work as MockPredictor has predict_proba
         assert response.status_code == 200
 
@@ -186,9 +191,9 @@ class TestRequestEnvelopeMatrix:
         expected_rows = 1 if fmt == "features-single" else 2
         assert len(top_result) == expected_rows
 
-    @pytest.mark.parametrize("endpoint,result_key",
-                             [("/predict", "predictions"),
-                              ("/predict_proba", "probabilities")])
+    @pytest.mark.parametrize(
+        "endpoint,result_key", [("/predict", "predictions"), ("/predict_proba", "probabilities")]
+    )
     async def test_equivalent_formats_give_identical_results(
         self, async_client, endpoint, result_key
     ):
@@ -207,10 +212,9 @@ class TestRequestEnvelopeMatrix:
 class TestPayloadWrapperDeprecation:
     """RFC 0001 D10: the legacy wrapper logs ONE deprecation warning per process."""
 
-    async def test_wrapper_warns_exactly_once_per_process(
-        self, async_client, caplog, monkeypatch
-    ):
+    async def test_wrapper_warns_exactly_once_per_process(self, async_client, caplog, monkeypatch):
         import mlserver.server as server_mod
+
         monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
 
         body = {"payload": _ENVELOPE_FORMATS["records"]}
@@ -221,24 +225,23 @@ class TestPayloadWrapperDeprecation:
 
         assert first.status_code == second.status_code == third.status_code == 200
         deprecations = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if "deprecated" in r.getMessage() and "payload" in r.getMessage()
         ]
         assert len(deprecations) == 1
 
     async def test_top_level_shape_never_warns(self, async_client, caplog, monkeypatch):
         import mlserver.server as server_mod
+
         monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
 
         with caplog.at_level(logging.WARNING, logger="mlserver.server"):
-            response = await async_client.post(
-                "/predict", json=_ENVELOPE_FORMATS["records"]
-            )
+            response = await async_client.post("/predict", json=_ENVELOPE_FORMATS["records"])
 
         assert response.status_code == 200
         assert not any(
-            "deprecated" in r.getMessage() and "payload" in r.getMessage()
-            for r in caplog.records
+            "deprecated" in r.getMessage() and "payload" in r.getMessage() for r in caplog.records
         )
         assert server_mod._payload_wrapper_warned is False
 
@@ -293,11 +296,7 @@ class TestErrorHandling:
         assert response.status_code == 405
 
     async def test_invalid_adapter_format(self, async_client):
-        invalid_payload = {
-            "payload": {
-                "invalid_format": "this should fail"
-            }
-        }
+        invalid_payload = {"payload": {"invalid_format": "this should fail"}}
         response = await async_client.post("/predict", json=invalid_payload)
         assert response.status_code == 400
 
@@ -307,7 +306,7 @@ class TestErrorHandling:
             "payload": {
                 "records": [
                     {"f1": 1, "f2": 2},
-                    {"f1": 1, "f3": 3}  # Different keys
+                    {"f1": 1, "f3": 3},  # Different keys
                 ]
             }
         }
@@ -318,10 +317,7 @@ class TestErrorHandling:
         # Test with very large payload
         large_payload = {
             "payload": {
-                "records": [
-                    {"f1": i, "f2": i, "f3": i, "f4": i, "f5": i}
-                    for i in range(1000)
-                ]
+                "records": [{"f1": i, "f2": i, "f3": i, "f4": i, "f5": i} for i in range(1000)]
             }
         }
         response = await async_client.post("/predict", json=large_payload)
@@ -366,7 +362,9 @@ class TestConcurrency:
             data = response.json()
             assert len(data["predictions"]) == 2
 
-    async def test_mixed_endpoint_concurrency(self, async_client_preprocessing, sample_records_payload):
+    async def test_mixed_endpoint_concurrency(
+        self, async_client_preprocessing, sample_records_payload
+    ):
         import asyncio
 
         # Mix different endpoints (batch_predict removed - /predict handles batches)
@@ -374,7 +372,9 @@ class TestConcurrency:
             async_client_preprocessing.get("/healthz"),
             async_client_preprocessing.post("/predict", json=sample_records_payload),
             async_client_preprocessing.post("/predict_proba", json=sample_records_payload),
-            async_client_preprocessing.post("/predict", json=sample_records_payload),  # Test /predict concurrency
+            async_client_preprocessing.post(
+                "/predict", json=sample_records_payload
+            ),  # Test /predict concurrency
         ]
 
         responses = await asyncio.gather(*tasks)
@@ -389,11 +389,7 @@ class TestFeatureOrdering:
 
     async def test_feature_order_consistency(self, async_client_preprocessing):
         # Test that feature ordering is respected
-        payload1 = {
-            "payload": {
-                "records": [{"f1": 1, "f2": 2, "f3": 3, "f4": 4, "f5": 5}]
-            }
-        }
+        payload1 = {"payload": {"records": [{"f1": 1, "f2": 2, "f3": 3, "f4": 4, "f5": 5}]}}
 
         payload2 = {
             "payload": {

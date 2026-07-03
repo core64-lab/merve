@@ -45,9 +45,10 @@ jobs:
           python-version: "3.13"
       - name: Install ruff
         run: pip install ruff
-      # `ruff format --check` intentionally deferred to Wave 2 (RFC 0001 W2.7).
       - name: Ruff lint
         run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
 
   build:
     runs-on: ubuntu-latest

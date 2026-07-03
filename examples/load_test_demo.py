@@ -43,14 +43,13 @@ class LoadTester:
             "successful_requests": 0,
             "failed_requests": 0,
             "total_response_time": 0,
-            "start_time": time.time()
+            "start_time": time.time(),
         }
 
     async def create_session(self):
         """Create httpx async client"""
         self.session = httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0),
-            limits=httpx.Limits(max_connections=100)
+            timeout=httpx.Timeout(30.0), limits=httpx.Limits(max_connections=100)
         )
 
     async def close_session(self):
@@ -73,7 +72,7 @@ class LoadTester:
                         "embarked": random.choice(["S", "C", "Q"]),
                         "who": random.choice(["man", "woman", "child"]),
                         "adult_male": random.choice([True, False]),
-                        "alone": random.choice([True, False])
+                        "alone": random.choice([True, False]),
                     }
                     for _ in range(random.randint(1, 5))
                 ]
@@ -89,10 +88,7 @@ class LoadTester:
         start_time = time.time()
 
         try:
-            response = await self.session.post(
-                f"{self.base_url}{endpoint}",
-                json=payload
-            )
+            response = await self.session.post(f"{self.base_url}{endpoint}", json=payload)
             response_time = time.time() - start_time
 
             self.stats["requests_sent"] += 1
@@ -106,7 +102,7 @@ class LoadTester:
                     "status_code": response.status_code,
                     "response_time": response_time,
                     "predictions": len(result.get("predictions", [])),
-                    "server_time_ms": result.get("time_ms", 0)
+                    "server_time_ms": result.get("time_ms", 0),
                 }
             else:
                 self.stats["failed_requests"] += 1
@@ -114,17 +110,13 @@ class LoadTester:
                     "success": False,
                     "status_code": response.status_code,
                     "response_time": response_time,
-                    "error": response.text
+                    "error": response.text,
                 }
 
         except Exception as e:
             self.stats["requests_sent"] += 1
             self.stats["failed_requests"] += 1
-            return {
-                "success": False,
-                "error": str(e),
-                "response_time": time.time() - start_time
-            }
+            return {"success": False, "error": str(e), "response_time": time.time() - start_time}
 
     async def get_metrics(self) -> str:
         """Fetch current Prometheus metrics"""
@@ -159,27 +151,27 @@ class LoadTester:
         """Parse key metrics from Prometheus format"""
         parsed = {}
 
-        for line in metrics_text.split('\n'):
-            if line.startswith('mlserver_requests_total'):
+        for line in metrics_text.split("\n"):
+            if line.startswith("mlserver_requests_total"):
                 # Extract request counts by endpoint and status
-                if ('endpoint="/predict"' in line and 'status_code="200"' in line):
+                if 'endpoint="/predict"' in line and 'status_code="200"' in line:
                     try:
                         value = float(line.split()[-1])
-                        parsed['successful_predictions'] = value
+                        parsed["successful_predictions"] = value
                     except Exception:
                         pass
-            elif line.startswith('mlserver_predictions_total'):
+            elif line.startswith("mlserver_predictions_total"):
                 # Total predictions made
                 try:
                     value = float(line.split()[-1])
-                    parsed['total_predictions'] = value
+                    parsed["total_predictions"] = value
                 except Exception:
                     pass
-            elif line.startswith('mlserver_active_requests'):
+            elif line.startswith("mlserver_active_requests"):
                 # Active requests
                 try:
                     value = float(line.split()[-1])
-                    parsed['active_requests'] = value
+                    parsed["active_requests"] = value
                 except Exception:
                     pass
 
@@ -255,7 +247,7 @@ class LoadTester:
         duration: int = 60,
         workers: int = 3,
         requests_per_second: float = 2.0,
-        monitor_interval: int = 5
+        monitor_interval: int = 5,
     ):
         """Run the complete load test"""
 
@@ -282,15 +274,11 @@ class LoadTester:
 
             # Start worker tasks
             for i in range(workers):
-                task = asyncio.create_task(
-                    self.continuous_load_worker(i, requests_per_second)
-                )
+                task = asyncio.create_task(self.continuous_load_worker(i, requests_per_second))
                 tasks.append(task)
 
             # Start metrics monitor
-            monitor_task = asyncio.create_task(
-                self.metrics_monitor(monitor_interval)
-            )
+            monitor_task = asyncio.create_task(self.metrics_monitor(monitor_interval))
             tasks.append(monitor_task)
 
             # Run for specified duration
@@ -327,7 +315,9 @@ class LoadTester:
         print(f"   Total Requests: {self.stats['requests_sent']}")
         print(f"   Successful: {self.stats['successful_requests']}")
         print(f"   Failed: {self.stats['failed_requests']}")
-        print(f"   Success Rate: {(self.stats['successful_requests'] / max(self.stats['requests_sent'], 1)) * 100:.1f}%")
+        print(
+            f"   Success Rate: {(self.stats['successful_requests'] / max(self.stats['requests_sent'], 1)) * 100:.1f}%"
+        )
         print(f"   Average RPS: {avg_rps:.1f}")
         print(f"   Average Response Time: {avg_response_time:.1f}ms")
 
@@ -344,6 +334,7 @@ class LoadTester:
 
 def setup_signal_handler(load_tester):
     """Setup signal handler for graceful shutdown"""
+
     def signal_handler(signum, frame):
         print(f"\n🔔 Received signal {signum}")
         load_tester.running = False
@@ -355,16 +346,13 @@ def setup_signal_handler(load_tester):
 async def main():
     """Main function"""
     parser = argparse.ArgumentParser(description="ML Server Load Test Demo")
-    parser.add_argument("--url", default="http://localhost:8000",
-                       help="Base URL of ML server")
-    parser.add_argument("--duration", type=int, default=60,
-                       help="Duration of test in seconds")
-    parser.add_argument("--workers", type=int, default=3,
-                       help="Number of worker coroutines")
-    parser.add_argument("--rps", type=float, default=2.0,
-                       help="Requests per second per worker")
-    parser.add_argument("--monitor-interval", type=int, default=5,
-                       help="Metrics monitoring interval in seconds")
+    parser.add_argument("--url", default="http://localhost:8000", help="Base URL of ML server")
+    parser.add_argument("--duration", type=int, default=60, help="Duration of test in seconds")
+    parser.add_argument("--workers", type=int, default=3, help="Number of worker coroutines")
+    parser.add_argument("--rps", type=float, default=2.0, help="Requests per second per worker")
+    parser.add_argument(
+        "--monitor-interval", type=int, default=5, help="Metrics monitoring interval in seconds"
+    )
 
     args = parser.parse_args()
 
@@ -377,7 +365,7 @@ async def main():
             duration=args.duration,
             workers=args.workers,
             requests_per_second=args.rps,
-            monitor_interval=args.monitor_interval
+            monitor_interval=args.monitor_interval,
         )
 
         if success:

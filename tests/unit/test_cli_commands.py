@@ -4,6 +4,7 @@ Closes the coverage gap left after the W2.1 CLI split (serve.py, versioning.py,
 testing.py were ~10%). Everything external — uvicorn, git, httpx — is mocked so
 these run fast and hermetically.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,12 +25,16 @@ def _write_project(tmp_path):
         "    def predict(self, X):\n        return [0] * len(X)\n"
         "    def predict_proba(self, X):\n        return [[0.5, 0.5]] * len(X)\n"
     )
-    (tmp_path / "mlserver.yaml").write_text(yaml.safe_dump({
-        "predictor": {"module": "mypred", "class_name": "P"},
-        "classifier": {"name": "solo", "version": "1.0.0"},
-        "server": {"host": "127.0.0.1", "port": 9123},
-        "observability": {"metrics": False, "structured_logging": False},
-    }))
+    (tmp_path / "mlserver.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "predictor": {"module": "mypred", "class_name": "P"},
+                "classifier": {"name": "solo", "version": "1.0.0"},
+                "server": {"host": "127.0.0.1", "port": 9123},
+                "observability": {"metrics": False, "structured_logging": False},
+            }
+        )
+    )
     return tmp_path
 
 
@@ -91,21 +96,26 @@ class TestVersionCommand:
 class TestTagCommand:
     def test_tag_creates_canonical_and_reports(self, tmp_path, monkeypatch):
         import subprocess
+
         _write_project(tmp_path)
         # Real git repo so the pre-tag validation passes end-to-end.
         subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
         subprocess.run(["git", "config", "user.email", "t@t.co"], cwd=tmp_path, check=True)
         subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=True)
         subprocess.run(["git", "add", "."], cwd=tmp_path, check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True
+        )
         monkeypatch.chdir(tmp_path)
 
-        result = runner.invoke(app, ["tag", "patch", "--classifier", "solo",
-                                     "--allow-missing-mlserver"])
+        result = runner.invoke(
+            app, ["tag", "patch", "--classifier", "solo", "--allow-missing-mlserver"]
+        )
         assert result.exit_code == 0, result.stdout
         # A real canonical tag was created.
-        tags = subprocess.run(["git", "tag", "-l"], cwd=tmp_path,
-                              capture_output=True, text=True).stdout
+        tags = subprocess.run(
+            ["git", "tag", "-l"], cwd=tmp_path, capture_output=True, text=True
+        ).stdout
         assert "solo/v0.0.1" in tags
 
     def test_tag_status_json(self, tmp_path, monkeypatch):
@@ -114,7 +124,9 @@ class TestTagCommand:
         fake_mgr = MagicMock()
         fake_mgr.get_all_classifier_status.return_value = {}
         fake_mgr.get_latest_tag_info.return_value = {
-            "tag": "solo/v1.0.0", "on_tagged_commit": True, "commits_since_tag": 0,
+            "tag": "solo/v1.0.0",
+            "on_tagged_commit": True,
+            "commits_since_tag": 0,
         }
         with patch("mlserver.cli.versioning.GitVersionManager", return_value=fake_mgr):
             result = runner.invoke(app, ["tag", "--status", "--json", "--classifier", "solo"])
@@ -132,13 +144,15 @@ class TestTestCommand:
         fake_client = MagicMock()
         fake_client.__enter__.return_value.post.return_value = fake_resp
         with patch("httpx.Client", return_value=fake_client):
-            result = runner.invoke(app, ["test", "--url", "http://localhost:8000",
-                                         "--data", '{"records": [{"a": 1}]}'])
+            result = runner.invoke(
+                app, ["test", "--url", "http://localhost:8000", "--data", '{"records": [{"a": 1}]}']
+            )
         assert result.exit_code == 0, result.stdout
         fake_client.__enter__.return_value.post.assert_called_once()
 
     def test_test_command_connection_error_is_clean(self, tmp_path, monkeypatch):
         import httpx
+
         monkeypatch.chdir(tmp_path)
         fake_client = MagicMock()
         fake_client.__enter__.return_value.post.side_effect = httpx.ConnectError("refused")

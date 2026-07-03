@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import threading
@@ -18,6 +17,7 @@ class AdapterError(BaseAdapterError, ValueError):
     Inherits from both BaseAdapterError (for unified error handling)
     and ValueError (for backward compatibility with existing code).
     """
+
     pass
 
 
@@ -98,7 +98,7 @@ def get_cache_info() -> dict[str, Any]:
         return {
             "size": len(_FEATURE_ORDER_CACHE),
             "max_size": _CACHE_MAX_SIZE,
-            "cache_keys": list(_FEATURE_ORDER_CACHE.keys())[:10]  # First 10 keys for debugging
+            "cache_keys": list(_FEATURE_ORDER_CACHE.keys())[:10],  # First 10 keys for debugging
         }
 
 
@@ -125,12 +125,12 @@ def _records_to_numpy_fast(records: list[dict], feature_order: list[str]) -> np.
     if len(records) > MAX_RECORDS:
         raise AdapterError(
             message=f"Too many records: {len(records)} exceeds limit of {MAX_RECORDS}",
-            suggestion="Split your batch into smaller chunks or increase MAX_RECORDS limit"
+            suggestion="Split your batch into smaller chunks or increase MAX_RECORDS limit",
         )
     if len(feature_order) > MAX_FEATURES:
         raise AdapterError(
             message=f"Too many features: {len(feature_order)} exceeds limit of {MAX_FEATURES}",
-            suggestion="Reduce feature count or increase MAX_FEATURES limit"
+            suggestion="Reduce feature count or increase MAX_FEATURES limit",
         )
 
     # Validate that all records have all required features
@@ -143,17 +143,16 @@ def _records_to_numpy_fast(records: list[dict], feature_order: list[str]) -> np.
             raise AdapterError(
                 message=f"Record {i} is missing required features: {missing_str}",
                 suggestion=(
-                    "Ensure all records contain the required features "
-                    "defined in feature_order"
-                )
+                    "Ensure all records contain the required features defined in feature_order"
+                ),
             )
 
     # Vectorized approach: Extract all values at once for better performance
     # This is more efficient than nested loops for larger datasets
-    result = np.array([
-        [record.get(feature, None) for feature in feature_order]
-        for record in records
-    ], dtype=object)
+    result = np.array(
+        [[record.get(feature, None) for feature in feature_order] for record in records],
+        dtype=object,
+    )
 
     return result
 
@@ -163,7 +162,7 @@ def _infer_adapter_type(payload: dict) -> str:
     if payload is None:
         raise AdapterError(
             message="Payload cannot be None",
-            suggestion="Send a JSON payload with 'records', 'instances', or 'ndarray' key"
+            suggestion="Send a JSON payload with 'records', 'instances', or 'ndarray' key",
         )
 
     # Check for records format indicators
@@ -195,16 +194,16 @@ def _extract_ndarray_data(payload: dict) -> np.ndarray:
         raise AdapterError(
             message="Expected 'ndarray' or 'inputs' field in payload for ndarray adapter",
             suggestion=(
-                "Use format: {\"ndarray\": [[val1, val2, ...], [val3, val4, ...]]} "
-                "or {\"inputs\": [...]}"
-            )
+                'Use format: {"ndarray": [[val1, val2, ...], [val3, val4, ...]]} '
+                'or {"inputs": [...]}'
+            ),
         )
 
     # Check for empty arrays
     if not array_data:
         raise AdapterError(
             message="Array data cannot be empty",
-            suggestion="Provide at least one row of data in the ndarray/inputs field"
+            suggestion="Provide at least one row of data in the ndarray/inputs field",
         )
 
     # Convert to numpy array and ensure 2D shape
@@ -213,7 +212,7 @@ def _extract_ndarray_data(payload: dict) -> np.ndarray:
     except ValueError as e:
         raise AdapterError(
             message=f"Invalid array data: {e}",
-            suggestion="Ensure all rows have the same number of columns"
+            suggestion="Ensure all rows have the same number of columns",
         ) from e
 
     if arr.ndim == 1:
@@ -242,9 +241,8 @@ def _extract_records_data(payload: dict) -> list[dict]:
             raise AdapterError(
                 message="Invalid payload structure for records adapter",
                 suggestion=(
-                    "Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} "
-                    "or {\"instances\": [...]}"
-                )
+                    'Use format: {"records": [{"feat1": val1, ...}, ...]} or {"instances": [...]}'
+                ),
             )
         else:
             # Treat entire dict as single record
@@ -253,9 +251,8 @@ def _extract_records_data(payload: dict) -> list[dict]:
         raise AdapterError(
             message="Invalid payload structure for records adapter",
             suggestion=(
-                "Use format: {\"records\": [{\"feat1\": val1, ...}, ...]} "
-                "or {\"instances\": [...]}"
-            )
+                'Use format: {"records": [{"feat1": val1, ...}, ...]} or {"instances": [...]}'
+            ),
         )
 
     return records
@@ -275,13 +272,13 @@ def _process_records_to_array(
     if not isinstance(records, list):
         raise AdapterError(
             message="Records must be a list of dictionaries",
-            suggestion="Use format: [{\"feat1\": val1, ...}, {\"feat1\": val2, ...}]"
+            suggestion='Use format: [{"feat1": val1, ...}, {"feat1": val2, ...}]',
         )
 
     if not records:
         raise AdapterError(
             message="Records list cannot be empty",
-            suggestion="Provide at least one record with feature values"
+            suggestion="Provide at least one record with feature values",
         )
 
     # Use cached feature ordering for performance
@@ -315,6 +312,7 @@ def to_ndarray(
         2D numpy array ready for model prediction
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     # Debug logging
@@ -326,7 +324,9 @@ def to_ndarray(
             for key in list(payload.keys())[:3]:
                 value = payload[key]
                 if isinstance(value, list) and len(value) > 0:
-                    logger.debug(f"  {key}: {value[:min(2, len(value))]}... (length: {len(value)})")
+                    logger.debug(
+                        f"  {key}: {value[: min(2, len(value))]}... (length: {len(value)})"
+                    )
                 else:
                     logger.debug(f"  {key}: {value}")
         else:
@@ -337,13 +337,13 @@ def to_ndarray(
     if payload is None:
         raise AdapterError(
             message="Payload cannot be None",
-            suggestion="Send a JSON payload with 'records', 'instances', or 'ndarray' key"
+            suggestion="Send a JSON payload with 'records', 'instances', or 'ndarray' key",
         )
 
     if not payload and not isinstance(payload, list):
         raise AdapterError(
             message=f"Payload cannot be empty (received {type(payload).__name__})",
-            suggestion="Provide input data in the payload field"
+            suggestion="Provide input data in the payload field",
         )
 
     if adapter == "auto":
@@ -358,7 +358,6 @@ def to_ndarray(
         raise AdapterError(
             message=f"Unknown adapter type: '{adapter}'",
             suggestion=(
-                "Use 'records', 'ndarray', or 'auto' in your mlserver.yaml "
-                "api.adapter setting"
-            )
+                "Use 'records', 'ndarray', or 'auto' in your mlserver.yaml api.adapter setting"
+            ),
         )

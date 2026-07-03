@@ -2,6 +2,7 @@
 
 try:
     import numpy as np
+
     HAS_NUMPY = True
 except ImportError:
     HAS_NUMPY = False
@@ -22,7 +23,7 @@ class ComplexResponsePredictor:
         This demonstrates the new response handling capabilities.
         """
         # Simulate complex analysis results
-        num_samples = len(X) if hasattr(X, '__len__') else 1
+        num_samples = len(X) if hasattr(X, "__len__") else 1
 
         # Create predictions list of appropriate length
         base_pattern = [0, 1, 0]
@@ -31,34 +32,26 @@ class ComplexResponsePredictor:
         return {
             "predictions": predictions,
             "analysis": {
-                "confidence_scores": [0.95, 0.87, 0.92][:num_samples] if not HAS_NUMPY else np.random.rand(num_samples).tolist(),
-                "feature_importance": {
-                    "feature_1": 0.45,
-                    "feature_2": 0.30,
-                    "feature_3": 0.25
-                },
+                "confidence_scores": [0.95, 0.87, 0.92][:num_samples]
+                if not HAS_NUMPY
+                else np.random.rand(num_samples).tolist(),
+                "feature_importance": {"feature_1": 0.45, "feature_2": 0.30, "feature_3": 0.25},
                 "decision_paths": [
                     {"node": 1, "feature": "age", "threshold": 30},
-                    {"node": 3, "feature": "income", "threshold": 50000}
-                ]
+                    {"node": 3, "feature": "income", "threshold": 50000},
+                ],
             },
             "metadata": {
                 "model_version": self.version,
                 "prediction_timestamp": "2025-01-17T10:30:00Z",
-                "processing_time_ms": 15.4
+                "processing_time_ms": 15.4,
             },
-            "custom_fields": {
-                "a": [1, 2, 34, 5],
-                "b": {
-                    "c": [1, 2, 3],
-                    "d": [4, 5, 6]
-                }
-            }
+            "custom_fields": {"a": [1, 2, 34, 5], "b": {"c": [1, 2, 3], "d": [4, 5, 6]}},
         }
 
     def predict_proba(self, X: Any) -> list[list[float]]:
         """Return probability predictions."""
-        num_samples = len(X) if hasattr(X, '__len__') else 1
+        num_samples = len(X) if hasattr(X, "__len__") else 1
         # Return mock probabilities
         if HAS_NUMPY:
             probs = np.random.rand(num_samples, 2)
@@ -85,12 +78,9 @@ class LegacyFormatPredictor:
         return {
             "status": "success",
             "code": 200,
-            "data": {
-                "results": [1, 0, 1],
-                "scores": [0.95, 0.12, 0.88]
-            },
+            "data": {"results": [1, 0, 1], "scores": [0.95, 0.12, 0.88]},
             "errors": [],
-            "warnings": ["Feature 3 missing, using default"]
+            "warnings": ["Feature 3 missing, using default"],
         }
 
 
@@ -103,6 +93,6 @@ class SimplePredictor:
 
     def predict(self, X: Any) -> list[int]:
         """Return simple list of predictions."""
-        num_samples = len(X) if hasattr(X, '__len__') else 1
+        num_samples = len(X) if hasattr(X, "__len__") else 1
         base_pattern = [0, 1]
         return (base_pattern * (num_samples // 2 + 1))[:num_samples]

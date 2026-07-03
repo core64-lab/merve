@@ -38,6 +38,7 @@ def count_samples(data: Any) -> int:
     # numpy array
     try:
         import numpy as np
+
         if isinstance(data, np.ndarray):
             if data.ndim == 0:
                 return 1
@@ -48,6 +49,7 @@ def count_samples(data: Any) -> int:
     # pandas DataFrame or Series
     try:
         import pandas as pd
+
         if isinstance(data, (pd.DataFrame, pd.Series)):
             return len(data)
     except ImportError:
@@ -66,7 +68,7 @@ def count_samples(data: Any) -> int:
     # dict - check if it looks like a batch
     if isinstance(data, dict):
         # If dict contains 'predictions', 'instances', 'records' etc, count those
-        for key in ['predictions', 'instances', 'records', 'results', 'outputs']:
+        for key in ["predictions", "instances", "records", "results", "outputs"]:
             if key in data and isinstance(data[key], (list, tuple)):
                 return len(data[key])
         # If dict values are all same-length lists, it might be columnar format
@@ -83,9 +85,12 @@ def count_samples(data: Any) -> int:
 
 
 class MetricsCollector:
-    def __init__(self, model_name: Optional[str] = None,
-                 registry: Optional[CollectorRegistry] = None,
-                 model_version: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        registry: Optional[CollectorRegistry] = None,
+        model_version: Optional[str] = None,
+    ):
         self.model_name = model_name or "unknown"
         self.model_version = model_version or "unknown"
         self._registry = registry or REGISTRY
@@ -95,7 +100,7 @@ class MetricsCollector:
             "mlserver_requests_total",
             "Total number of requests",
             ["method", "endpoint", "status_code", "model"],
-            registry=self._registry
+            registry=self._registry,
         )
 
         self.request_duration = Histogram(
@@ -103,7 +108,7 @@ class MetricsCollector:
             "Request duration in seconds",
             ["method", "endpoint", "model"],
             buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
-            registry=self._registry
+            registry=self._registry,
         )
 
         # Prediction-specific metrics
@@ -112,14 +117,14 @@ class MetricsCollector:
             "Model prediction duration in seconds",
             ["model", "endpoint"],
             buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0],
-            registry=self._registry
+            registry=self._registry,
         )
 
         self.prediction_count = Counter(
             "mlserver_predictions_total",
             "Total number of predictions made (output samples)",
             ["model", "endpoint"],
-            registry=self._registry
+            registry=self._registry,
         )
 
         # Input samples counter (tracks batch sizes)
@@ -127,7 +132,7 @@ class MetricsCollector:
             "mlserver_input_samples_total",
             "Total number of input samples received",
             ["model", "endpoint"],
-            registry=self._registry
+            registry=self._registry,
         )
 
         # System metrics
@@ -135,7 +140,7 @@ class MetricsCollector:
             "mlserver_active_requests",
             "Number of active requests",
             ["model"],
-            registry=self._registry
+            registry=self._registry,
         )
 
         # Batch size histogram for monitoring batch patterns
@@ -144,7 +149,7 @@ class MetricsCollector:
             "Distribution of prediction batch sizes",
             ["model", "endpoint"],
             buckets=[1, 2, 5, 10, 25, 50, 100, 250, 500, 1000],
-            registry=self._registry
+            registry=self._registry,
         )
 
         # Model info
@@ -152,7 +157,7 @@ class MetricsCollector:
             "mlserver_model_info",
             "Model information",
             ["model", "version"],
-            registry=self._registry
+            registry=self._registry,
         )
         self.model_info.labels(model=self.model_name, version=self.model_version).set(1)
 
@@ -163,20 +168,16 @@ class MetricsCollector:
         status_code = str(response.status_code)
 
         self.request_count.labels(
-            method=method,
-            endpoint=endpoint,
-            status_code=status_code,
-            model=self.model_name
+            method=method, endpoint=endpoint, status_code=status_code, model=self.model_name
         ).inc()
 
         self.request_duration.labels(
-            method=method,
-            endpoint=endpoint,
-            model=self.model_name
+            method=method, endpoint=endpoint, model=self.model_name
         ).observe(duration)
 
-    def track_prediction(self, endpoint: str, duration: float,
-                         input_samples: int = 1, output_samples: int = 1):
+    def track_prediction(
+        self, endpoint: str, duration: float, input_samples: int = 1, output_samples: int = 1
+    ):
         """Track prediction-specific metrics.
 
         Args:
@@ -185,28 +186,16 @@ class MetricsCollector:
             input_samples: Number of input samples (batch size)
             output_samples: Number of output samples (predictions made)
         """
-        self.prediction_duration.labels(
-            model=self.model_name,
-            endpoint=endpoint
-        ).observe(duration)
+        self.prediction_duration.labels(model=self.model_name, endpoint=endpoint).observe(duration)
 
         # Track output samples (predictions made)
-        self.prediction_count.labels(
-            model=self.model_name,
-            endpoint=endpoint
-        ).inc(output_samples)
+        self.prediction_count.labels(model=self.model_name, endpoint=endpoint).inc(output_samples)
 
         # Track input samples
-        self.input_samples.labels(
-            model=self.model_name,
-            endpoint=endpoint
-        ).inc(input_samples)
+        self.input_samples.labels(model=self.model_name, endpoint=endpoint).inc(input_samples)
 
         # Track batch size distribution
-        self.batch_size.labels(
-            model=self.model_name,
-            endpoint=endpoint
-        ).observe(input_samples)
+        self.batch_size.labels(model=self.model_name, endpoint=endpoint).observe(input_samples)
 
     def inc_active_requests(self):
         """Increment active requests counter"""
@@ -230,8 +219,9 @@ _metrics_collector: Optional[MetricsCollector] = None
 _metrics_lock = threading.Lock()
 
 
-def init_metrics(model_name: Optional[str] = None,
-                 model_version: Optional[str] = None) -> MetricsCollector:
+def init_metrics(
+    model_name: Optional[str] = None, model_version: Optional[str] = None
+) -> MetricsCollector:
     """Initialize global metrics collector (thread-safe singleton).
 
     Uses double-checked locking pattern to ensure thread safety while
@@ -269,7 +259,7 @@ def reset_metrics() -> None:
             for collector in list(REGISTRY._collector_to_names.keys()):
                 # Check if this collector belongs to our metrics
                 names = REGISTRY._collector_to_names.get(collector, [])
-                if any(name.startswith('mlserver_') for name in names):
+                if any(name.startswith("mlserver_") for name in names):
                     collectors_to_remove.append(collector)
 
             for collector in collectors_to_remove:

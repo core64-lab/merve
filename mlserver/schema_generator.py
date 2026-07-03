@@ -5,6 +5,7 @@ IDE autocompletion and validation for mlserver.yaml files.
 
 Phase 6: IDE Support Implementation
 """
+
 import json
 from pathlib import Path
 from typing import Any, Literal
@@ -86,16 +87,16 @@ def generate_combined_schema() -> dict[str, Any]:
                 "type": "object",
                 "properties": multi_schema.get("properties", {}),
                 "required": multi_schema.get("required", []),
-            }
+            },
         ],
-        "$defs": all_defs
+        "$defs": all_defs,
     }
 
     return combined
 
 
 def get_schema_for_config_type(
-    config_type: Literal["single", "multi", "auto"] = "auto"
+    config_type: Literal["single", "multi", "auto"] = "auto",
 ) -> dict[str, Any]:
     """Get JSON schema for the specified configuration type.
 
@@ -129,7 +130,7 @@ def save_schema(schema: dict[str, Any], output_path: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Write with pretty-printing for human readability
-    with open(path, 'w') as f:
+    with open(path, "w") as f:
         json.dump(schema, f, indent=2, sort_keys=False)
 
 
@@ -154,11 +155,7 @@ def get_vscode_settings_snippet(schema_path: str = ".mlserver/schema.json") -> d
     Returns:
         Dict that can be added to .vscode/settings.json
     """
-    return {
-        "yaml.schemas": {
-            schema_path: ["mlserver.yaml", "mlserver.yml", "**/mlserver.yaml"]
-        }
-    }
+    return {"yaml.schemas": {schema_path: ["mlserver.yaml", "mlserver.yml", "**/mlserver.yaml"]}}
 
 
 def print_schema_setup_instructions(schema_path: str = ".mlserver/schema.json") -> str:

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -22,11 +21,12 @@ BASE = ["pclass", "sex", "age", "sibsp", "parch", "fare", "embarked"]
 X = X[BASE].copy()
 
 # Derive the seaborn-like columns on OpenML data
-X["alone"] = (X["sibsp"].fillna(0) + X["parch"].fillna(0) == 0)
+X["alone"] = X["sibsp"].fillna(0) + X["parch"].fillna(0) == 0
 X["adult_male"] = (X["sex"].astype(str).str.lower().eq("male")) & (X["age"].fillna(99) >= 16)
 X["who"] = np.where(
-    X["age"].fillna(99) < 16, "child",
-    np.where(X["sex"].astype(str).str.lower().eq("male"), "man", "woman")
+    X["age"].fillna(99) < 16,
+    "child",
+    np.where(X["sex"].astype(str).str.lower().eq("male"), "man", "woman"),
 )
 
 FEATURES = BASE + ["who", "adult_male", "alone"]
@@ -55,18 +55,22 @@ preprocess = ColumnTransformer(
     transformers=[
         (
             "num",
-            Pipeline([
-                ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
-            ]),
+            Pipeline(
+                [
+                    ("imputer", SimpleImputer(strategy="median")),
+                    ("scaler", StandardScaler()),
+                ]
+            ),
             NUMERIC,
         ),
         (
             "cat",
-            Pipeline([
-                ("imputer", SimpleImputer(strategy="most_frequent")),
-                ("ohe", ohe),
-            ]),
+            Pipeline(
+                [
+                    ("imputer", SimpleImputer(strategy="most_frequent")),
+                    ("ohe", ohe),
+                ]
+            ),
             CATEG,
         ),
     ],

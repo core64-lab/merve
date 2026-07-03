@@ -1,5 +1,6 @@
 """Tests for the Predictor protocol, string predictor specs, import isolation,
 and the optional load() startup lifecycle (RFC 0001, D13)."""
+
 import sys
 
 import pytest
@@ -97,13 +98,15 @@ class TestStringPredictorSpec:
 
     def test_legacy_mapping_spec_still_works(self):
         """Regression: the two-field mapping form is unchanged."""
-        config = AppConfig.model_validate({
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "MyPredictor",
-                "init_kwargs": {"model_path": "model.pkl"},
+        config = AppConfig.model_validate(
+            {
+                "predictor": {
+                    "module": "my_predictor",
+                    "class_name": "MyPredictor",
+                    "init_kwargs": {"model_path": "model.pkl"},
+                }
             }
-        })
+        )
         assert config.predictor.module == "my_predictor"
         assert config.predictor.class_name == "MyPredictor"
         assert config.predictor.init_kwargs == {"model_path": "model.pkl"}
@@ -126,6 +129,7 @@ class TestImportIsolation:
 
         # stdlib json must be fully intact afterwards
         import json
+
         assert json.loads(json.dumps({"a": 1})) == {"a": 1}
         assert hasattr(sys.modules["json"], "JSONDecoder")
 
@@ -135,9 +139,7 @@ class TestImportIsolation:
 
     def test_predictor_file_named_types_loads_and_stdlib_survives(self, tmp_path):
         (tmp_path / "types.py").write_text(
-            "class TypesNamedPredictor:\n"
-            "    def predict(self, X):\n"
-            "        return [42] * len(X)\n"
+            "class TypesNamedPredictor:\n    def predict(self, X):\n        return [42] * len(X)\n"
         )
 
         predictor = load_predictor("types", "TypesNamedPredictor", {}, config_dir=str(tmp_path))
@@ -145,15 +147,14 @@ class TestImportIsolation:
 
         # stdlib types must be fully intact afterwards
         import types
+
         assert hasattr(types, "ModuleType")
         assert hasattr(sys.modules["types"], "ModuleType")
         assert type(predictor).__module__ == f"{USER_MODULE_NAMESPACE}.types"
 
     def test_no_sys_path_mutation(self, tmp_path):
         (tmp_path / "clean_predictor.py").write_text(
-            "class CleanPredictor:\n"
-            "    def predict(self, X):\n"
-            "        return X\n"
+            "class CleanPredictor:\n    def predict(self, X):\n        return X\n"
         )
         path_before = list(sys.path)
 
@@ -182,27 +183,32 @@ class TestLoadLifecycle:
 
     @staticmethod
     def _make_config(tmp_path, class_name: str) -> AppConfig:
-        config = AppConfig.model_validate({
-            "predictor": {"module": "lifecycle_predictor", "class_name": class_name},
-            "classifier": {"name": "lifecycle-test", "version": "1.0.0"},
-            "api": {"warmup_on_start": False},
-            "observability": {"metrics": False, "structured_logging": False},
-        })
+        config = AppConfig.model_validate(
+            {
+                "predictor": {"module": "lifecycle_predictor", "class_name": class_name},
+                "classifier": {"name": "lifecycle-test", "version": "1.0.0"},
+                "api": {"warmup_on_start": False},
+                "observability": {"metrics": False, "structured_logging": False},
+            }
+        )
         config.set_project_path(str(tmp_path))
         return config
 
     async def test_load_called_exactly_once_at_startup(self, tmp_path):
         from mlserver.server import create_app
 
-        self._write_predictor(tmp_path, (
-            "class LoadTrackingPredictor:\n"
-            "    def __init__(self):\n"
-            "        self.load_calls = 0\n"
-            "    def load(self):\n"
-            "        self.load_calls += 1\n"
-            "    def predict(self, X):\n"
-            "        return [0] * len(X)\n"
-        ))
+        self._write_predictor(
+            tmp_path,
+            (
+                "class LoadTrackingPredictor:\n"
+                "    def __init__(self):\n"
+                "        self.load_calls = 0\n"
+                "    def load(self):\n"
+                "        self.load_calls += 1\n"
+                "    def predict(self, X):\n"
+                "        return [0] * len(X)\n"
+            ),
+        )
         config = self._make_config(tmp_path, "LoadTrackingPredictor")
         app = create_app(config)
 
@@ -212,23 +218,28 @@ class TestLoadLifecycle:
     async def test_load_called_before_first_prediction_including_warmup(self, tmp_path):
         from mlserver.server import create_app
 
-        self._write_predictor(tmp_path, (
-            "class OrderedPredictor:\n"
-            "    def __init__(self):\n"
-            "        self.loaded = False\n"
-            "    def load(self):\n"
-            "        self.loaded = True\n"
-            "    def predict(self, X):\n"
-            "        assert self.loaded, 'predict() ran before load()'\n"
-            "        return [1] * len(X)\n"
-        ))
-        config = AppConfig.model_validate({
-            "predictor": {"module": "lifecycle_predictor", "class_name": "OrderedPredictor"},
-            "classifier": {"name": "lifecycle-test", "version": "1.0.0"},
-            # warmup ON: the warmup prediction must run after load()
-            "api": {"warmup_on_start": True, "feature_order": ["f1", "f2"]},
-            "observability": {"metrics": False, "structured_logging": False},
-        })
+        self._write_predictor(
+            tmp_path,
+            (
+                "class OrderedPredictor:\n"
+                "    def __init__(self):\n"
+                "        self.loaded = False\n"
+                "    def load(self):\n"
+                "        self.loaded = True\n"
+                "    def predict(self, X):\n"
+                "        assert self.loaded, 'predict() ran before load()'\n"
+                "        return [1] * len(X)\n"
+            ),
+        )
+        config = AppConfig.model_validate(
+            {
+                "predictor": {"module": "lifecycle_predictor", "class_name": "OrderedPredictor"},
+                "classifier": {"name": "lifecycle-test", "version": "1.0.0"},
+                # warmup ON: the warmup prediction must run after load()
+                "api": {"warmup_on_start": True, "feature_order": ["f1", "f2"]},
+                "observability": {"metrics": False, "structured_logging": False},
+            }
+        )
         config.set_project_path(str(tmp_path))
         app = create_app(config)
 
@@ -238,13 +249,16 @@ class TestLoadLifecycle:
     async def test_load_failure_aborts_startup(self, tmp_path):
         from mlserver.server import create_app
 
-        self._write_predictor(tmp_path, (
-            "class FailingLoadPredictor:\n"
-            "    def load(self):\n"
-            "        raise RuntimeError('artifact missing')\n"
-            "    def predict(self, X):\n"
-            "        return [0] * len(X)\n"
-        ))
+        self._write_predictor(
+            tmp_path,
+            (
+                "class FailingLoadPredictor:\n"
+                "    def load(self):\n"
+                "        raise RuntimeError('artifact missing')\n"
+                "    def predict(self, X):\n"
+                "        return [0] * len(X)\n"
+            ),
+        )
         config = self._make_config(tmp_path, "FailingLoadPredictor")
         app = create_app(config)
 
@@ -259,11 +273,10 @@ class TestLoadLifecycle:
         """Regression: load() stays optional."""
         from mlserver.server import create_app
 
-        self._write_predictor(tmp_path, (
-            "class PlainPredictor:\n"
-            "    def predict(self, X):\n"
-            "        return [7] * len(X)\n"
-        ))
+        self._write_predictor(
+            tmp_path,
+            ("class PlainPredictor:\n    def predict(self, X):\n        return [7] * len(X)\n"),
+        )
         config = self._make_config(tmp_path, "PlainPredictor")
         app = create_app(config)
 

@@ -20,12 +20,9 @@ class TestAppConfigValidation:
     def test_app_config_minimal(self):
         """Test AppConfig with minimal required fields."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig()
+            api=ApiConfig(),
         )
         assert config.server.host == "0.0.0.0"
         assert config.server.port == 8000
@@ -36,19 +33,11 @@ class TestAppConfigValidation:
         config = AppConfig(
             server=ServerConfig(host="127.0.0.1", port=9000),
             predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor",
-                init_kwargs={"param1": "value1"}
+                module="test.module", class_name="TestPredictor", init_kwargs={"param1": "value1"}
             ),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig(
-                adapter="records",
-                feature_order=["feature1", "feature2"]
-            ),
-            observability=ObservabilityConfig(
-                metrics=False,
-                structured_logging=False
-            )
+            api=ApiConfig(adapter="records", feature_order=["feature1", "feature2"]),
+            observability=ObservabilityConfig(metrics=False, structured_logging=False),
         )
         assert config.server.host == "127.0.0.1"
         assert config.server.port == 9000
@@ -59,14 +48,11 @@ class TestAppConfigValidation:
     def test_unified_config_fields(self):
         """Test unified config format fields."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "TestClassifier", "version": "1.0.0"},
             model={"version": "1.0.0", "type": "sklearn"},
             api=ApiConfig(version="v1"),
-            build=BuildConfig(include_files=["model.pkl"])
+            build=BuildConfig(include_files=["model.pkl"]),
         )
         assert config.classifier["name"] == "TestClassifier"
         assert config.model["version"] == "1.0.0"
@@ -76,12 +62,9 @@ class TestAppConfigValidation:
     def test_set_project_path(self):
         """Test set_project_path method."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig()
+            api=ApiConfig(),
         )
         config.set_project_path("/test/path")
         assert config.project_path_internal == "/test/path"
@@ -89,12 +72,9 @@ class TestAppConfigValidation:
     def test_get_project_path(self):
         """Test project_path property."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig()
+            api=ApiConfig(),
         )
         config.set_project_path("/test/path")
         assert config.project_path == "/test/path"
@@ -102,24 +82,18 @@ class TestAppConfigValidation:
     def test_get_project_path_default(self):
         """Test project_path property with None value."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig()
+            api=ApiConfig(),
         )
         assert config.project_path is None
 
     def test_get_api_title(self):
         """Test get_api_title method."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig()
+            api=ApiConfig(),
         )
         assert config.get_api_title() == "Test Classifier API v1.0.0"
 
@@ -130,12 +104,9 @@ class TestAppConfigValidation:
         where each deployment gets its own unique base URL anyway.
         """
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
-            api=ApiConfig(version="v2")
+            api=ApiConfig(version="v2"),
         )
         # Unified interface - no version/classifier in URL path
         assert config.get_base_path() == ""
@@ -143,18 +114,11 @@ class TestAppConfigValidation:
     def test_is_endpoint_enabled(self):
         """Test is_endpoint_enabled method."""
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
             classifier={"name": "test-classifier", "version": "1.0.0"},
             api=ApiConfig(
-                endpoints={
-                    "predict": True,
-                    "batch_predict": False,
-                    "predict_proba": True
-                }
-            )
+                endpoints={"predict": True, "batch_predict": False, "predict_proba": True}
+            ),
         )
         assert config.is_endpoint_enabled("predict") is True
         assert config.is_endpoint_enabled("batch_predict") is False
@@ -183,11 +147,7 @@ class TestApiConfigValidation:
             adapter="ndarray",
             feature_order=["age", "income", "education"],
             thread_safe_predict=True,
-            endpoints={
-                "predict": True,
-                "batch_predict": False,
-                "predict_proba": True
-            }
+            endpoints={"predict": True, "batch_predict": False, "predict_proba": True},
         )
         assert config.version == "v2"
         assert config.adapter == "ndarray"
@@ -217,7 +177,7 @@ class TestObservabilityConfigValidation:
             metrics_endpoint="/custom-metrics",
             structured_logging=False,
             log_payloads=True,
-            correlation_ids=False
+            correlation_ids=False,
         )
         assert config.metrics is False
         assert config.metrics_endpoint == "/custom-metrics"
@@ -231,25 +191,16 @@ class TestPredictorConfigValidation:
 
     def test_predictor_config_minimal(self):
         """Test PredictorConfig with minimal required fields."""
-        config = PredictorConfig(
-            module="test.module",
-            class_name="TestPredictor"
-        )
+        config = PredictorConfig(module="test.module", class_name="TestPredictor")
         assert config.module == "test.module"
         assert config.class_name == "TestPredictor"
         assert config.init_kwargs == {}
 
     def test_predictor_config_with_kwargs(self):
         """Test PredictorConfig with init_kwargs."""
-        init_kwargs = {
-            "model_path": "/path/to/model.pkl",
-            "n_estimators": 100,
-            "random_state": 42
-        }
+        init_kwargs = {"model_path": "/path/to/model.pkl", "n_estimators": 100, "random_state": 42}
         config = PredictorConfig(
-            module="sklearn.ensemble",
-            class_name="RandomForestClassifier",
-            init_kwargs=init_kwargs
+            module="sklearn.ensemble", class_name="RandomForestClassifier", init_kwargs=init_kwargs
         )
         assert config.module == "sklearn.ensemble"
         assert config.class_name == "RandomForestClassifier"
@@ -275,7 +226,7 @@ class TestConfigSchemaModels:
             registry="docker.io/myregistry",
             tag_prefix="ml-model",
             include_files=["model.pkl", "preprocessor.pkl"],
-            exclude_patterns=["*.tmp", "test_*"]
+            exclude_patterns=["*.tmp", "test_*"],
         )
         assert config.registry == "docker.io/myregistry"
         assert config.tag_prefix == "ml-model"
@@ -296,7 +247,7 @@ class TestConfigSchemaModels:
             allow_origins=["http://localhost:3000", "https://example.com"],
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT"],
-            allow_headers=["Content-Type", "Authorization"]
+            allow_headers=["Content-Type", "Authorization"],
         )
         assert config.allow_origins == ["http://localhost:3000", "https://example.com"]
         assert config.allow_credentials is True
@@ -321,11 +272,7 @@ class TestConfigValidationEdgeCases:
 
     def test_empty_init_kwargs(self):
         """Test PredictorConfig with explicitly empty init_kwargs."""
-        config = PredictorConfig(
-            module="test.module",
-            class_name="TestPredictor",
-            init_kwargs={}
-        )
+        config = PredictorConfig(module="test.module", class_name="TestPredictor", init_kwargs={})
         assert config.init_kwargs == {}
 
     def test_complex_init_kwargs(self):
@@ -335,12 +282,10 @@ class TestConfigValidationEdgeCases:
             "list_param": [1, 2, 3, 4, 5],
             "boolean_param": True,
             "none_param": None,
-            "float_param": 3.14159
+            "float_param": 3.14159,
         }
         config = PredictorConfig(
-            module="test.module",
-            class_name="TestPredictor",
-            init_kwargs=complex_kwargs
+            module="test.module", class_name="TestPredictor", init_kwargs=complex_kwargs
         )
         assert config.init_kwargs["nested_dict"]["key1"] == "value1"
         assert config.init_kwargs["list_param"] == [1, 2, 3, 4, 5]
@@ -352,29 +297,20 @@ class TestConfigValidationEdgeCases:
         """Test AppConfig validation - only predictor is required."""
         # Missing predictor - should raise
         with pytest.raises(ValidationError):
-            AppConfig(
-                classifier={"name": "test", "version": "1.0.0"},
-                api=ApiConfig()
-            )
+            AppConfig(classifier={"name": "test", "version": "1.0.0"}, api=ApiConfig())
 
         # Missing classifier - should work with defaults (Phase 2: Config Simplification)
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
-            api=ApiConfig()
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
+            api=ApiConfig(),
         )
         assert config.classifier is not None
         assert "name" in config.classifier
 
         # Missing api - should work with defaults (Phase 2: Config Simplification)
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="test.module",
-                class_name="TestPredictor"
-            ),
-            classifier={"name": "test", "version": "1.0.0"}
+            predictor=PredictorConfig(module="test.module", class_name="TestPredictor"),
+            classifier={"name": "test", "version": "1.0.0"},
         )
         assert config.api is not None
         assert config.api.adapter == "records"  # Default

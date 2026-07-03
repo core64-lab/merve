@@ -5,6 +5,7 @@ document to stdout with stable snake_case keys and the same exit code as its
 human-readable mode. These tests guard the CI-consumable contract — the
 generated GitHub Actions workflows parse this output.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,23 +27,29 @@ def _write(path, data):
 @pytest.fixture
 def single_config(tmp_path):
     """A minimal single-classifier config on disk."""
-    _write(tmp_path / "mlserver.yaml", {
-        "predictor": {"module": "m", "class_name": "C"},
-        "classifier": {"name": "solo", "version": "1.0.0"},
-    })
+    _write(
+        tmp_path / "mlserver.yaml",
+        {
+            "predictor": {"module": "m", "class_name": "C"},
+            "classifier": {"name": "solo", "version": "1.0.0"},
+        },
+    )
     return tmp_path
 
 
 @pytest.fixture
 def multi_config(tmp_path):
     """A two-classifier config (dict format) on disk."""
-    _write(tmp_path / "mlserver.yaml", {
-        "classifiers": {
-            "alpha": {"predictor": {"module": "m", "class_name": "A"}},
-            "beta": {"predictor": {"module": "m", "class_name": "B"}},
+    _write(
+        tmp_path / "mlserver.yaml",
+        {
+            "classifiers": {
+                "alpha": {"predictor": {"module": "m", "class_name": "A"}},
+                "beta": {"predictor": {"module": "m", "class_name": "B"}},
+            },
+            "default_classifier": "beta",
         },
-        "default_classifier": "beta",
-    })
+    )
     return tmp_path
 
 
@@ -56,8 +63,11 @@ class TestStatusJson:
     def test_status_json_is_valid_document(self):
         data = _json_from(runner.invoke(app, ["status", "--json"]))
         for key in (
-            "docker_available", "config_file", "python_version",
-            "virtual_env", "github_actions_configured",
+            "docker_available",
+            "config_file",
+            "python_version",
+            "virtual_env",
+            "github_actions_configured",
         ):
             assert key in data
         assert isinstance(data["docker_available"], bool)
@@ -89,10 +99,13 @@ class TestValidateJson:
         (tmp_path / "mypred.py").write_text(
             "class P:\n    def predict(self, X):\n        return [0] * len(X)\n"
         )
-        _write(tmp_path / "mlserver.yaml", {
-            "predictor": {"module": "mypred", "class_name": "P"},
-            "classifier": {"name": "v", "version": "1.0.0"},
-        })
+        _write(
+            tmp_path / "mlserver.yaml",
+            {
+                "predictor": {"module": "mypred", "class_name": "P"},
+                "classifier": {"name": "v", "version": "1.0.0"},
+            },
+        )
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["validate", "--json"])
         data = json.loads(result.stdout)

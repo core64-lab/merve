@@ -18,10 +18,24 @@ DEFAULT_BASE_IMAGE = "python:3.11-slim"
 CONTAINER_TEMP_DIR = "/tmp"
 CONTAINER_TEST_PORT = 8012
 CONTAINER_EXCLUDED_PATTERNS = [
-    ".vscode", ".idea", "*.log", "*.tmp", "catboost_info", "*.swp",
-    ".git", ".gitignore", "__pycache__", "*.pyc", ".pytest_cache",
-    ".coverage", "htmlcov", ".DS_Store", "node_modules", ".env",
-    "venv", ".venv",
+    ".vscode",
+    ".idea",
+    "*.log",
+    "*.tmp",
+    "catboost_info",
+    "*.swp",
+    ".git",
+    ".gitignore",
+    "__pycache__",
+    "*.pyc",
+    ".pytest_cache",
+    ".coverage",
+    "htmlcov",
+    ".DS_Store",
+    "node_modules",
+    ".env",
+    "venv",
+    ".venv",
 ]
 
 

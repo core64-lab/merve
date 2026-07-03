@@ -2,6 +2,7 @@
 Concurrency limiter for protecting compute-intensive model predictions.
 Designed for Kubernetes pod deployment where scaling happens across pods.
 """
+
 import asyncio
 import threading
 
@@ -62,12 +63,14 @@ class PredictionLimiter:
     Context manager for limiting concurrent predictions.
     """
 
-    def __init__(self, semaphore: PredictionSemaphore,
-                 rejection_message: str = (
-                     "Server is currently processing another prediction. "
-                     "Please retry later."
-                 ),
-                 retry_after_seconds: int = 5):
+    def __init__(
+        self,
+        semaphore: PredictionSemaphore,
+        rejection_message: str = (
+            "Server is currently processing another prediction. Please retry later."
+        ),
+        retry_after_seconds: int = 5,
+    ):
         self._semaphore = semaphore
         self._rejection_message = rejection_message
         self._retry_after_seconds = retry_after_seconds
@@ -80,7 +83,7 @@ class PredictionLimiter:
             raise HTTPException(
                 status_code=503,  # Service Unavailable
                 detail=self._rejection_message,
-                headers={"Retry-After": str(self._retry_after_seconds)}
+                headers={"Retry-After": str(self._retry_after_seconds)},
             )
         return self
 
@@ -96,12 +99,15 @@ class AsyncPredictionLimiter:
     Async context manager for limiting concurrent predictions.
     """
 
-    def __init__(self, semaphore: asyncio.Semaphore, max_concurrent: int = 1,
-                 rejection_message: str = (
-                     "Server is currently processing another prediction. "
-                     "Please retry later."
-                 ),
-                 retry_after_seconds: int = 5):
+    def __init__(
+        self,
+        semaphore: asyncio.Semaphore,
+        max_concurrent: int = 1,
+        rejection_message: str = (
+            "Server is currently processing another prediction. Please retry later."
+        ),
+        retry_after_seconds: int = 5,
+    ):
         self._semaphore = semaphore
         self._max_concurrent = max_concurrent
         self._rejection_message = rejection_message
@@ -114,7 +120,7 @@ class AsyncPredictionLimiter:
             # Try to acquire with zero timeout
             self._acquired = await asyncio.wait_for(
                 self._semaphore.acquire(),
-                timeout=0.001  # Near-instant timeout
+                timeout=0.001,  # Near-instant timeout
             )
         except asyncio.TimeoutError:
             self._acquired = False
@@ -123,7 +129,7 @@ class AsyncPredictionLimiter:
             raise HTTPException(
                 status_code=503,
                 detail=self._rejection_message,
-                headers={"Retry-After": str(self._retry_after_seconds)}
+                headers={"Retry-After": str(self._retry_after_seconds)},
             )
         return self
 
@@ -134,9 +140,9 @@ class AsyncPredictionLimiter:
             self._acquired = False
 
 
-def create_prediction_limiter(max_concurrent_predictions: int = 1,
-                             async_mode: bool = False,
-                             retry_after_seconds: int = 5) -> tuple:
+def create_prediction_limiter(
+    max_concurrent_predictions: int = 1, async_mode: bool = False, retry_after_seconds: int = 5
+) -> tuple:
     """
     Create appropriate prediction limiter based on mode.
 
@@ -151,7 +157,8 @@ def create_prediction_limiter(max_concurrent_predictions: int = 1,
     if async_mode:
         semaphore = asyncio.Semaphore(max_concurrent_predictions)
         return semaphore, lambda: AsyncPredictionLimiter(
-            semaphore, max_concurrent_predictions,
+            semaphore,
+            max_concurrent_predictions,
             retry_after_seconds=retry_after_seconds,
         )
     else:

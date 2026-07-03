@@ -19,10 +19,7 @@ class TestGitVersionManager:
     @patch("subprocess.run")
     def test_get_current_version_with_tag(self, mock_run):
         """Test getting version from git tag."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="v1.2.3\n"
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="v1.2.3\n")
 
         mgr = GitVersionManager(".")
         version = mgr.get_current_version()
@@ -79,7 +76,7 @@ class TestGitVersionManager:
         """Test checking if working directory is clean."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout=""  # Empty means clean
+            stdout="",  # Empty means clean
         )
 
         mgr = GitVersionManager(".")
@@ -91,10 +88,7 @@ class TestGitVersionManager:
     @patch("subprocess.run")
     def test_check_working_directory_dirty(self, mock_run):
         """Test checking dirty working directory."""
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="M file.py\n?? newfile.txt\n"
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="M file.py\n?? newfile.txt\n")
 
         mgr = GitVersionManager(".")
         is_clean, msg = mgr.check_working_directory_clean()
@@ -109,7 +103,9 @@ class TestGitVersionManager:
         mock_commit.return_value = "abc1234"
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout=""),  # git status --porcelain (clean)
-            MagicMock(returncode=0, stdout="test-classifier-v1.2.3-mlserver-abc1234\n"),  # git tag -l pattern
+            MagicMock(
+                returncode=0, stdout="test-classifier-v1.2.3-mlserver-abc1234\n"
+            ),  # git tag -l pattern
             MagicMock(returncode=0),  # git tag command
         ]
 
@@ -129,7 +125,9 @@ class TestGitVersionManager:
         mock_commit.return_value = "abc1234"
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout=""),  # git status --porcelain (clean)
-            MagicMock(returncode=0, stdout="test-classifier-v1.2.3-mlserver-abc1234\n"),  # git tag -l pattern
+            MagicMock(
+                returncode=0, stdout="test-classifier-v1.2.3-mlserver-abc1234\n"
+            ),  # git tag -l pattern
             MagicMock(returncode=0),  # git tag command
         ]
 
@@ -146,7 +144,9 @@ class TestGitVersionManager:
         mock_commit.return_value = "abc1234"
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout=""),  # git status --porcelain (clean)
-            MagicMock(returncode=0, stdout="test-classifier-v1.2.3-mlserver-abc1234\n"),  # git tag -l pattern
+            MagicMock(
+                returncode=0, stdout="test-classifier-v1.2.3-mlserver-abc1234\n"
+            ),  # git tag -l pattern
             MagicMock(returncode=0),  # git tag command
         ]
 
@@ -161,7 +161,7 @@ class TestGitVersionManager:
         """Test that tagging fails with dirty working directory."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="M file.py\n"  # Dirty
+            stdout="M file.py\n",  # Dirty
         )
 
         mgr = GitVersionManager(".")
@@ -245,7 +245,7 @@ class TestVersionForPush:
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "test-v1.2.3",
             "on_tagged_commit": True,
-            "commits_since_tag": 0
+            "commits_since_tag": 0,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -262,7 +262,7 @@ class TestVersionForPush:
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": None,
             "on_tagged_commit": False,
-            "commits_since_tag": None
+            "commits_since_tag": None,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -279,7 +279,7 @@ class TestVersionForPush:
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": None,
             "on_tagged_commit": False,
-            "commits_since_tag": None
+            "commits_since_tag": None,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -300,7 +300,7 @@ class TestVersionForPush:
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "v1.5.0",
             "on_tagged_commit": True,
-            "commits_since_tag": 0
+            "commits_since_tag": 0,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -317,7 +317,7 @@ class TestVersionForPush:
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "v1.5.0",
             "on_tagged_commit": False,
-            "commits_since_tag": 3
+            "commits_since_tag": 3,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -346,13 +346,13 @@ class TestSafePushContainer:
         mock_mgr.validate_push_readiness.return_value = {
             "ready": True,
             "errors": [],
-            "warnings": []
+            "warnings": [],
         }
         mock_mgr.check_registry_tag_exists.return_value = False
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "v1.0.0",
             "on_tagged_commit": True,
-            "commits_since_tag": 0
+            "commits_since_tag": 0,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -363,10 +363,7 @@ class TestSafePushContainer:
 
         mock_git_info.return_value = Mock()
 
-        mock_push.return_value = {
-            "success": True,
-            "pushed_tags": ["registry.io/mlserver:1.0.0"]
-        }
+        mock_push.return_value = {"success": True, "pushed_tags": ["registry.io/mlserver:1.0.0"]}
 
         # Call function
         result = safe_push_container(".", "registry.io")
@@ -383,7 +380,7 @@ class TestSafePushContainer:
         mock_mgr.validate_push_readiness.return_value = {
             "ready": False,
             "errors": ["Not on tagged commit"],
-            "warnings": []
+            "warnings": [],
         }
         mock_git_class.return_value = mock_mgr
 
@@ -402,13 +399,13 @@ class TestSafePushContainer:
         mock_mgr.validate_push_readiness.return_value = {
             "ready": True,
             "errors": [],
-            "warnings": []
+            "warnings": [],
         }
         mock_mgr.check_registry_tag_exists.return_value = True  # Tag exists!
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "v1.0.0",
             "on_tagged_commit": True,
-            "commits_since_tag": 0
+            "commits_since_tag": 0,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -429,19 +426,21 @@ class TestSafePushContainer:
     @patch("mlserver.version.get_git_info")
     @patch("mlserver.version.load_classifier_metadata")
     @patch("mlserver.version_control.GitVersionManager")
-    def test_safe_push_force_overrides_checks(self, mock_git_class, mock_load, mock_git_info, mock_push):
+    def test_safe_push_force_overrides_checks(
+        self, mock_git_class, mock_load, mock_git_info, mock_push
+    ):
         """Test force flag overrides validation checks."""
         mock_mgr = Mock()
         mock_mgr.validate_push_readiness.return_value = {
             "ready": False,  # Would normally fail
             "errors": ["Working directory dirty"],
-            "warnings": ["Dirty working directory"]
+            "warnings": ["Dirty working directory"],
         }
         mock_mgr.check_registry_tag_exists.return_value = True  # Would normally fail
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": None,
             "on_tagged_commit": False,
-            "commits_since_tag": None
+            "commits_since_tag": None,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -452,10 +451,7 @@ class TestSafePushContainer:
 
         mock_git_info.return_value = Mock()
 
-        mock_push.return_value = {
-            "success": True,
-            "pushed_tags": ["registry.io/mlserver:1.0.0"]
-        }
+        mock_push.return_value = {"success": True, "pushed_tags": ["registry.io/mlserver:1.0.0"]}
 
         # Call with force=True
         result = safe_push_container(".", "registry.io", force=True)
@@ -469,12 +465,14 @@ class TestSafePushContainer:
 # Phase 1-4: New Hierarchical Tag Functionality Tests
 # ============================================================================
 
+
 class TestGetMLServerCommitHash:
     """Test get_mlserver_commit_hash() function (Phase 1)."""
 
     def test_get_commit_returns_string_or_none(self):
         """Test that get_mlserver_commit_hash returns string or None."""
         from mlserver.version_control import get_mlserver_commit_hash
+
         result = get_mlserver_commit_hash()
 
         # Should return either a string (git hash) or None
@@ -483,7 +481,7 @@ class TestGetMLServerCommitHash:
         # If it's a string, it should look like a git hash
         if result is not None:
             assert len(result) >= 7  # Short hash is at least 7 chars
-            assert all(c in '0123456789abcdef' for c in result)
+            assert all(c in "0123456789abcdef" for c in result)
 
     @patch("subprocess.run")
     def test_get_commit_handles_git_failure(self, mock_run):
@@ -491,6 +489,7 @@ class TestGetMLServerCommitHash:
         mock_run.side_effect = Exception("Not a git repository")
 
         from mlserver.version_control import get_mlserver_commit_hash
+
         # Should not raise, just return None
         result = get_mlserver_commit_hash()
         # Result could be from cache or fallback, just ensure no crash
@@ -726,6 +725,7 @@ class TestTagVersionEnhanced:
 # RFC 0001 W1.3: parse_classifier_tag - canonical/legacy/bare tag matrix
 # ============================================================================
 
+
 class TestParseClassifierTag:
     """Parametrized matrix for parse_classifier_tag (RFC 0001, D1-D3).
 
@@ -735,30 +735,48 @@ class TestParseClassifierTag:
     inputs that must return None.
     """
 
-    @pytest.mark.parametrize("tag,classifier,version,mlserver_commit,fmt", [
-        # --- canonical format ---
-        ("fraud/v1.0.0", "fraud", "1.0.0", None, "canonical"),
-        ("fraud/v10.20.30", "fraud", "10.20.30", None, "canonical"),
-        ("rfq-likelihood-v2/v2.10.3", "rfq-likelihood-v2", "2.10.3", None, "canonical"),
-        ("rfq_likelihood_model/v0.1.0", "rfq_likelihood_model", "0.1.0", None, "canonical"),
-        ("7segment/v1.2.3", "7segment", "1.2.3", None, "canonical"),
-        # --- legacy format (with mlserver commit) ---
-        ("fraud-v1.0.0-mlserver-b5dff2a", "fraud", "1.0.0", "b5dff2a", "legacy"),
-        ("rfq-likelihood-v2-v1.0.0-mlserver-abc1234",
-         "rfq-likelihood-v2", "1.0.0", "abc1234", "legacy"),
-        ("rfq_likelihood_model-v2.3.1-mlserver-a3f2c9d",
-         "rfq_likelihood_model", "2.3.1", "a3f2c9d", "legacy"),
-        ("fraud-v1.0.0-mlserver-abc123def4567890",
-         "fraud", "1.0.0", "abc123def4567890", "legacy"),
-        # 'dev' placeholder written by --allow-missing-mlserver
-        ("fraud-v1.0.0-mlserver-dev", "fraud", "1.0.0", "dev", "legacy"),
-        # --- bare legacy format (no mlserver suffix) ---
-        ("fraud-v1.0.0", "fraud", "1.0.0", None, "legacy-bare"),
-        ("rfq-likelihood-v2-v9.9.9", "rfq-likelihood-v2", "9.9.9", None, "legacy-bare"),
-        ("fraud_detection-v0.0.1", "fraud_detection", "0.0.1", None, "legacy-bare"),
-        # name ending in -vN must not be split at the wrong -v
-        ("model-v2-v1.0.0", "model-v2", "1.0.0", None, "legacy-bare"),
-    ])
+    @pytest.mark.parametrize(
+        "tag,classifier,version,mlserver_commit,fmt",
+        [
+            # --- canonical format ---
+            ("fraud/v1.0.0", "fraud", "1.0.0", None, "canonical"),
+            ("fraud/v10.20.30", "fraud", "10.20.30", None, "canonical"),
+            ("rfq-likelihood-v2/v2.10.3", "rfq-likelihood-v2", "2.10.3", None, "canonical"),
+            ("rfq_likelihood_model/v0.1.0", "rfq_likelihood_model", "0.1.0", None, "canonical"),
+            ("7segment/v1.2.3", "7segment", "1.2.3", None, "canonical"),
+            # --- legacy format (with mlserver commit) ---
+            ("fraud-v1.0.0-mlserver-b5dff2a", "fraud", "1.0.0", "b5dff2a", "legacy"),
+            (
+                "rfq-likelihood-v2-v1.0.0-mlserver-abc1234",
+                "rfq-likelihood-v2",
+                "1.0.0",
+                "abc1234",
+                "legacy",
+            ),
+            (
+                "rfq_likelihood_model-v2.3.1-mlserver-a3f2c9d",
+                "rfq_likelihood_model",
+                "2.3.1",
+                "a3f2c9d",
+                "legacy",
+            ),
+            (
+                "fraud-v1.0.0-mlserver-abc123def4567890",
+                "fraud",
+                "1.0.0",
+                "abc123def4567890",
+                "legacy",
+            ),
+            # 'dev' placeholder written by --allow-missing-mlserver
+            ("fraud-v1.0.0-mlserver-dev", "fraud", "1.0.0", "dev", "legacy"),
+            # --- bare legacy format (no mlserver suffix) ---
+            ("fraud-v1.0.0", "fraud", "1.0.0", None, "legacy-bare"),
+            ("rfq-likelihood-v2-v9.9.9", "rfq-likelihood-v2", "9.9.9", None, "legacy-bare"),
+            ("fraud_detection-v0.0.1", "fraud_detection", "0.0.1", None, "legacy-bare"),
+            # name ending in -vN must not be split at the wrong -v
+            ("model-v2-v1.0.0", "model-v2", "1.0.0", None, "legacy-bare"),
+        ],
+    )
     def test_parse_valid_tags(self, tag, classifier, version, mlserver_commit, fmt):
         """All supported formats parse into their components."""
         from mlserver.version_control import parse_classifier_tag
@@ -771,40 +789,46 @@ class TestParseClassifierTag:
         assert result["mlserver_commit"] == mlserver_commit
         assert result["format"] == fmt
 
-    @pytest.mark.parametrize("tag", [
-        "v1.0.0",                       # plain version tag, no classifier
-        "1.0.0",                        # bare version
-        "fraud/1.0.0",                  # canonical without 'v' prefix
-        "fraud/vX",                     # non-numeric version
-        "fraud/v1.0",                   # two-part version
-        "",                             # empty string
-        "Fraud/v1.0.0",                 # uppercase not allowed
-        "fraud-v1.0",                   # bare legacy with two-part version
-        "fraud-v1.0.0-mlserver-",       # empty commit hash
-        "fraud-v1.0.0-mlserver-xyz",    # non-hex commit hash
-        "fraud@model/v1.0.0",           # invalid character in name
-        "fraud/v1.0.0/extra",           # trailing junk
-    ])
+    @pytest.mark.parametrize(
+        "tag",
+        [
+            "v1.0.0",  # plain version tag, no classifier
+            "1.0.0",  # bare version
+            "fraud/1.0.0",  # canonical without 'v' prefix
+            "fraud/vX",  # non-numeric version
+            "fraud/v1.0",  # two-part version
+            "",  # empty string
+            "Fraud/v1.0.0",  # uppercase not allowed
+            "fraud-v1.0",  # bare legacy with two-part version
+            "fraud-v1.0.0-mlserver-",  # empty commit hash
+            "fraud-v1.0.0-mlserver-xyz",  # non-hex commit hash
+            "fraud@model/v1.0.0",  # invalid character in name
+            "fraud/v1.0.0/extra",  # trailing junk
+        ],
+    )
     def test_parse_invalid_tags_return_none(self, tag):
         """Junk and malformed tags return None."""
         from mlserver.version_control import parse_classifier_tag
 
         assert parse_classifier_tag(tag) is None
 
-    @pytest.mark.parametrize("name_or_tag,expected", [
-        # round-trip: every tag format resolves back to its classifier name
-        ("fraud/v1.0.0", "fraud"),
-        ("rfq-likelihood-v2/v1.0.0", "rfq-likelihood-v2"),
-        ("fraud-v1.0.0-mlserver-abc1234", "fraud"),
-        ("rfq-likelihood-v2-v1.0.0-mlserver-abc1234", "rfq-likelihood-v2"),
-        ("fraud-v1.0.0", "fraud"),
-        ("rfq-likelihood-v2-v1.0.0", "rfq-likelihood-v2"),
-        # simple names pass through (incl. a NAME that looks tag-ish)
-        ("fraud", "fraud"),
-        ("rfq-likelihood-v2", "rfq-likelihood-v2"),
-        # invalid input
-        ("Fraud/v1.0.0", None),
-    ])
+    @pytest.mark.parametrize(
+        "name_or_tag,expected",
+        [
+            # round-trip: every tag format resolves back to its classifier name
+            ("fraud/v1.0.0", "fraud"),
+            ("rfq-likelihood-v2/v1.0.0", "rfq-likelihood-v2"),
+            ("fraud-v1.0.0-mlserver-abc1234", "fraud"),
+            ("rfq-likelihood-v2-v1.0.0-mlserver-abc1234", "rfq-likelihood-v2"),
+            ("fraud-v1.0.0", "fraud"),
+            ("rfq-likelihood-v2-v1.0.0", "rfq-likelihood-v2"),
+            # simple names pass through (incl. a NAME that looks tag-ish)
+            ("fraud", "fraud"),
+            ("rfq-likelihood-v2", "rfq-likelihood-v2"),
+            # invalid input
+            ("Fraud/v1.0.0", None),
+        ],
+    )
     def test_extract_classifier_name_roundtrip(self, name_or_tag, expected):
         """extract_classifier_name handles all tag formats and plain names."""
         from mlserver.version_control import extract_classifier_name
@@ -834,8 +858,7 @@ class TestMixedFormatTagReading:
         A string sort would pick 1.2.0; semver must pick the canonical 1.10.0.
         """
         mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="fraud-v1.2.0-mlserver-abc1234\nfraud/v1.10.0\n"
+            returncode=0, stdout="fraud-v1.2.0-mlserver-abc1234\nfraud/v1.10.0\n"
         )
 
         mgr = GitVersionManager(".")
@@ -851,8 +874,7 @@ class TestMixedFormatTagReading:
     def test_get_current_version_legacy_newer_than_canonical(self, mock_run):
         """A newer legacy tag beats an older canonical tag."""
         mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="fraud/v1.0.0\nfraud-v2.0.0-mlserver-abc1234\n"
+            returncode=0, stdout="fraud/v1.0.0\nfraud-v2.0.0-mlserver-abc1234\n"
         )
 
         mgr = GitVersionManager(".")
@@ -865,10 +887,7 @@ class TestMixedFormatTagReading:
         The git glob 'fraud-v*' also matches 'fraud-v2-v9.9.9'; the parsed
         classifier name filter must exclude it.
         """
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="fraud-v2-v9.9.9\nfraud/v1.0.0\n"
-        )
+        mock_run.return_value = MagicMock(returncode=0, stdout="fraud-v2-v9.9.9\nfraud/v1.0.0\n")
 
         mgr = GitVersionManager(".")
         assert mgr.get_current_version("fraud") == "1.0.0"
@@ -877,8 +896,7 @@ class TestMixedFormatTagReading:
     def test_get_current_version_ignores_junk_tags(self, mock_run):
         """Unparseable tags in the listing are skipped."""
         mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="fraud-vlatest\nfraud-v1.0\nfraud/v0.2.0\n"
+            returncode=0, stdout="fraud-vlatest\nfraud-v1.0\nfraud/v0.2.0\n"
         )
 
         mgr = GitVersionManager(".")
@@ -888,8 +906,7 @@ class TestMixedFormatTagReading:
     def test_get_current_version_canonical_only_repo(self, mock_run):
         """Repos that only have canonical tags work."""
         mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="sentiment/v0.3.0\nsentiment/v0.10.0\n"
+            returncode=0, stdout="sentiment/v0.3.0\nsentiment/v0.10.0\n"
         )
 
         mgr = GitVersionManager(".")
@@ -900,8 +917,7 @@ class TestMixedFormatTagReading:
         """get_latest_tag_info returns the canonical tag when it is newest."""
         mock_run.side_effect = [
             MagicMock(
-                returncode=0,
-                stdout="fraud-v1.2.0-mlserver-abc1234\nfraud/v1.10.0\n"
+                returncode=0, stdout="fraud-v1.2.0-mlserver-abc1234\nfraud/v1.10.0\n"
             ),  # git tag -l <patterns>
             MagicMock(returncode=0, stdout="fraud/v1.10.0\n"),  # git tag --points-at HEAD
         ]
@@ -917,10 +933,7 @@ class TestMixedFormatTagReading:
     def test_get_latest_tag_info_version_tie_prefers_canonical(self, mock_run):
         """On a version tie across formats the canonical tag wins."""
         mock_run.side_effect = [
-            MagicMock(
-                returncode=0,
-                stdout="fraud-v1.0.0-mlserver-abc1234\nfraud/v1.0.0\n"
-            ),
+            MagicMock(returncode=0, stdout="fraud-v1.0.0-mlserver-abc1234\nfraud/v1.0.0\n"),
             MagicMock(returncode=0, stdout=""),  # not on tagged commit
             MagicMock(returncode=0, stdout="2\n"),  # rev-list --count
         ]
@@ -954,7 +967,7 @@ class TestMixedFormatTagReading:
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "sentiment/v2.5.0",
             "on_tagged_commit": True,
-            "commits_since_tag": 0
+            "commits_since_tag": 0,
         }
         mock_git_class.return_value = mock_mgr
 
@@ -1047,7 +1060,7 @@ class TestHierarchicalTagIntegration:
         existing_versions = [
             "sentiment-v1.0.0-mlserver-b5dff2a",
             "sentiment-v1.0.1-mlserver-b5dff2a",
-            "sentiment-v1.1.0-mlserver-b5dff2a"
+            "sentiment-v1.1.0-mlserver-b5dff2a",
         ]
 
         mgr = GitVersionManager(".")

@@ -1,4 +1,5 @@
 """Unit tests for server module components."""
+
 import logging
 from unittest.mock import Mock, patch
 
@@ -23,53 +24,41 @@ from mlserver.server import (
 @pytest.fixture
 def mock_config():
     """Create a mock AppConfig with default settings."""
-    return AppConfig.model_validate({
-        "server": {"host": "127.0.0.1", "port": 8000},
-        "predictor": {
-            "module": "mlserver.predictors.sklearn",
-            "class_name": "SKLearnPredictor",
-            "init_kwargs": {"model_path": "model.pkl"}
-        },
-        "observability": {
-            "metrics": True,
-            "structured_logging": True,
-            "correlation_ids": True
-        },
-        "classifier": {
-            "name": "test-model",
-            "version": "1.0.0"
-        },
-        "api": {
-            "version": "v1",
-            "adapter": "auto"
+    return AppConfig.model_validate(
+        {
+            "server": {"host": "127.0.0.1", "port": 8000},
+            "predictor": {
+                "module": "mlserver.predictors.sklearn",
+                "class_name": "SKLearnPredictor",
+                "init_kwargs": {"model_path": "model.pkl"},
+            },
+            "observability": {"metrics": True, "structured_logging": True, "correlation_ids": True},
+            "classifier": {"name": "test-model", "version": "1.0.0"},
+            "api": {"version": "v1", "adapter": "auto"},
         }
-    })
+    )
 
 
 @pytest.fixture
 def mock_config_minimal():
     """Create a minimal AppConfig with observability disabled."""
-    return AppConfig.model_validate({
-        "server": {"host": "127.0.0.1", "port": 8000},
-        "predictor": {
-            "module": "mlserver.predictors.sklearn",
-            "class_name": "SKLearnPredictor",
-            "init_kwargs": {"model_path": "model.pkl"}
-        },
-        "observability": {
-            "metrics": False,
-            "structured_logging": False,
-            "correlation_ids": False
-        },
-        "classifier": {
-            "name": "test-model",
-            "version": "1.0.0"
-        },
-        "api": {
-            "version": "v1",
-            "adapter": "auto"
+    return AppConfig.model_validate(
+        {
+            "server": {"host": "127.0.0.1", "port": 8000},
+            "predictor": {
+                "module": "mlserver.predictors.sklearn",
+                "class_name": "SKLearnPredictor",
+                "init_kwargs": {"model_path": "model.pkl"},
+            },
+            "observability": {
+                "metrics": False,
+                "structured_logging": False,
+                "correlation_ids": False,
+            },
+            "classifier": {"name": "test-model", "version": "1.0.0"},
+            "api": {"version": "v1", "adapter": "auto"},
         }
-    })
+    )
 
 
 class TestObservabilityMiddleware:
@@ -82,7 +71,7 @@ class TestObservabilityMiddleware:
         middleware construction - caching get_metrics() in __init__ would
         always capture None and request metrics would never be recorded.
         """
-        with patch('mlserver.server.get_metrics') as mock_get_metrics:
+        with patch("mlserver.server.get_metrics") as mock_get_metrics:
             app = Mock()
             middleware = ObservabilityMiddleware(app, mock_config)
 
@@ -95,11 +84,12 @@ class TestObservabilityMiddleware:
     async def test_middleware_looks_up_metrics_per_request(self, mock_config):
         """Dispatch consults get_metrics() per request, so a collector
         initialized after middleware construction (by the lifespan) is used."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics, \
-             patch('mlserver.server.set_correlation_id'), \
-             patch('mlserver.server.log_request'), \
-             patch('mlserver.server.log_response'):
-
+        with (
+            patch("mlserver.server.get_metrics") as mock_get_metrics,
+            patch("mlserver.server.set_correlation_id"),
+            patch("mlserver.server.log_request"),
+            patch("mlserver.server.log_response"),
+        ):
             app = Mock()
             # Collector does not exist yet when the middleware is constructed
             mock_get_metrics.return_value = None
@@ -134,11 +124,12 @@ class TestObservabilityMiddleware:
     @pytest.mark.asyncio
     async def test_middleware_dispatch_full_observability(self, mock_config):
         """Test middleware dispatch with full observability enabled."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics, \
-             patch('mlserver.server.set_correlation_id') as mock_set_correlation_id, \
-             patch('mlserver.server.log_request') as mock_log_request, \
-             patch('mlserver.server.log_response') as mock_log_response:
-
+        with (
+            patch("mlserver.server.get_metrics") as mock_get_metrics,
+            patch("mlserver.server.set_correlation_id") as mock_set_correlation_id,
+            patch("mlserver.server.log_request") as mock_log_request,
+            patch("mlserver.server.log_response") as mock_log_response,
+        ):
             # Setup mocks
             mock_metrics = Mock()
             mock_get_metrics.return_value = mock_metrics
@@ -177,11 +168,12 @@ class TestObservabilityMiddleware:
     @pytest.mark.asyncio
     async def test_middleware_dispatch_minimal_observability(self, mock_config_minimal):
         """Test middleware dispatch with minimal observability."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics, \
-             patch('mlserver.server.set_correlation_id') as mock_set_correlation_id, \
-             patch('mlserver.server.log_request') as mock_log_request, \
-             patch('mlserver.server.log_response') as mock_log_response:
-
+        with (
+            patch("mlserver.server.get_metrics") as mock_get_metrics,
+            patch("mlserver.server.set_correlation_id") as mock_set_correlation_id,
+            patch("mlserver.server.log_request") as mock_log_request,
+            patch("mlserver.server.log_response") as mock_log_response,
+        ):
             # Setup mocks
             mock_get_metrics.return_value = None
 
@@ -211,7 +203,7 @@ class TestObservabilityMiddleware:
     @pytest.mark.asyncio
     async def test_middleware_dispatch_handles_exceptions(self, mock_config):
         """Test middleware properly handles exceptions."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics:
+        with patch("mlserver.server.get_metrics") as mock_get_metrics:
             mock_metrics = Mock()
             mock_get_metrics.return_value = mock_metrics
 
@@ -240,9 +232,10 @@ class TestCreateApp:
 
     def test_create_app_with_metrics(self, mock_config):
         """Test app creation with metrics enabled."""
-        with patch('mlserver.server.init_metrics') as mock_init_metrics, \
-             patch('mlserver.server.load_predictor') as mock_load_predictor:
-
+        with (
+            patch("mlserver.server.init_metrics") as mock_init_metrics,
+            patch("mlserver.server.load_predictor") as mock_load_predictor,
+        ):
             mock_predictor = Mock()
             mock_load_predictor.return_value = mock_predictor
             mock_init_metrics.return_value = Mock()
@@ -257,9 +250,10 @@ class TestCreateApp:
 
     def test_create_app_without_metrics(self, mock_config_minimal):
         """Test app creation with metrics disabled."""
-        with patch('mlserver.server.init_metrics') as mock_init_metrics, \
-             patch('mlserver.server.load_predictor') as mock_load_predictor:
-
+        with (
+            patch("mlserver.server.init_metrics") as mock_init_metrics,
+            patch("mlserver.server.load_predictor") as mock_load_predictor,
+        ):
             mock_predictor = Mock()
             mock_load_predictor.return_value = mock_predictor
 
@@ -274,30 +268,23 @@ class TestCreateApp:
     def test_create_app_with_cors(self):
         """Test app creation with CORS middleware."""
         from mlserver.config import CORSConfig
+
         config = AppConfig(
             server=ServerConfig(
                 host="127.0.0.1",
                 port=8000,
-                cors=CORSConfig(
-                    allow_origins=["http://localhost:3000", "https://example.com"]
-                )
+                cors=CORSConfig(allow_origins=["http://localhost:3000", "https://example.com"]),
             ),
             predictor=PredictorConfig(
                 module="mlserver.predictors.sklearn",
                 class_name="SKLearnPredictor",
-                init_kwargs={"model_path": "model.pkl"}
+                init_kwargs={"model_path": "model.pkl"},
             ),
-            classifier={
-                "name": "test-model",
-                "version": "1.0.0"
-            },
-            api={
-                "version": "v1",
-                "adapter": "auto"
-            }
+            classifier={"name": "test-model", "version": "1.0.0"},
+            api={"version": "v1", "adapter": "auto"},
         )
 
-        with patch('mlserver.server.load_predictor') as mock_load_predictor:
+        with patch("mlserver.server.load_predictor") as mock_load_predictor:
             mock_predictor = Mock()
             mock_load_predictor.return_value = mock_predictor
 
@@ -410,7 +397,7 @@ class TestHelperFunctions:
 
     def test_prepare_input_data_success(self, mock_config):
         """Test _prepare_input_data with successful parsing."""
-        with patch('mlserver.server.to_ndarray') as mock_to_ndarray:
+        with patch("mlserver.server.to_ndarray") as mock_to_ndarray:
             mock_to_ndarray.return_value = [[1, 2], [3, 4]]
 
             payload = {"ndarray": [[1, 2], [3, 4]]}
@@ -421,7 +408,7 @@ class TestHelperFunctions:
 
     def test_prepare_input_data_failure(self, mock_config):
         """Test _prepare_input_data with parsing failure."""
-        with patch('mlserver.server.to_ndarray') as mock_to_ndarray:
+        with patch("mlserver.server.to_ndarray") as mock_to_ndarray:
             mock_to_ndarray.side_effect = Exception("Parsing error")
 
             payload = {"ndarray": "invalid"}
@@ -434,9 +421,10 @@ class TestHelperFunctions:
 
     def test_track_prediction_metrics_with_metrics(self, mock_config):
         """Test _track_prediction_metrics when metrics are enabled."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics, \
-             patch('mlserver.server.log_prediction') as mock_log_prediction:
-
+        with (
+            patch("mlserver.server.get_metrics") as mock_get_metrics,
+            patch("mlserver.server.log_prediction") as mock_log_prediction,
+        ):
             mock_metrics = Mock()
             mock_get_metrics.return_value = mock_metrics
 
@@ -449,9 +437,10 @@ class TestHelperFunctions:
 
     def test_track_prediction_metrics_without_metrics(self, mock_config_minimal):
         """Test _track_prediction_metrics when metrics and structured logging are disabled."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics, \
-             patch('mlserver.server.log_prediction') as mock_log_prediction:
-
+        with (
+            patch("mlserver.server.get_metrics") as mock_get_metrics,
+            patch("mlserver.server.log_prediction") as mock_log_prediction,
+        ):
             mock_get_metrics.return_value = None
 
             _track_prediction_metrics("/predict", 0.5, 10, 10, "TestModel", mock_config_minimal)
@@ -502,7 +491,7 @@ class TestHandlerFunctions:
 
     def test_create_predict_handler(self, mock_config):
         """Test _create_predict_handler function."""
-        with patch('mlserver.server.load_predictor') as mock_load_predictor:
+        with patch("mlserver.server.load_predictor") as mock_load_predictor:
             mock_predictor = Mock()
             mock_load_predictor.return_value = mock_predictor
 
@@ -514,7 +503,7 @@ class TestHandlerFunctions:
 
     def test_create_predict_proba_handler(self, mock_config):
         """Test _create_predict_proba_handler function."""
-        with patch('mlserver.server.load_predictor') as mock_load_predictor:
+        with patch("mlserver.server.load_predictor") as mock_load_predictor:
             mock_predictor = Mock()
             mock_load_predictor.return_value = mock_predictor
 
@@ -527,13 +516,13 @@ class TestHandlerFunctions:
     @pytest.mark.asyncio
     async def test_app_lifespan_context(self, mock_config):
         """Test app lifespan context functionality - predictor loaded on startup."""
-        with patch('mlserver.server.load_predictor') as mock_load_predictor:
+        with patch("mlserver.server.load_predictor") as mock_load_predictor:
             # Mock predictor with close method
             mock_predictor = Mock()
             mock_wrapper = Mock()
             mock_wrapper.close = Mock()
 
-            with patch('mlserver.server.PredictorWrapper') as mock_wrapper_class:
+            with patch("mlserver.server.PredictorWrapper") as mock_wrapper_class:
                 mock_wrapper_class.return_value = mock_wrapper
                 mock_load_predictor.return_value = mock_predictor
 
@@ -550,7 +539,7 @@ class TestHandlerFunctions:
                         mock_config.predictor.module,
                         mock_config.predictor.class_name,
                         mock_config.predictor.init_kwargs,
-                        config_dir=mock_config.project_path
+                        config_dir=mock_config.project_path,
                     )
 
 
@@ -565,10 +554,12 @@ class TestValidateInputFeatures:
 
         logger = logging.getLogger(__name__)
         feature_order = ["feature1", "feature2", "feature3"]
-        payload = {"records": [
-            {"feature1": 1.0, "feature2": 2.0, "feature3": 3.0},
-            {"feature1": 4.0, "feature2": 5.0, "feature3": 6.0}
-        ]}
+        payload = {
+            "records": [
+                {"feature1": 1.0, "feature2": 2.0, "feature3": 3.0},
+                {"feature1": 4.0, "feature2": 5.0, "feature3": 6.0},
+            ]
+        }
 
         # Should not raise
         _validate_input_features(payload, feature_order, logger)
@@ -581,9 +572,11 @@ class TestValidateInputFeatures:
 
         logger = logging.getLogger(__name__)
         feature_order = ["feature1", "feature2", "feature3"]
-        payload = {"records": [
-            {"feature1": 1.0}  # Missing feature2 and feature3
-        ]}
+        payload = {
+            "records": [
+                {"feature1": 1.0}  # Missing feature2 and feature3
+            ]
+        }
 
         with pytest.raises(HTTPException) as exc_info:
             _validate_input_features(payload, feature_order, logger)
@@ -599,9 +592,7 @@ class TestValidateInputFeatures:
 
         logger = logging.getLogger(__name__)
         feature_order = ["a", "b"]
-        payload = {"instances": [
-            {"a": 1.0, "b": 2.0}
-        ]}
+        payload = {"instances": [{"a": 1.0, "b": 2.0}]}
 
         # Should not raise
         _validate_input_features(payload, feature_order, logger)
@@ -654,7 +645,7 @@ class TestFormatResponse:
         from mlserver.server import _format_response
 
         # Modify config for passthrough
-        mock_config.api.response_format = 'passthrough'
+        mock_config.api.response_format = "passthrough"
 
         predictions = {"custom": "data", "predictions": [1, 2, 3]}
         result = _format_response(predictions, mock_config, 10.5, "TestModel")
@@ -666,7 +657,7 @@ class TestFormatResponse:
         from mlserver.schemas import CustomPredictResponse
         from mlserver.server import _format_response
 
-        mock_config.api.response_format = 'custom'
+        mock_config.api.response_format = "custom"
 
         predictions = {"label": "cat", "confidence": 0.95}
         result = _format_response(predictions, mock_config, 10.5, "TestModel")
@@ -680,7 +671,7 @@ class TestFormatResponse:
         from mlserver.schemas import CustomPredictResponse
         from mlserver.server import _format_response
 
-        mock_config.api.response_format = 'custom'
+        mock_config.api.response_format = "custom"
 
         predictions = [0, 1, 0, 1]
         result = _format_response(predictions, mock_config, 5.0, "MyPredictor")
@@ -695,7 +686,7 @@ class TestFormatResponse:
         from mlserver.schemas import PredictResponse
         from mlserver.server import _format_response
 
-        mock_config.api.response_format = 'standard'
+        mock_config.api.response_format = "standard"
 
         predictions = np.array([0, 1, 0])
         result = _format_response(predictions, mock_config, 15.0, "Classifier")
@@ -711,20 +702,21 @@ class TestGetClassifierMetadata:
         """Test getting classifier metadata."""
         from mlserver.server import _get_classifier_metadata
 
-        with patch('mlserver.auto_detect.get_git_info') as mock_git_info, \
-             patch('mlserver.auto_detect.get_project_name') as mock_project_name, \
-             patch('mlserver.auto_detect.get_mlserver_git_info') as mock_mlserver_info:
-
+        with (
+            patch("mlserver.auto_detect.get_git_info") as mock_git_info,
+            patch("mlserver.auto_detect.get_project_name") as mock_project_name,
+            patch("mlserver.auto_detect.get_mlserver_git_info") as mock_mlserver_info,
+        ):
             mock_git_info.return_value = {
                 "repository": "test-repo",
                 "commit": "abc1234",
-                "tag": "v1.0.0"
+                "tag": "v1.0.0",
             }
             mock_project_name.return_value = "test-project"
             mock_mlserver_info.return_value = {
                 "package_version": "0.5.0",
                 "api_commit": "def5678",
-                "api_tag": None
+                "api_tag": None,
             }
 
             metadata = _get_classifier_metadata(mock_config, "TestPredictor")
@@ -738,12 +730,7 @@ class TestGetClassifierMetadata:
         """Test getting metadata when no classifier configured."""
         from mlserver.server import _get_classifier_metadata
 
-        config = AppConfig.model_validate({
-            "predictor": {
-                "module": "test",
-                "class_name": "Test"
-            }
-        })
+        config = AppConfig.model_validate({"predictor": {"module": "test", "class_name": "Test"}})
         # Remove classifier to test None case
         config.classifier = None
 
@@ -760,10 +747,7 @@ class TestToJsonableExtended:
 
         data = {
             "predictions": np.array([1, 2, 3]),
-            "metadata": {
-                "count": np.int32(3),
-                "score": np.float64(0.95)
-            }
+            "metadata": {"count": np.int32(3), "score": np.float64(0.95)},
         }
 
         result = _to_jsonable(data)
@@ -784,10 +768,11 @@ class TestToJsonableExtended:
     def test_to_jsonable_bytes(self):
         """Test _to_jsonable with bytes."""
         import base64
+
         data = b"hello"
         result = _to_jsonable(data)
         # bytes are base64 encoded
-        assert result == base64.b64encode(data).decode('utf-8')
+        assert result == base64.b64encode(data).decode("utf-8")
 
     def test_to_jsonable_none(self):
         """Test _to_jsonable with None."""
@@ -801,7 +786,7 @@ class TestMiddlewareHealthEndpoint:
     @pytest.mark.asyncio
     async def test_middleware_skips_metrics_for_healthz(self, mock_config):
         """Test middleware skips metrics for /healthz endpoint."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics:
+        with patch("mlserver.server.get_metrics") as mock_get_metrics:
             mock_metrics = Mock()
             mock_get_metrics.return_value = mock_metrics
 
@@ -846,6 +831,7 @@ class TestResolveRequestPayload:
 
     def test_top_level_body_passes_through(self, monkeypatch):
         import mlserver.server as server_mod
+
         monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
 
         body = {"records": [{"a": 1}]}
@@ -880,6 +866,7 @@ class TestResolveRequestPayload:
 
     def test_wrapper_deprecation_warns_exactly_once_per_process(self, monkeypatch, caplog):
         import mlserver.server as server_mod
+
         monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
 
         inner = {"records": [{"a": 1}]}
@@ -889,7 +876,8 @@ class TestResolveRequestPayload:
             _resolve_request_payload({"payload": inner})
 
         deprecations = [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if "deprecated" in r.getMessage() and "payload" in r.getMessage()
         ]
         assert len(deprecations) == 1
@@ -901,17 +889,22 @@ class TestWorkerMetricsWarning:
 
     @staticmethod
     def _config(workers: int, metrics: bool) -> AppConfig:
-        return AppConfig.model_validate({
-            "server": {"host": "127.0.0.1", "port": 8000, "workers": workers},
-            "predictor": {"module": "tests.fixtures.mock_predictor",
-                          "class_name": "MockPredictor"},
-            "observability": {"metrics": metrics, "structured_logging": False},
-            "classifier": {"name": "test-model", "version": "1.0.0"},
-        })
+        return AppConfig.model_validate(
+            {
+                "server": {"host": "127.0.0.1", "port": 8000, "workers": workers},
+                "predictor": {
+                    "module": "tests.fixtures.mock_predictor",
+                    "class_name": "MockPredictor",
+                },
+                "observability": {"metrics": metrics, "structured_logging": False},
+                "classifier": {"name": "test-model", "version": "1.0.0"},
+            }
+        )
 
     def _warning_records(self, caplog):
         return [
-            r for r in caplog.records
+            r
+            for r in caplog.records
             if r.levelno == logging.WARNING and "metrics registry" in r.getMessage()
         ]
 

@@ -3,6 +3,7 @@
 Tests for minimal configs, auto-detection, and smart defaults.
 These tests define expected behavior FIRST as part of TDD.
 """
+
 import tempfile
 from pathlib import Path
 
@@ -19,12 +20,7 @@ class TestMinimalConfiguration:
     def test_minimal_config_with_predictor_only(self):
         """Test that only predictor config is truly required."""
         # Minimal config - just predictor
-        config_dict = {
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "MyPredictor"
-            }
-        }
+        config_dict = {"predictor": {"module": "my_predictor", "class_name": "MyPredictor"}}
 
         config = AppConfig.model_validate(config_dict)
 
@@ -38,12 +34,7 @@ class TestMinimalConfiguration:
 
     def test_minimal_config_generates_classifier_metadata(self):
         """Test that classifier metadata is auto-generated if not provided."""
-        config_dict = {
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "MyPredictor"
-            }
-        }
+        config_dict = {"predictor": {"module": "my_predictor", "class_name": "MyPredictor"}}
 
         config = AppConfig.model_validate(config_dict)
 
@@ -55,20 +46,17 @@ class TestMinimalConfiguration:
     def test_config_with_classifier_name_only(self):
         """Test config with just classifier name (version defaults to 0.1.0)."""
         config_dict = {
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "MyPredictor"
-            },
-            "classifier": {
-                "name": "my-classifier"
-            }
+            "predictor": {"module": "my_predictor", "class_name": "MyPredictor"},
+            "classifier": {"name": "my-classifier"},
         }
 
         config = AppConfig.model_validate(config_dict)
 
         assert config.classifier["name"] == "my-classifier"
         # Version should have a default
-        assert "version" in config.classifier or config.classifier.get("version", "0.1.0") == "0.1.0"
+        assert (
+            "version" in config.classifier or config.classifier.get("version", "0.1.0") == "0.1.0"
+        )
 
 
 class TestApiDefaults:
@@ -76,12 +64,7 @@ class TestApiDefaults:
 
     def test_api_defaults_when_omitted(self):
         """Test that API config has sensible defaults when omitted."""
-        config_dict = {
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "MyPredictor"
-            }
-        }
+        config_dict = {"predictor": {"module": "my_predictor", "class_name": "MyPredictor"}}
 
         config = AppConfig.model_validate(config_dict)
 
@@ -93,13 +76,8 @@ class TestApiDefaults:
     def test_api_partial_override(self):
         """Test partial API config override."""
         config_dict = {
-            "predictor": {
-                "module": "my_predictor",
-                "class_name": "MyPredictor"
-            },
-            "api": {
-                "adapter": "ndarray"
-            }
+            "predictor": {"module": "my_predictor", "class_name": "MyPredictor"},
+            "api": {"adapter": "ndarray"},
         }
 
         config = AppConfig.model_validate(config_dict)
@@ -120,12 +98,7 @@ class TestClassifierAutoDetection:
             project_dir = Path(tmpdir) / "sentiment-classifier"
             project_dir.mkdir()
 
-            config_dict = {
-                "predictor": {
-                    "module": "predictor",
-                    "class_name": "SentimentPredictor"
-                }
-            }
+            config_dict = {"predictor": {"module": "predictor", "class_name": "SentimentPredictor"}}
 
             config = AppConfig.model_validate(config_dict)
             config.set_project_path(str(project_dir))
@@ -166,12 +139,7 @@ class TestConfigurationValidation:
 
     def test_validate_rejects_missing_predictor(self):
         """Test that config without predictor is rejected."""
-        config_dict = {
-            "classifier": {
-                "name": "test",
-                "version": "1.0.0"
-            }
-        }
+        config_dict = {"classifier": {"name": "test", "version": "1.0.0"}}
 
         with pytest.raises(ValidationError):
             AppConfig.model_validate(config_dict)
@@ -180,15 +148,11 @@ class TestConfigurationValidation:
         """Test that predictor requires both module and class_name."""
         # Missing class_name
         with pytest.raises(ValidationError):
-            AppConfig.model_validate({
-                "predictor": {"module": "test"}
-            })
+            AppConfig.model_validate({"predictor": {"module": "test"}})
 
         # Missing module
         with pytest.raises(ValidationError):
-            AppConfig.model_validate({
-                "predictor": {"class_name": "Test"}
-            })
+            AppConfig.model_validate({"predictor": {"class_name": "Test"}})
 
 
 class TestBackwardsCompatibility:
@@ -197,30 +161,19 @@ class TestBackwardsCompatibility:
     def test_full_config_still_works(self):
         """Test that full explicit configs still work."""
         config_dict = {
-            "server": {
-                "host": "0.0.0.0",
-                "port": 9000,
-                "workers": 2
-            },
+            "server": {"host": "0.0.0.0", "port": 9000, "workers": 2},
             "predictor": {
                 "module": "my_predictor",
                 "class_name": "MyPredictor",
-                "init_kwargs": {"model_path": "./model.pkl"}
+                "init_kwargs": {"model_path": "./model.pkl"},
             },
             "classifier": {
                 "name": "test-classifier",
                 "version": "2.0.0",
-                "description": "A test classifier"
+                "description": "A test classifier",
             },
-            "api": {
-                "version": "v2",
-                "adapter": "ndarray",
-                "feature_order": ["f1", "f2", "f3"]
-            },
-            "observability": {
-                "metrics": True,
-                "structured_logging": True
-            }
+            "api": {"version": "v2", "adapter": "ndarray", "feature_order": ["f1", "f2", "f3"]},
+            "observability": {"metrics": True, "structured_logging": True},
         }
 
         config = AppConfig.model_validate(config_dict)
@@ -240,9 +193,7 @@ class TestConfigErrorMessages:
     def test_missing_predictor_error_message(self):
         """Test error message when predictor is missing."""
         try:
-            AppConfig.model_validate({
-                "classifier": {"name": "test", "version": "1.0"}
-            })
+            AppConfig.model_validate({"classifier": {"name": "test", "version": "1.0"}})
             pytest.fail("Should have raised validation error")
         except Exception as e:
             error_msg = str(e).lower()

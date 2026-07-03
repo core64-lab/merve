@@ -1,4 +1,5 @@
 """Unit tests for github_actions module."""
+
 import subprocess
 import tempfile
 from pathlib import Path
@@ -22,7 +23,7 @@ class TestGetGitRemoteInfo:
 
     def test_https_url(self):
         """Test extraction from HTTPS URL."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.return_value = b"https://github.com/myorg/my-repo.git\n"
             result = get_git_remote_info(".")
 
@@ -33,7 +34,7 @@ class TestGetGitRemoteInfo:
 
     def test_ssh_url(self):
         """Test extraction from SSH URL."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.return_value = b"git@github.com:user/project.git\n"
             result = get_git_remote_info(".")
 
@@ -43,7 +44,7 @@ class TestGetGitRemoteInfo:
 
     def test_https_url_without_git_extension(self):
         """Test extraction from HTTPS URL without .git extension."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.return_value = b"https://github.com/org/repo\n"
             result = get_git_remote_info(".")
 
@@ -52,7 +53,7 @@ class TestGetGitRemoteInfo:
 
     def test_non_github_url(self):
         """Test returns None for non-GitHub URLs."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.return_value = b"https://gitlab.com/user/repo.git\n"
             result = get_git_remote_info(".")
 
@@ -60,7 +61,7 @@ class TestGetGitRemoteInfo:
 
     def test_empty_url(self):
         """Test returns None for empty URL."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.return_value = b"\n"
             result = get_git_remote_info(".")
 
@@ -68,15 +69,15 @@ class TestGetGitRemoteInfo:
 
     def test_git_command_failure(self):
         """Test returns None when git command fails."""
-        with patch('subprocess.check_output') as mock:
-            mock.side_effect = subprocess.CalledProcessError(1, 'git')
+        with patch("subprocess.check_output") as mock:
+            mock.side_effect = subprocess.CalledProcessError(1, "git")
             result = get_git_remote_info(".")
 
             assert result is None
 
     def test_file_not_found(self):
         """Test returns None when git not installed."""
-        with patch('subprocess.check_output') as mock:
+        with patch("subprocess.check_output") as mock:
             mock.side_effect = FileNotFoundError()
             result = get_git_remote_info(".")
 
@@ -108,8 +109,7 @@ class TestGenerateBuildAndPushWorkflow:
     def test_basic_workflow_generation(self):
         """Test basic workflow generation."""
         workflow = generate_build_and_push_workflow(
-            repo_name="my-classifier",
-            mlserver_source_url="https://github.com/org/mlserver.git"
+            repo_name="my-classifier", mlserver_source_url="https://github.com/org/mlserver.git"
         )
 
         assert "ML Classifier Container Build" in workflow
@@ -121,7 +121,7 @@ class TestGenerateBuildAndPushWorkflow:
         workflow = generate_build_and_push_workflow(
             repo_name="test-repo",
             mlserver_source_url="https://github.com/org/mlserver.git",
-            registry_config={"type": "ghcr"}
+            registry_config={"type": "ghcr"},
         )
 
         assert "ghcr" in workflow.lower() or "github" in workflow.lower()
@@ -136,9 +136,9 @@ class TestGenerateBuildAndPushWorkflow:
                 "ecr": {
                     "registry_id": "123456789012",
                     "aws_region": "us-west-2",
-                    "repository_prefix": "ml-models"
-                }
-            }
+                    "repository_prefix": "ml-models",
+                },
+            },
         )
 
         assert "ECR" in workflow or "ecr" in workflow
@@ -153,8 +153,8 @@ class TestGenerateBuildAndPushWorkflow:
                 mlserver_source_url="https://github.com/org/mlserver.git",
                 registry_config={
                     "type": "ecr",
-                    "ecr": {}  # Missing registry_id
-                }
+                    "ecr": {},  # Missing registry_id
+                },
             )
 
         assert "registry_id" in str(exc_info.value)
@@ -164,7 +164,7 @@ class TestGenerateBuildAndPushWorkflow:
         workflow = generate_build_and_push_workflow(
             repo_name="test-repo",
             mlserver_source_url="https://github.com/org/mlserver.git",
-            python_version="3.12"
+            python_version="3.12",
         )
 
         assert "3.12" in workflow or "python" in workflow.lower()
@@ -176,13 +176,9 @@ class TestGenerateBuildAndPushWorkflow:
             mlserver_source_url="https://github.com/org/mlserver.git",
             registry_config={
                 "type": "ecr",
-                "ecr": {
-                    "registry_id": "123456789012"
-                },
-                "github_variables": {
-                    "aws_role_arn_value": "arn:aws:iam::123456789012:role/MyRole"
-                }
-            }
+                "ecr": {"registry_id": "123456789012"},
+                "github_variables": {"aws_role_arn_value": "arn:aws:iam::123456789012:role/MyRole"},
+            },
         )
 
         assert "arn:aws:iam" in workflow
@@ -313,11 +309,11 @@ classifier:
   version: "1.0.0"
 """)
 
-            with patch('mlserver.github_actions.get_git_remote_info') as mock_remote:
+            with patch("mlserver.github_actions.get_git_remote_info") as mock_remote:
                 mock_remote.return_value = {
                     "owner": "testorg",
                     "repo": "test-repo",
-                    "is_github": True
+                    "is_github": True,
                 }
 
                 result = init_github_actions(tmpdir, force=False)
@@ -351,11 +347,11 @@ classifier:
   version: "1.0.0"
 """)
 
-            with patch('mlserver.github_actions.get_git_remote_info') as mock_remote:
+            with patch("mlserver.github_actions.get_git_remote_info") as mock_remote:
                 mock_remote.return_value = {
                     "owner": "testorg",
                     "repo": "test-repo",
-                    "is_github": True
+                    "is_github": True,
                 }
 
                 result = init_github_actions(tmpdir, force=True)
@@ -414,7 +410,9 @@ on: push
 
     def test_parse_nonexistent_file(self):
         """Test parsing nonexistent file."""
-        mlserver_version, workflow_version = parse_workflow_version(Path("/nonexistent/workflow.yml"))
+        mlserver_version, workflow_version = parse_workflow_version(
+            Path("/nonexistent/workflow.yml")
+        )
 
         assert mlserver_version is None
         assert workflow_version is None
@@ -426,8 +424,7 @@ class TestWorkflowContent:
     def test_workflow_has_required_sections(self):
         """Test workflow contains required sections."""
         workflow = generate_build_and_push_workflow(
-            repo_name="test",
-            mlserver_source_url="https://github.com/org/repo.git"
+            repo_name="test", mlserver_source_url="https://github.com/org/repo.git"
         )
 
         # Check for key workflow components
@@ -438,8 +435,7 @@ class TestWorkflowContent:
     def test_workflow_has_build_job(self):
         """Test workflow has build job."""
         workflow = generate_build_and_push_workflow(
-            repo_name="test",
-            mlserver_source_url="https://github.com/org/repo.git"
+            repo_name="test", mlserver_source_url="https://github.com/org/repo.git"
         )
 
         assert "build" in workflow.lower()
@@ -447,8 +443,7 @@ class TestWorkflowContent:
     def test_workflow_uses_docker(self):
         """Test workflow uses Docker."""
         workflow = generate_build_and_push_workflow(
-            repo_name="test",
-            mlserver_source_url="https://github.com/org/repo.git"
+            repo_name="test", mlserver_source_url="https://github.com/org/repo.git"
         )
 
         assert "docker" in workflow.lower()
@@ -467,6 +462,7 @@ class TestWorkflowV3BuildOnce:
 
     def _parse(self, workflow):
         import yaml
+
         parsed = yaml.safe_load(workflow)  # must not raise -> valid YAML
         assert isinstance(parsed, dict)
         return parsed
@@ -479,13 +475,18 @@ class TestWorkflowV3BuildOnce:
         self._parse(self._wf(registry_config={"type": "ghcr"}))
 
     def test_workflow_is_valid_yaml_ecr(self):
-        self._parse(self._wf(registry_config={
-            "type": "ecr",
-            "ecr": {"registry_id": "123456789012", "aws_region": "us-west-2"},
-        }))
+        self._parse(
+            self._wf(
+                registry_config={
+                    "type": "ecr",
+                    "ecr": {"registry_id": "123456789012", "aws_region": "us-west-2"},
+                }
+            )
+        )
 
     def test_trigger_matches_canonical_tag_not_legacy(self):
         import fnmatch
+
         parsed = self._parse(self._wf())
         tags = self._on_block(parsed)["push"]["tags"]
 
@@ -495,9 +496,7 @@ class TestWorkflowV3BuildOnce:
         # ...while the trigger does NOT depend on the legacy -mlserver- suffix,
         # and a legacy hierarchical tag would NOT fire it.
         assert not any("-mlserver-" in pat for pat in tags)
-        assert not any(
-            fnmatch.fnmatch("sentiment-v1.0.0-mlserver-abc1234", pat) for pat in tags
-        )
+        assert not any(fnmatch.fnmatch("sentiment-v1.0.0-mlserver-abc1234", pat) for pat in tags)
 
     def test_single_build_job(self):
         parsed = self._parse(self._wf())
@@ -545,8 +544,7 @@ class TestEdgeCases:
     def test_special_chars_in_repo_name(self):
         """Test handling of special characters in repo name."""
         workflow = generate_build_and_push_workflow(
-            repo_name="my-special_repo.name",
-            mlserver_source_url="https://github.com/org/repo.git"
+            repo_name="my-special_repo.name", mlserver_source_url="https://github.com/org/repo.git"
         )
 
         # Should generate valid YAML
@@ -557,7 +555,7 @@ class TestEdgeCases:
         workflow = generate_build_and_push_workflow(
             repo_name="test",
             mlserver_source_url="https://github.com/org/repo.git",
-            registry_config={}
+            registry_config={},
         )
 
         # Should use defaults (GHCR)
@@ -568,7 +566,7 @@ class TestEdgeCases:
         workflow = generate_build_and_push_workflow(
             repo_name="test",
             mlserver_source_url="https://github.com/org/repo.git",
-            registry_config=None
+            registry_config=None,
         )
 
         # Should use defaults

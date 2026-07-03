@@ -3,6 +3,7 @@ Simplified integration tests for concurrency control functionality.
 
 Tests the core concurrency control components without multiprocessing.
 """
+
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
@@ -17,40 +18,35 @@ from mlserver.server import create_app
 @pytest.fixture
 def concurrency_config():
     """Test configuration with concurrency control enabled."""
-    return AppConfig.model_validate({
-        "server": {
-            "title": "Test Concurrency Server",
-            "host": "0.0.0.0",
-            "port": 8000,
-            "log_level": "INFO",
-            "workers": 1
-        },
-        "predictor": {
-            "module": "tests.fixtures.mock_predictor",
-            "class_name": "MockPredictor",
-            "init_kwargs": {"delay_seconds": 1.0}  # Shorter delay for faster tests
-        },
-        "observability": {
-            "metrics": True,
-            "structured_logging": False
-        },
-        "classifier": {
-            "name": "test-classifier",
-            "version": "1.0.0",
-            "description": "Test classifier for concurrency validation"
-        },
-        "api": {
-            "version": "v1",
-            "adapter": "records",
-            "thread_safe_predict": False,
-            "max_concurrent_predictions": 1,
-            "endpoints": {
-                "predict": True,
-                "batch_predict": True,
-                "predict_proba": False
-            }
+    return AppConfig.model_validate(
+        {
+            "server": {
+                "title": "Test Concurrency Server",
+                "host": "0.0.0.0",
+                "port": 8000,
+                "log_level": "INFO",
+                "workers": 1,
+            },
+            "predictor": {
+                "module": "tests.fixtures.mock_predictor",
+                "class_name": "MockPredictor",
+                "init_kwargs": {"delay_seconds": 1.0},  # Shorter delay for faster tests
+            },
+            "observability": {"metrics": True, "structured_logging": False},
+            "classifier": {
+                "name": "test-classifier",
+                "version": "1.0.0",
+                "description": "Test classifier for concurrency validation",
+            },
+            "api": {
+                "version": "v1",
+                "adapter": "records",
+                "thread_safe_predict": False,
+                "max_concurrent_predictions": 1,
+                "endpoints": {"predict": True, "batch_predict": True, "predict_proba": False},
+            },
         }
-    })
+    )
 
 
 @pytest.fixture
@@ -91,17 +87,7 @@ class TestConcurrencyControlIntegration:
 
     def test_single_prediction_succeeds(self, concurrency_client):
         """Test that a single prediction request succeeds."""
-        payload = {
-            "payload": {
-                "records": [
-                    {
-                        "feature1": 1.0,
-                        "feature2": 2.0,
-                        "feature3": 3.0
-                    }
-                ]
-            }
-        }
+        payload = {"payload": {"records": [{"feature1": 1.0, "feature2": 2.0, "feature3": 3.0}]}}
 
         start_time = time.time()
         response = concurrency_client.post("/predict", json=payload)
@@ -119,17 +105,7 @@ class TestConcurrencyControlIntegration:
 
     def test_concurrent_predictions_with_testclient(self, concurrency_app):
         """Test concurrent predictions using multiple TestClient instances."""
-        payload = {
-            "payload": {
-                "records": [
-                    {
-                        "feature1": 1.0,
-                        "feature2": 2.0,
-                        "feature3": 3.0
-                    }
-                ]
-            }
-        }
+        payload = {"payload": {"records": [{"feature1": 1.0, "feature2": 2.0, "feature3": 3.0}]}}
 
         def make_request(client):
             start_time = time.time()
@@ -139,7 +115,7 @@ class TestConcurrencyControlIntegration:
                 return {
                     "status_code": response.status_code,
                     "duration": duration,
-                    "success": response.status_code == 200
+                    "success": response.status_code == 200,
                 }
             except Exception as e:
                 duration = time.time() - start_time
@@ -147,15 +123,13 @@ class TestConcurrencyControlIntegration:
                     "status_code": "ERROR",
                     "duration": duration,
                     "success": False,
-                    "error": str(e)
+                    "error": str(e),
                 }
 
         # TestClient must be used as a context manager so the app lifespan
         # runs and the predictor is loaded before requests are made.
         with ExitStack() as stack:
-            clients = [
-                stack.enter_context(TestClient(concurrency_app)) for _ in range(3)
-            ]
+            clients = [stack.enter_context(TestClient(concurrency_app)) for _ in range(3)]
 
             # Execute requests concurrently
             with ThreadPoolExecutor(max_workers=3) as executor:
@@ -184,7 +158,7 @@ class TestConcurrencyControlIntegration:
             "payload": {
                 "records": [
                     {"feature1": 1.0, "feature2": 2.0, "feature3": 3.0},
-                    {"feature1": 3.0, "feature2": 4.0, "feature3": 5.0}
+                    {"feature1": 3.0, "feature2": 4.0, "feature3": 5.0},
                 ]
             }
         }
@@ -223,17 +197,19 @@ class TestRetryAfterConfiguration:
         if retry_after_seconds is not None:
             api_config["retry_after_seconds"] = retry_after_seconds
 
-        config = AppConfig.model_validate({
-            "server": {"title": "Retry-After Test", "host": "0.0.0.0", "port": 8000},
-            "predictor": {
-                "module": "tests.fixtures.mock_predictor",
-                "class_name": "MockPredictor",
-                "init_kwargs": {},
-            },
-            "observability": {"metrics": False, "structured_logging": False},
-            "classifier": {"name": "retry-after-test", "version": "1.0.0"},
-            "api": api_config,
-        })
+        config = AppConfig.model_validate(
+            {
+                "server": {"title": "Retry-After Test", "host": "0.0.0.0", "port": 8000},
+                "predictor": {
+                    "module": "tests.fixtures.mock_predictor",
+                    "class_name": "MockPredictor",
+                    "init_kwargs": {},
+                },
+                "observability": {"metrics": False, "structured_logging": False},
+                "classifier": {"name": "retry-after-test", "version": "1.0.0"},
+                "api": api_config,
+            }
+        )
         return create_app(config)
 
     def _assert_retry_after(self, app, expected: str):
@@ -349,20 +325,22 @@ class TestConcurrencyControlUnit:
         max_concurrent_predictions=0 is valid (ge=0) and disables the
         prediction limiter entirely.
         """
-        config = AppConfig.model_validate({
-            "server": {"title": "Test", "host": "0.0.0.0", "port": 8000},
-            "predictor": {
-                "module": "tests.fixtures.mock_predictor",
-                "class_name": "MockPredictor",
-                "init_kwargs": {}
-            },
-            "classifier": {"name": "test", "version": "1.0.0"},
-            "api": {
-                "version": "v1",
-                "max_concurrent_predictions": 0,  # Disabled
-                "endpoints": {"predict": True}
+        config = AppConfig.model_validate(
+            {
+                "server": {"title": "Test", "host": "0.0.0.0", "port": 8000},
+                "predictor": {
+                    "module": "tests.fixtures.mock_predictor",
+                    "class_name": "MockPredictor",
+                    "init_kwargs": {},
+                },
+                "classifier": {"name": "test", "version": "1.0.0"},
+                "api": {
+                    "version": "v1",
+                    "max_concurrent_predictions": 0,  # Disabled
+                    "endpoints": {"predict": True},
+                },
             }
-        })
+        )
 
         # 0 must validate (not be rejected) and be preserved as-is
         assert config.api.max_concurrent_predictions == 0

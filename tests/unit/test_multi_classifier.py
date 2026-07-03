@@ -1,4 +1,5 @@
 """Unit tests for multi_classifier module."""
+
 import tempfile
 from pathlib import Path
 
@@ -62,7 +63,7 @@ default_classifier: sentiment
 @pytest.fixture
 def multi_config_file(multi_classifier_yaml):
     """Create a temporary multi-classifier config file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write(multi_classifier_yaml)
         return f.name
 
@@ -168,7 +169,7 @@ classifiers:
       module: mod_b
       class_name: ClassB
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 
@@ -182,7 +183,7 @@ classifiers:
 server:
   port: 8000
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 
@@ -209,7 +210,7 @@ predictor:
   module: my_predictor
   class_name: MyPredictor
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 
@@ -237,7 +238,7 @@ classifiers:
       module: mod
       class_name: Class
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 
@@ -250,7 +251,7 @@ classifiers:
 server:
   port: 8000
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 
@@ -271,9 +272,7 @@ class TestGenerateDockerfile:
         multi_config = load_multi_classifier_config(multi_config_file)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dockerfile_path = generate_dockerfile_for_classifier(
-                multi_config, "sentiment", tmpdir
-            )
+            dockerfile_path = generate_dockerfile_for_classifier(multi_config, "sentiment", tmpdir)
 
             assert Path(dockerfile_path).exists()
             content = Path(dockerfile_path).read_text()
@@ -300,16 +299,14 @@ classifiers:
         FROM custom-image:latest
         RUN echo "custom"
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 
         multi_config = load_multi_classifier_config(config_file)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            dockerfile_path = generate_dockerfile_for_classifier(
-                multi_config, "custom", tmpdir
-            )
+            dockerfile_path = generate_dockerfile_for_classifier(multi_config, "custom", tmpdir)
 
             content = Path(dockerfile_path).read_text()
             assert "custom-image:latest" in content
@@ -372,7 +369,7 @@ classifiers:
       name: legacy-classifier
       version: "1.0.0"
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 
@@ -394,7 +391,7 @@ classifiers:
       name: minimal-classifier
       version: "1.0.0"
 """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write(yaml_content)
             config_file = f.name
 

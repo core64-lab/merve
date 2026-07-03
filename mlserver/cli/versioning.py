@@ -15,6 +15,7 @@ from ._app import app, console, detect_config_file
 
 class BumpType(str, Enum):
     """Version bump type options."""
+
     MAJOR = "major"
     MINOR = "minor"
     PATCH = "patch"
@@ -40,7 +41,7 @@ def version(
 
     # If no classifier project found, show only MLServer tool version
     if "error" in version_info:
-        error_msg = version_info['error']
+        error_msg = version_info["error"]
         if "mlserver.yaml not found" in error_msg:
             # No classifier project - show MLServer tool version only
             import mlserver as mlserver_module
@@ -49,19 +50,21 @@ def version(
 
             mlserver_commit = get_mlserver_commit_hash()
             mlserver_version = (
-                mlserver_module.__version__ if hasattr(mlserver_module, '__version__')
+                mlserver_module.__version__
+                if hasattr(mlserver_module, "__version__")
                 else "unknown"
             )
             mlserver_location = Path(mlserver_module.__file__).parent
 
             # Determine installation type
             install_type = "unknown"
-            if (mlserver_location.parent / '.git').exists():
+            if (mlserver_location.parent / ".git").exists():
                 install_type = "git (editable)"
-            elif (mlserver_location.parent.name.endswith('.egg-info')
-                  or mlserver_location.parent.name.endswith('.dist-info')):
+            elif mlserver_location.parent.name.endswith(
+                ".egg-info"
+            ) or mlserver_location.parent.name.endswith(".dist-info"):
                 install_type = "package"
-            elif 'site-packages' in str(mlserver_location):
+            elif "site-packages" in str(mlserver_location):
                 install_type = "pip"
 
             if json_output:
@@ -70,7 +73,7 @@ def version(
                         "version": mlserver_version,
                         "commit": mlserver_commit,
                         "install_location": str(mlserver_location),
-                        "install_type": install_type
+                        "install_type": install_type,
                     }
                 }
                 print(json.dumps(mlserver_info, indent=2))
@@ -134,14 +137,16 @@ def version(
             import mlserver as mlserver_module
 
             from ..version_control import get_mlserver_commit_hash
+
             mlserver_commit = get_mlserver_commit_hash()
             version_info["mlserver_tool"] = {
                 "version": (
-                    mlserver_module.__version__ if hasattr(mlserver_module, '__version__')
+                    mlserver_module.__version__
+                    if hasattr(mlserver_module, "__version__")
                     else "unknown"
                 ),
                 "commit": mlserver_commit,
-                "install_location": str(Path(mlserver_module.__file__).parent)
+                "install_location": str(Path(mlserver_module.__file__).parent),
             }
         print(json.dumps(version_info, indent=2))
     else:
@@ -157,15 +162,15 @@ def version(
         issues = version_info.get("validation_issues", {})
 
         table.add_row("Classifier", f"{classifier_info['name']} v{classifier_info['version']}")
-        table.add_row("Description", classifier_info.get('description', ''))
-        table.add_row("Model Version", model['version'])
-        table.add_row("API Version", api['version'])
+        table.add_row("Description", classifier_info.get("description", ""))
+        table.add_row("Model Version", model["version"])
+        table.add_row("API Version", api["version"])
 
         if git:
             table.add_row("Git Commit", f"{git['commit']} ({git['branch']})")
-            if git['tag']:
-                table.add_row("Git Tag", git['tag'])
-            if git['is_dirty']:
+            if git["tag"]:
+                table.add_row("Git Tag", git["tag"])
+            if git["is_dirty"]:
                 table.add_row("Status", "⚠️  Uncommitted changes")
 
         # Add MLServer tool information if --detailed
@@ -176,19 +181,21 @@ def version(
 
             mlserver_commit = get_mlserver_commit_hash()
             mlserver_version = (
-                mlserver_module.__version__ if hasattr(mlserver_module, '__version__')
+                mlserver_module.__version__
+                if hasattr(mlserver_module, "__version__")
                 else "unknown"
             )
             mlserver_location = Path(mlserver_module.__file__).parent
 
             # Determine installation type
             install_type = "unknown"
-            if (mlserver_location.parent / '.git').exists():
+            if (mlserver_location.parent / ".git").exists():
                 install_type = "git (editable)"
-            elif (mlserver_location.parent.name.endswith('.egg-info')
-                  or mlserver_location.parent.name.endswith('.dist-info')):
+            elif mlserver_location.parent.name.endswith(
+                ".egg-info"
+            ) or mlserver_location.parent.name.endswith(".dist-info"):
                 install_type = "package"
-            elif 'site-packages' in str(mlserver_location):
+            elif "site-packages" in str(mlserver_location):
                 install_type = "pip"
 
             table.add_section()
@@ -216,43 +223,30 @@ def version(
 @app.command()
 def tag(
     bump_type: Optional[BumpType] = typer.Argument(
-        None,
-        help="Version bump type: major, minor, or patch"
+        None, help="Version bump type: major, minor, or patch"
     ),
     classifier: Optional[str] = typer.Option(
-        None,
-        "--classifier", "-c",
-        help="Classifier name to tag (required for tagging)"
+        None, "--classifier", "-c", help="Classifier name to tag (required for tagging)"
     ),
     config: Optional[Path] = typer.Option(
-        None,
-        "--config",
-        help="Config file path (defaults to mlserver.yaml)"
+        None, "--config", help="Config file path (defaults to mlserver.yaml)"
     ),
     message: Optional[str] = typer.Option(
-        None,
-        "--message", "-m",
-        help="Tag message (defaults to 'Release <classifier> vX.Y.Z')"
+        None, "--message", "-m", help="Tag message (defaults to 'Release <classifier> vX.Y.Z')"
     ),
-    path: str = typer.Option(
-        ".",
-        "--path",
-        help="Path to classifier project"
-    ),
+    path: str = typer.Option(".", "--path", help="Path to classifier project"),
     allow_missing_mlserver: bool = typer.Option(
         False,
         "--allow-missing-mlserver",
-        help="Allow tagging even if mlserver commit cannot be determined (dev/testing only)"
+        help="Allow tagging even if mlserver commit cannot be determined (dev/testing only)",
     ),
     status_only: bool = typer.Option(
         False,
         "--status",
-        help="Show tag status for all classifiers (default when no bump type is given)"
+        help="Show tag status for all classifiers (default when no bump type is given)",
     ),
     json_output: bool = typer.Option(
-        False,
-        "--json",
-        help="Output tag status as JSON (status mode only, machine-readable)"
+        False, "--json", help="Output tag status as JSON (status mode only, machine-readable)"
     ),
 ):
     """🏷️  Manage version tags for classifiers.
@@ -278,6 +272,7 @@ def tag(
 
             # Get current mlserver commit for comparison
             from ..version_control import get_mlserver_commit_hash, parse_classifier_tag
+
             current_mlserver_commit = get_mlserver_commit_hash() or "unknown"
 
             if json_output:
@@ -285,15 +280,14 @@ def tag(
                 for clf_name, status in classifiers_status.items():
                     parsed = (
                         parse_classifier_tag(status["latest_tag"])
-                        if status.get("latest_tag") else None
+                        if status.get("latest_tag")
+                        else None
                     )
                     doc["classifiers"][clf_name] = {
                         "current_version": status["current_version"],
                         "latest_tag": status["latest_tag"],
                         "tag_format": parsed["format"] if parsed else None,
-                        "tag_mlserver_commit": (
-                            parsed["mlserver_commit"] if parsed else None
-                        ),
+                        "tag_mlserver_commit": (parsed["mlserver_commit"] if parsed else None),
                         "commits_since_tag": status["commits_since_tag"],
                         "on_tagged_commit": status["on_tagged_commit"],
                         "status": status["status"],
@@ -311,17 +305,17 @@ def tag(
             table.add_column("Action Required", style="magenta")
 
             for clf_name, status in classifiers_status.items():
-                version = status['current_version'] or "No tags"
-                status_text = status['status']
-                recommendation = status['recommendation'] or "-"
+                version = status["current_version"] or "No tags"
+                status_text = status["status"]
+                recommendation = status["recommendation"] or "-"
 
                 # Extract mlserver commit from the latest tag (only legacy
                 # tags encode it; canonical tags show n/a)
                 mlserver_commit = "-"
-                if status.get('latest_tag'):
-                    parsed = parse_classifier_tag(status['latest_tag'])
-                    if parsed and parsed['mlserver_commit']:
-                        tag_mlserver = parsed['mlserver_commit'][:7]
+                if status.get("latest_tag"):
+                    parsed = parse_classifier_tag(status["latest_tag"])
+                    if parsed and parsed["mlserver_commit"]:
+                        tag_mlserver = parsed["mlserver_commit"][:7]
                         current_mlserver_short = current_mlserver_commit[:7]
                         if tag_mlserver == current_mlserver_short:
                             mlserver_commit = f"{tag_mlserver} [green]✓[/green]"
@@ -331,9 +325,9 @@ def tag(
                         mlserver_commit = "[dim]n/a[/dim]"
 
                 # Color coding for status
-                if status['on_tagged_commit']:
+                if status["on_tagged_commit"]:
                     status_style = "green"
-                elif status['commits_since_tag'] and status['commits_since_tag'] > 0:
+                elif status["commits_since_tag"] and status["commits_since_tag"] > 0:
                     status_style = "yellow"
                 else:
                     status_style = "red"
@@ -343,7 +337,7 @@ def tag(
                     version,
                     mlserver_commit,
                     f"[{status_style}]{status_text}[/{status_style}]",
-                    recommendation
+                    recommendation,
                 )
 
             console.print(table)
@@ -361,8 +355,7 @@ def tag(
 
         validation_suite = get_tag_validation_suite()
         all_passed, results = validation_suite.validate(
-            project_path=path,
-            classifier_name=classifier
+            project_path=path, classifier_name=classifier
         )
 
         if not all_passed:
@@ -407,7 +400,7 @@ def tag(
         console.print()
 
         # Version info
-        if tag_info['previous_version']:
+        if tag_info["previous_version"]:
             console.print(
                 f"  [yellow]📝 Version:[/yellow] {tag_info['previous_version']} → "
                 f"{tag_info['version']} ({bump_type.value} bump)"
@@ -420,20 +413,22 @@ def tag(
 
         # Get classifier commit for reference
         from ..version import get_git_info
+
         git_info = get_git_info(path)
         if git_info:
             console.print(f"  [yellow]📦 Classifier commit:[/yellow] {git_info.commit}")
 
         # Check if GitHub Actions is set up and validate workflow
         from ..github_actions import check_github_actions_setup, validate_workflow_comprehensive
+
         github_actions_configured = check_github_actions_setup(path)
 
         # Validate workflow if it exists
         workflow_valid = True
         workflow_warnings = []
         if github_actions_configured:
-            workflow_valid, workflow_warnings, workflow_details = (
-                validate_workflow_comprehensive(path)
+            workflow_valid, workflow_warnings, workflow_details = validate_workflow_comprehensive(
+                path
             )
 
             if not workflow_valid or workflow_warnings:

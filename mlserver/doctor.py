@@ -9,6 +9,7 @@ Provides checks for:
 
 Used by `mlserver doctor` and `mlserver validate` commands.
 """
+
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from typing import Any, Optional
 
 class CheckStatus(Enum):
     """Status of a diagnostic check."""
+
     PASSED = "passed"
     WARNING = "warning"
     FAILED = "failed"
@@ -29,6 +31,7 @@ class CheckStatus(Enum):
 @dataclass
 class CheckResult:
     """Result of a single diagnostic check."""
+
     name: str
     status: CheckStatus
     message: Optional[str] = None
@@ -51,6 +54,7 @@ class CheckResult:
 @dataclass
 class DiagnosticReport:
     """Collection of diagnostic check results."""
+
     checks: list[CheckResult] = field(default_factory=list)
     recommendations: list[str] = field(default_factory=list)
 
@@ -77,6 +81,7 @@ class DiagnosticReport:
 # System Checks
 # =============================================================================
 
+
 def check_python_version(verbose: bool = False) -> CheckResult:
     """Check Python version is supported."""
     version = sys.version_info
@@ -87,21 +92,21 @@ def check_python_version(verbose: bool = False) -> CheckResult:
             name="Python version",
             status=CheckStatus.PASSED,
             message=f"Python {version_str} (supported: 3.9+)",
-            details={"version": version_str}
+            details={"version": version_str},
         )
     elif version.major == 3 and version.minor == 8:
         return CheckResult(
             name="Python version",
             status=CheckStatus.WARNING,
             message=f"Python {version_str} (3.8 support deprecated, upgrade to 3.9+)",
-            suggestion="Upgrade to Python 3.9 or later for best compatibility"
+            suggestion="Upgrade to Python 3.9 or later for best compatibility",
         )
     else:
         return CheckResult(
             name="Python version",
             status=CheckStatus.FAILED,
             message=f"Python {version_str} not supported",
-            suggestion="Install Python 3.9 or later"
+            suggestion="Install Python 3.9 or later",
         )
 
 
@@ -114,7 +119,7 @@ def check_docker(verbose: bool = False) -> CheckResult:
             name="Docker",
             status=CheckStatus.WARNING,
             message="Docker not found in PATH",
-            suggestion="Install Docker for container builds: https://docs.docker.com/get-docker/"
+            suggestion="Install Docker for container builds: https://docs.docker.com/get-docker/",
         )
 
     try:
@@ -122,7 +127,7 @@ def check_docker(verbose: bool = False) -> CheckResult:
             ["docker", "version", "--format", "{{.Server.Version}}"],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
         )
         if result.returncode == 0:
             version = result.stdout.strip()
@@ -130,7 +135,7 @@ def check_docker(verbose: bool = False) -> CheckResult:
                 name="Docker",
                 status=CheckStatus.PASSED,
                 message=f"Docker {version}",
-                details={"version": version, "path": docker_path}
+                details={"version": version, "path": docker_path},
             )
         else:
             return CheckResult(
@@ -140,21 +145,21 @@ def check_docker(verbose: bool = False) -> CheckResult:
                 suggestion=(
                     "Start Docker daemon: 'open -a Docker' (macOS) "
                     "or 'sudo systemctl start docker' (Linux)"
-                )
+                ),
             )
     except subprocess.TimeoutExpired:
         return CheckResult(
             name="Docker",
             status=CheckStatus.WARNING,
             message="Docker command timed out",
-            suggestion="Docker may be starting up. Try again in a moment."
+            suggestion="Docker may be starting up. Try again in a moment.",
         )
     except Exception as e:
         return CheckResult(
             name="Docker",
             status=CheckStatus.WARNING,
             message=f"Error checking Docker: {e}",
-            suggestion="Ensure Docker is properly installed"
+            suggestion="Ensure Docker is properly installed",
         )
 
 
@@ -167,41 +172,31 @@ def check_git(verbose: bool = False) -> CheckResult:
             name="Git",
             status=CheckStatus.FAILED,
             message="Git not found in PATH",
-            suggestion="Install Git: https://git-scm.com/downloads"
+            suggestion="Install Git: https://git-scm.com/downloads",
         )
 
     try:
-        result = subprocess.run(
-            ["git", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
+        result = subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             version = result.stdout.strip().replace("git version ", "")
             return CheckResult(
                 name="Git",
                 status=CheckStatus.PASSED,
                 message=f"Git {version}",
-                details={"version": version, "path": git_path}
+                details={"version": version, "path": git_path},
             )
     except Exception as e:
         return CheckResult(
-            name="Git",
-            status=CheckStatus.FAILED,
-            message=f"Error checking Git: {e}"
+            name="Git", status=CheckStatus.FAILED, message=f"Error checking Git: {e}"
         )
 
-    return CheckResult(
-        name="Git",
-        status=CheckStatus.FAILED,
-        message="Git check failed"
-    )
+    return CheckResult(name="Git", status=CheckStatus.FAILED, message="Git check failed")
 
 
 # =============================================================================
 # Project Checks
 # =============================================================================
+
 
 def _resolve_config_file(project_path: str, config_file: Optional[Path]) -> Path:
     """Resolve the config file to check (defaults to <project>/mlserver.yaml)."""
@@ -210,8 +205,9 @@ def _resolve_config_file(project_path: str, config_file: Optional[Path]) -> Path
     return Path(config_file)
 
 
-def check_config_file(project_path: str = ".", verbose: bool = False,
-                      config_file: Optional[Path] = None) -> CheckResult:
+def check_config_file(
+    project_path: str = ".", verbose: bool = False, config_file: Optional[Path] = None
+) -> CheckResult:
     """Check if the config file exists and is valid YAML."""
     config_file = _resolve_config_file(project_path, config_file)
 
@@ -220,11 +216,12 @@ def check_config_file(project_path: str = ".", verbose: bool = False,
             name="Configuration file",
             status=CheckStatus.FAILED,
             message=f"{config_file.name} not found",
-            suggestion="Run 'mlserver init' to create a configuration file"
+            suggestion="Run 'mlserver init' to create a configuration file",
         )
 
     try:
         import yaml
+
         with open(config_file) as f:
             config = yaml.safe_load(f)
 
@@ -233,32 +230,33 @@ def check_config_file(project_path: str = ".", verbose: bool = False,
                 name="Configuration file",
                 status=CheckStatus.FAILED,
                 message=f"{config_file.name} is empty",
-                suggestion=f"Add configuration to {config_file.name} or run 'mlserver init'"
+                suggestion=f"Add configuration to {config_file.name} or run 'mlserver init'",
             )
 
         return CheckResult(
             name="Configuration file",
             status=CheckStatus.PASSED,
             message=f"{config_file.name} found and valid YAML",
-            details={"path": str(config_file), "keys": list(config.keys()) if config else []}
+            details={"path": str(config_file), "keys": list(config.keys()) if config else []},
         )
     except yaml.YAMLError as e:
         return CheckResult(
             name="Configuration file",
             status=CheckStatus.FAILED,
             message=f"Invalid YAML syntax: {e}",
-            suggestion="Check for syntax errors (indentation, colons, quotes)"
+            suggestion="Check for syntax errors (indentation, colons, quotes)",
         )
     except Exception as e:
         return CheckResult(
             name="Configuration file",
             status=CheckStatus.FAILED,
-            message=f"Error reading config: {e}"
+            message=f"Error reading config: {e}",
         )
 
 
-def check_config_schema(project_path: str = ".", verbose: bool = False,
-                        config_file: Optional[Path] = None) -> CheckResult:
+def check_config_schema(
+    project_path: str = ".", verbose: bool = False, config_file: Optional[Path] = None
+) -> CheckResult:
     """Check if the config file has valid schema."""
     config_file = _resolve_config_file(project_path, config_file)
 
@@ -266,11 +264,12 @@ def check_config_schema(project_path: str = ".", verbose: bool = False,
         return CheckResult(
             name="Configuration schema",
             status=CheckStatus.SKIPPED,
-            message="No config file to validate"
+            message="No config file to validate",
         )
 
     try:
         import yaml
+
         with open(config_file) as f:
             raw_config = yaml.safe_load(f)
 
@@ -279,16 +278,18 @@ def check_config_schema(project_path: str = ".", verbose: bool = False,
 
         if is_multi_classifier:
             from .multi_classifier import MultiClassifierConfig
+
             config = MultiClassifierConfig.model_validate(raw_config)
             classifier_count = len(config.classifiers)
             return CheckResult(
                 name="Configuration schema",
                 status=CheckStatus.PASSED,
                 message=f"Multi-classifier config valid ({classifier_count} classifiers)",
-                details={"format": "multi-classifier", "classifier_count": classifier_count}
+                details={"format": "multi-classifier", "classifier_count": classifier_count},
             )
         else:
             from .config import AppConfig
+
             config = AppConfig.model_validate(raw_config)
             return CheckResult(
                 name="Configuration schema",
@@ -297,32 +298,33 @@ def check_config_schema(project_path: str = ".", verbose: bool = False,
                 details={
                     "format": "single-classifier",
                     "predictor_module": config.predictor.module,
-                    "predictor_class": config.predictor.class_name
-                }
+                    "predictor_class": config.predictor.class_name,
+                },
             )
     except Exception as e:
         error_msg = str(e)
         # Extract the most relevant part of Pydantic errors
         if "validation error" in error_msg.lower():
             # Simplify Pydantic error messages
-            lines = error_msg.split('\n')
+            lines = error_msg.split("\n")
             simplified = lines[0] if lines else error_msg
             return CheckResult(
                 name="Configuration schema",
                 status=CheckStatus.FAILED,
                 message=f"Validation error: {simplified}",
-                suggestion="Check mlserver.yaml against the configuration schema"
+                suggestion="Check mlserver.yaml against the configuration schema",
             )
         return CheckResult(
             name="Configuration schema",
             status=CheckStatus.FAILED,
             message=f"Schema validation failed: {error_msg[:100]}...",
-            suggestion="Review your mlserver.yaml configuration"
+            suggestion="Review your mlserver.yaml configuration",
         )
 
 
-def check_predictor_import(project_path: str = ".", verbose: bool = False,
-                           config_file: Optional[Path] = None) -> CheckResult:
+def check_predictor_import(
+    project_path: str = ".", verbose: bool = False, config_file: Optional[Path] = None
+) -> CheckResult:
     """Check if predictor module can be imported."""
     config_file = _resolve_config_file(project_path, config_file)
 
@@ -330,11 +332,12 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False,
         return CheckResult(
             name="Predictor import",
             status=CheckStatus.SKIPPED,
-            message="No config file to check predictor"
+            message="No config file to check predictor",
         )
 
     try:
         import yaml
+
         with open(config_file) as f:
             config = yaml.safe_load(f)
 
@@ -349,7 +352,7 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False,
                     name="Predictor import",
                     status=CheckStatus.FAILED,
                     message="No classifiers defined in multi-classifier config",
-                    suggestion="Add at least one classifier to classifiers section"
+                    suggestion="Add at least one classifier to classifiers section",
                 )
             # Get the first classifier
             first_classifier_name = list(classifiers.keys())[0]
@@ -368,7 +371,7 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False,
                 name="Predictor import",
                 status=CheckStatus.FAILED,
                 message="predictor.module or predictor.class_name not configured",
-                suggestion="Add predictor configuration to mlserver.yaml"
+                suggestion="Add predictor configuration to mlserver.yaml",
             )
 
         # Try to resolve and import the module
@@ -388,19 +391,19 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False,
             cls = getattr(mod, class_name)
 
             # Check for predict method
-            if hasattr(cls, 'predict'):
+            if hasattr(cls, "predict"):
                 return CheckResult(
                     name="Predictor import",
                     status=CheckStatus.PASSED,
                     message=f"{class_name} from {module_name} importable",
-                    details={"module": resolved_module, "class": class_name, "has_predict": True}
+                    details={"module": resolved_module, "class": class_name, "has_predict": True},
                 )
             else:
                 return CheckResult(
                     name="Predictor import",
                     status=CheckStatus.WARNING,
                     message=f"{class_name} imported but has no predict() method",
-                    suggestion="Ensure your predictor class has a predict(self, X) method"
+                    suggestion="Ensure your predictor class has a predict(self, X) method",
                 )
         finally:
             sys.path = original_path
@@ -410,37 +413,37 @@ def check_predictor_import(project_path: str = ".", verbose: bool = False,
             name="Predictor import",
             status=CheckStatus.FAILED,
             message=f"Cannot import predictor module: {e}",
-            suggestion="Check module path and ensure all dependencies are installed"
+            suggestion="Check module path and ensure all dependencies are installed",
         )
     except AttributeError as e:
         return CheckResult(
             name="Predictor import",
             status=CheckStatus.FAILED,
             message=f"Class not found in module: {e}",
-            suggestion="Check that class_name matches the class defined in your predictor file"
+            suggestion="Check that class_name matches the class defined in your predictor file",
         )
     except Exception as e:
         return CheckResult(
             name="Predictor import",
             status=CheckStatus.FAILED,
-            message=f"Error checking predictor: {e}"
+            message=f"Error checking predictor: {e}",
         )
 
 
-def check_model_files(project_path: str = ".", verbose: bool = False,
-                      config_file: Optional[Path] = None) -> CheckResult:
+def check_model_files(
+    project_path: str = ".", verbose: bool = False, config_file: Optional[Path] = None
+) -> CheckResult:
     """Check if model files referenced in config exist."""
     config_file = _resolve_config_file(project_path, config_file)
 
     if not config_file.exists():
         return CheckResult(
-            name="Model files",
-            status=CheckStatus.SKIPPED,
-            message="No config file to check"
+            name="Model files", status=CheckStatus.SKIPPED, message="No config file to check"
         )
 
     try:
         import yaml
+
         with open(config_file) as f:
             config = yaml.safe_load(f)
 
@@ -463,11 +466,11 @@ def check_model_files(project_path: str = ".", verbose: bool = False,
                 name="Model files",
                 status=CheckStatus.PASSED,
                 message="No model files configured (using defaults)",
-                details={"checked_files": []}
+                details={"checked_files": []},
             )
 
         # Check common model file parameters
-        file_params = ['model_path', 'preprocessor_path', 'weights_path', 'checkpoint_path']
+        file_params = ["model_path", "preprocessor_path", "weights_path", "checkpoint_path"]
         checked_files = []
         missing_files = []
 
@@ -484,7 +487,7 @@ def check_model_files(project_path: str = ".", verbose: bool = False,
                 name="Model files",
                 status=CheckStatus.FAILED,
                 message=f"Missing model files: {', '.join(missing_files)}",
-                suggestion="Ensure model files exist at the specified paths"
+                suggestion="Ensure model files exist at the specified paths",
             )
 
         if checked_files:
@@ -492,37 +495,35 @@ def check_model_files(project_path: str = ".", verbose: bool = False,
                 name="Model files",
                 status=CheckStatus.PASSED,
                 message=f"All {len(checked_files)} model files exist",
-                details={"checked_files": checked_files}
+                details={"checked_files": checked_files},
             )
 
         return CheckResult(
-            name="Model files",
-            status=CheckStatus.PASSED,
-            message="No model file paths to check"
+            name="Model files", status=CheckStatus.PASSED, message="No model file paths to check"
         )
 
     except Exception as e:
         return CheckResult(
             name="Model files",
             status=CheckStatus.FAILED,
-            message=f"Error checking model files: {e}"
+            message=f"Error checking model files: {e}",
         )
 
 
-def check_feature_order_file(project_path: str = ".", verbose: bool = False,
-                             config_file: Optional[Path] = None) -> CheckResult:
+def check_feature_order_file(
+    project_path: str = ".", verbose: bool = False, config_file: Optional[Path] = None
+) -> CheckResult:
     """Check if feature_order file exists if configured."""
     config_file = _resolve_config_file(project_path, config_file)
 
     if not config_file.exists():
         return CheckResult(
-            name="Feature order file",
-            status=CheckStatus.SKIPPED,
-            message="No config file to check"
+            name="Feature order file", status=CheckStatus.SKIPPED, message="No config file to check"
         )
 
     try:
         import yaml
+
         with open(config_file) as f:
             config = yaml.safe_load(f)
 
@@ -545,7 +546,7 @@ def check_feature_order_file(project_path: str = ".", verbose: bool = False,
             return CheckResult(
                 name="Feature order file",
                 status=CheckStatus.PASSED,
-                message="No feature_order configured (using auto-detection)"
+                message="No feature_order configured (using auto-detection)",
             )
 
         if isinstance(feature_order, list):
@@ -553,34 +554,35 @@ def check_feature_order_file(project_path: str = ".", verbose: bool = False,
                 name="Feature order file",
                 status=CheckStatus.PASSED,
                 message=f"Feature order inline ({len(feature_order)} features)",
-                details={"feature_count": len(feature_order)}
+                details={"feature_count": len(feature_order)},
             )
 
         # It's a file path
         feature_file = Path(project_path) / feature_order
         if feature_file.exists():
             import json
+
             with open(feature_file) as f:
                 features = json.load(f)
             return CheckResult(
                 name="Feature order file",
                 status=CheckStatus.PASSED,
                 message=f"Feature order file exists ({len(features)} features)",
-                details={"path": str(feature_file), "feature_count": len(features)}
+                details={"path": str(feature_file), "feature_count": len(features)},
             )
         else:
             return CheckResult(
                 name="Feature order file",
                 status=CheckStatus.FAILED,
                 message=f"Feature order file not found: {feature_order}",
-                suggestion="Create the feature order JSON file or use inline list in config"
+                suggestion="Create the feature order JSON file or use inline list in config",
             )
 
     except Exception as e:
         return CheckResult(
             name="Feature order file",
             status=CheckStatus.FAILED,
-            message=f"Error checking feature order: {e}"
+            message=f"Error checking feature order: {e}",
         )
 
 
@@ -595,7 +597,7 @@ def check_git_repository(project_path: str = ".", verbose: bool = False) -> Chec
                 capture_output=True,
                 text=True,
                 cwd=project_path,
-                timeout=5
+                timeout=5,
             )
             if result.returncode == 0:
                 commit = result.stdout.strip()
@@ -603,22 +605,20 @@ def check_git_repository(project_path: str = ".", verbose: bool = False) -> Chec
                     name="Git repository",
                     status=CheckStatus.PASSED,
                     message=f"Git repository (commit: {commit})",
-                    details={"commit": commit}
+                    details={"commit": commit},
                 )
         except Exception:
             pass
 
         return CheckResult(
-            name="Git repository",
-            status=CheckStatus.PASSED,
-            message="Git repository initialized"
+            name="Git repository", status=CheckStatus.PASSED, message="Git repository initialized"
         )
 
     return CheckResult(
         name="Git repository",
         status=CheckStatus.WARNING,
         message="Not a git repository",
-        suggestion="Initialize git for version control: git init"
+        suggestion="Initialize git for version control: git init",
     )
 
 
@@ -642,7 +642,7 @@ def check_gitignore(project_path: str = ".", verbose: bool = False) -> CheckResu
             name="Gitignore",
             status=CheckStatus.WARNING,
             message=".gitignore not found",
-            suggestion="Create .gitignore with: __pycache__/, *.pkl, .env, .venv/"
+            suggestion="Create .gitignore with: __pycache__/, *.pkl, .env, .venv/",
         )
 
     try:
@@ -660,20 +660,18 @@ def check_gitignore(project_path: str = ".", verbose: bool = False) -> CheckResu
                 status=CheckStatus.WARNING,
                 message=".gitignore missing recommended patterns",
                 suggestion=f"Add to .gitignore: {', '.join(missing)}",
-                details={"missing_patterns": missing}
+                details={"missing_patterns": missing},
             )
 
         return CheckResult(
             name="Gitignore",
             status=CheckStatus.PASSED,
-            message=".gitignore has recommended patterns"
+            message=".gitignore has recommended patterns",
         )
 
     except Exception as e:
         return CheckResult(
-            name="Gitignore",
-            status=CheckStatus.WARNING,
-            message=f"Error reading .gitignore: {e}"
+            name="Gitignore", status=CheckStatus.WARNING, message=f"Error reading .gitignore: {e}"
         )
 
 
@@ -713,7 +711,7 @@ def check_dependencies(project_path: str = ".", verbose: bool = False) -> CheckR
             name="Dependencies",
             status=CheckStatus.FAILED,
             message=f"Missing required: {', '.join(missing_required)}",
-            suggestion=f"Install with: pip install {' '.join(missing_required)}"
+            suggestion=f"Install with: pip install {' '.join(missing_required)}",
         )
 
     if missing_optional and verbose:
@@ -721,13 +719,13 @@ def check_dependencies(project_path: str = ".", verbose: bool = False) -> CheckR
             name="Dependencies",
             status=CheckStatus.WARNING,
             message=f"Missing optional: {', '.join(missing_optional[:3])}",
-            details={"missing_optional": missing_optional}
+            details={"missing_optional": missing_optional},
         )
 
     return CheckResult(
         name="Dependencies",
         status=CheckStatus.PASSED,
-        message="All required dependencies installed"
+        message="All required dependencies installed",
     )
 
 
@@ -738,31 +736,30 @@ def check_port_available(port: int = 8000, verbose: bool = False) -> CheckResult
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1)
-            result = s.connect_ex(('localhost', port))
+            result = s.connect_ex(("localhost", port))
             if result == 0:
                 return CheckResult(
                     name=f"Port {port}",
                     status=CheckStatus.WARNING,
                     message=f"Port {port} is already in use",
-                    suggestion=f"Use a different port with: mlserver serve --port {port + 1}"
+                    suggestion=f"Use a different port with: mlserver serve --port {port + 1}",
                 )
             else:
                 return CheckResult(
                     name=f"Port {port}",
                     status=CheckStatus.PASSED,
-                    message=f"Port {port} is available"
+                    message=f"Port {port} is available",
                 )
     except Exception:
         return CheckResult(
-            name=f"Port {port}",
-            status=CheckStatus.PASSED,
-            message=f"Port {port} appears available"
+            name=f"Port {port}", status=CheckStatus.PASSED, message=f"Port {port} appears available"
         )
 
 
 # =============================================================================
 # Aggregated Check Functions
 # =============================================================================
+
 
 def run_system_checks(verbose: bool = False) -> DiagnosticReport:
     """Run all system-level checks."""
@@ -817,8 +814,9 @@ def run_all_checks(project_path: str = ".", verbose: bool = False) -> Diagnostic
     return report
 
 
-def run_validation_checks(project_path: str = ".", check_imports: bool = True,
-                          config_file: Optional[Path] = None) -> DiagnosticReport:
+def run_validation_checks(
+    project_path: str = ".", check_imports: bool = True, config_file: Optional[Path] = None
+) -> DiagnosticReport:
     """Run validation checks (for mlserver validate command).
 
     Args:

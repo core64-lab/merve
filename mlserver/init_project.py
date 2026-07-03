@@ -1,6 +1,7 @@
 """
 Project initialization for MLServer classifier projects.
 """
+
 import re
 from pathlib import Path
 from typing import Optional
@@ -9,12 +10,12 @@ from typing import Optional
 def sanitize_name(name: str) -> str:
     """Sanitize a name for use in Python identifiers."""
     # Replace spaces and hyphens with underscores
-    name = re.sub(r'[-\s]+', '_', name)
+    name = re.sub(r"[-\s]+", "_", name)
     # Remove any non-alphanumeric characters except underscores
-    name = re.sub(r'[^\w]', '', name)
+    name = re.sub(r"[^\w]", "", name)
     # Ensure it starts with a letter or underscore
     if name and name[0].isdigit():
-        name = '_' + name
+        name = "_" + name
     return name.lower()
 
 
@@ -40,7 +41,7 @@ def generate_mlserver_yaml(
     predictor_module: str,
     predictor_class: str,
     version: str = "1.0.0",
-    description: str = ""
+    description: str = "",
 ) -> str:
     """Generate mlserver.yaml configuration content."""
 
@@ -99,10 +100,7 @@ observability:
     return template
 
 
-def generate_predictor_skeleton(
-    class_name: str,
-    classifier_name: str
-) -> str:
+def generate_predictor_skeleton(class_name: str, classifier_name: str) -> str:
     """Generate skeleton predictor class."""
 
     records_example = '[{"feature1": value1, "feature2": value2}, ...]'
@@ -280,7 +278,7 @@ def init_mlserver_project(
     predictor_file: Optional[str] = None,
     predictor_class: Optional[str] = None,
     include_github_actions: bool = True,
-    force: bool = False
+    force: bool = False,
 ) -> tuple[bool, str, dict[str, str]]:
     """
     Initialize a new MLServer classifier project.
@@ -318,9 +316,9 @@ def init_mlserver_project(
 
     if not predictor_class:
         # Convert to PascalCase for class name
-        predictor_class = ''.join(
-            word.capitalize() for word in classifier_name_clean.split('_')
-        ) + 'Predictor'
+        predictor_class = (
+            "".join(word.capitalize() for word in classifier_name_clean.split("_")) + "Predictor"
+        )
 
     predictor_file_clean = sanitize_name(predictor_file)
     predictor_py_path = project_path / f"{predictor_file_clean}.py"
@@ -333,10 +331,11 @@ def init_mlserver_project(
         # If mlserver.yaml exists, check what predictor it references
         try:
             import yaml
+
             with open(mlserver_yaml_path) as f:
                 existing_config = yaml.safe_load(f)
 
-            existing_predictor_module = existing_config.get('predictor', {}).get('module')
+            existing_predictor_module = existing_config.get("predictor", {}).get("module")
             if existing_predictor_module:
                 # Use the predictor module from existing config (dotted specs
                 # map to nested paths: pkg.predictor -> pkg/predictor.py)
@@ -351,9 +350,9 @@ def init_mlserver_project(
             predictor_module=predictor_file_clean,
             predictor_class=predictor_class,
             version="1.0.0",
-            description=""
+            description="",
         )
-        with open(mlserver_yaml_path, 'w') as f:
+        with open(mlserver_yaml_path, "w") as f:
             f.write(yaml_content)
         files_created["mlserver.yaml"] = str(mlserver_yaml_path.relative_to(project_path))
 
@@ -362,11 +361,10 @@ def init_mlserver_project(
         files_skipped.append(f"{predictor_file_clean}.py (already exists)")
     else:
         predictor_content = generate_predictor_skeleton(
-            class_name=predictor_class,
-            classifier_name=classifier_name
+            class_name=predictor_class, classifier_name=classifier_name
         )
         predictor_py_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(predictor_py_path, 'w') as f:
+        with open(predictor_py_path, "w") as f:
             f.write(predictor_content)
         files_created["predictor"] = str(predictor_py_path.relative_to(project_path))
 
@@ -374,7 +372,7 @@ def init_mlserver_project(
     gitignore_path = project_path / ".gitignore"
     if not gitignore_path.exists():
         gitignore_content = generate_gitignore()
-        with open(gitignore_path, 'w') as f:
+        with open(gitignore_path, "w") as f:
             f.write(gitignore_content)
         files_created["gitignore"] = ".gitignore"
     else:
@@ -385,10 +383,7 @@ def init_mlserver_project(
         from .github_actions import init_github_actions
 
         gh_success, gh_message, gh_files = init_github_actions(
-            project_path=str(project_path),
-            python_version="3.11",
-            registry="ghcr.io",
-            force=force
+            project_path=str(project_path), python_version="3.11", registry="ghcr.io", force=force
         )
 
         if gh_success:
@@ -411,8 +406,7 @@ def init_mlserver_project(
 
 
 def check_project_files(
-    project_path: str = ".",
-    classifier_name: Optional[str] = None
+    project_path: str = ".", classifier_name: Optional[str] = None
 ) -> tuple[bool, list[str]]:
     """
     Check if all required files exist for a classifier project.
@@ -437,21 +431,22 @@ def check_project_files(
     # Parse mlserver.yaml to get predictor module
     try:
         import yaml
+
         with open(mlserver_yaml) as f:
             config = yaml.safe_load(f)
 
         # Check if multi-classifier config
-        if 'classifiers' in config:
+        if "classifiers" in config:
             # Multi-classifier format
-            if classifier_name and classifier_name in config['classifiers']:
+            if classifier_name and classifier_name in config["classifiers"]:
                 predictor_module = (
-                    config['classifiers'][classifier_name].get('predictor', {}).get('module')
+                    config["classifiers"][classifier_name].get("predictor", {}).get("module")
                 )
                 _check_predictor_module_file(project_path, predictor_module, missing_files)
             # For multi-classifier, we don't fail if no classifier_name provided
         else:
             # Single-classifier format
-            predictor_module = config.get('predictor', {}).get('module')
+            predictor_module = config.get("predictor", {}).get("module")
             _check_predictor_module_file(project_path, predictor_module, missing_files)
     except Exception:
         # If we can't parse, just warn about checking manually
@@ -466,9 +461,7 @@ def check_project_files(
 
 
 def _check_predictor_module_file(
-    project_path: Path,
-    predictor_module: Optional[str],
-    missing_files: list[str]
+    project_path: Path, predictor_module: Optional[str], missing_files: list[str]
 ) -> None:
     """Check that the predictor module's file exists, appending to missing_files.
 

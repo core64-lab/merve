@@ -1,9 +1,9 @@
-
 """
 Example predictor implementation to demonstrate integration.
 This class loads artifacts once in __init__ (kept in memory). It exposes
 predict() and predict_proba(). Replace loading with your real artifacts.
 """
+
 from __future__ import annotations
 
 import json

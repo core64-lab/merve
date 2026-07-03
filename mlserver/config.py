@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -43,8 +42,12 @@ def _warn_if_legacy_global_config() -> None:
 # Free-form dict fields whose contents are user-defined and must NOT be
 # checked for unknown keys (see _warn_unknown_config_keys)
 _FREE_FORM_CONFIG_FIELDS = {
-    "classifier", "model", "init_kwargs", "endpoints",
-    "resource_limits", "health_check",
+    "classifier",
+    "model",
+    "init_kwargs",
+    "endpoints",
+    "resource_limits",
+    "health_check",
 }
 
 
@@ -86,7 +89,6 @@ def _warn_unknown_config_keys(data: Any, model_cls: type, prefix: str = "") -> N
             _warn_unknown_config_keys(value, nested_cls, prefix=f"{path}.")
 
 
-
 class CORSConfig(BaseModel):
     # Security: Default to no CORS instead of wildcard. Require explicit
     # configuration for production.
@@ -104,9 +106,10 @@ class CORSConfig(BaseModel):
 
 class LoggerConfig(BaseModel):
     """Logger configuration for structured logging."""
+
     timestamp: bool = Field(
         default=False,
-        description="Include timestamps in logs (default: false for container environments)"
+        description="Include timestamps in logs (default: false for container environments)",
     )
     structured: bool = Field(default=True, description="Use structured JSON logging")
     show_tasks: bool = Field(
@@ -126,18 +129,18 @@ class ServerConfig(BaseModel):
     cors: Optional[CORSConfig] = None
     logger: Optional[LoggerConfig] = Field(default=None, description="Logger configuration")
 
-    @field_validator('port')
+    @field_validator("port")
     @classmethod
     def validate_port(cls, v):
         if v < 1 or v > 65535:
-            raise ValueError('port must be between 1 and 65535')
+            raise ValueError("port must be between 1 and 65535")
         return v
 
-    @field_validator('workers')
+    @field_validator("workers")
     @classmethod
     def validate_workers(cls, v):
         if v < 1:
-            raise ValueError('workers must be at least 1')
+            raise ValueError("workers must be at least 1")
         return v
 
 
@@ -146,11 +149,11 @@ class PredictorConfig(BaseModel):
     class_name: str  # e.g., "CatBoostPredictor"
     init_kwargs: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator('module', 'class_name')
+    @field_validator("module", "class_name")
     @classmethod
     def validate_non_empty(cls, v):
         if not v or not v.strip():
-            raise ValueError('field cannot be empty')
+            raise ValueError("field cannot be empty")
         return v
 
 
@@ -164,18 +167,17 @@ class ObservabilityConfig(BaseModel):
     )
 
 
-
-
 class ApiConfig(BaseModel):
     """Unified API configuration from mlserver.yaml"""
+
     version: str = Field(default="v1", description="API version for metadata tracking")
     endpoints: dict[str, bool] = Field(
         default_factory=lambda: {
             "predict": True,
             # Note: batch_predict removed - /predict handles both single and batch
-            "predict_proba": True
+            "predict_proba": True,
         },
-        description="Enabled endpoints"
+        description="Enabled endpoints",
     )
     adapter: str = Field(default="records", description="records|ndarray|auto")
     feature_order: Optional[Union[list[str], str]] = None  # Can be list[str] or str (file path)
@@ -187,7 +189,7 @@ class ApiConfig(BaseModel):
             "Maximum concurrent predictions (1 for single model protection in K8s, "
             "0 disables concurrency limiting)"
         ),
-        ge=0
+        ge=0,
     )
     retry_after_seconds: int = Field(
         default=5,
@@ -195,7 +197,7 @@ class ApiConfig(BaseModel):
             "Value of the Retry-After header (seconds) sent with 503 responses "
             "when the prediction concurrency limit is reached"
         ),
-        ge=0
+        ge=0,
     )
     # Response format configuration
     response_format: str = Field(
@@ -203,15 +205,14 @@ class ApiConfig(BaseModel):
         description=(
             "Response format: 'standard' (default), 'custom' (flexible), "
             "or 'passthrough' (unmodified)"
-        )
+        ),
     )
     response_validation: bool = Field(
         default=True,
-        description="Enable response validation (can be disabled for complex custom responses)"
+        description="Enable response validation (can be disabled for complex custom responses)",
     )
     extract_values: bool = Field(
-        default=False,
-        description="For dict responses, extract values into predictions list"
+        default=False, description="For dict responses, extract values into predictions list"
     )
     # Warmup configuration
     warmup_on_start: bool = Field(
@@ -219,7 +220,7 @@ class ApiConfig(BaseModel):
         description=(
             "Run a warmup prediction at startup to initialize model internals "
             "and reduce first-request latency"
-        )
+        ),
     )
 
     @model_validator(mode="after")
@@ -334,10 +335,8 @@ class ApiConfig(BaseModel):
 
 class BuildConfig(BaseModel):
     """Container build configuration"""
-    base_image: str = Field(
-        default=defaults.DEFAULT_BASE_IMAGE,
-        description="Base Docker image"
-    )
+
+    base_image: str = Field(default=defaults.DEFAULT_BASE_IMAGE, description="Base Docker image")
     registry: Optional[str] = Field(default=None, description="Container registry URL")
     tag_prefix: Optional[str] = Field(default=None, description="Tag prefix for container names")
     include_files: Optional[list[str]] = Field(
@@ -348,97 +347,83 @@ class BuildConfig(BaseModel):
 
 class GitHubVariablesConfig(BaseModel):
     """GitHub repository variables configuration for CI/CD workflows."""
+
     aws_role_arn_var: str = Field(
         default="AWS_RUNNER_ROLE_ARN",
         description=(
-            "Name of GitHub repository variable containing AWS IAM role ARN "
-            "for OIDC authentication"
-        )
+            "Name of GitHub repository variable containing AWS IAM role ARN for OIDC authentication"
+        ),
     )
     aws_role_arn_value: Optional[str] = Field(
         default=None,
         description=(
-            "Direct AWS role ARN value to bake into workflow "
-            "(alternative to variable, less secure)"
-        )
+            "Direct AWS role ARN value to bake into workflow (alternative to variable, less secure)"
+        ),
     )
 
 
 class ECRConfig(BaseModel):
     """AWS ECR (Elastic Container Registry) configuration."""
-    aws_region: str = Field(
-        default="eu-central-1",
-        description="AWS region for ECR"
-    )
-    registry_id: str = Field(
-        description="AWS account ID (12-digit number)"
-    )
+
+    aws_region: str = Field(default="eu-central-1", description="AWS region for ECR")
+    registry_id: str = Field(description="AWS account ID (12-digit number)")
     repository_prefix: str = Field(
-        default="ml-classifiers",
-        description="Repository prefix for ECR image names"
+        default="ml-classifiers", description="Repository prefix for ECR image names"
     )
 
 
 class RegistryConfig(BaseModel):
     """Container registry configuration for deployments."""
+
     type: str = Field(
         default="ghcr",
         description=(
             "Registry type: 'ghcr' (GitHub Container Registry) "
             "or 'ecr' (AWS Elastic Container Registry)"
-        )
+        ),
     )
     url: Optional[str] = Field(
-        default=None,
-        description="Container registry URL (for GHCR, default: ghcr.io)"
+        default=None, description="Container registry URL (for GHCR, default: ghcr.io)"
     )
     namespace: Optional[str] = Field(
-        default=None,
-        description="Registry namespace (for GHCR, default: auto-detected from git)"
+        default=None, description="Registry namespace (for GHCR, default: auto-detected from git)"
     )
     ecr: Optional[ECRConfig] = Field(
-        default=None,
-        description="ECR-specific configuration (required when type='ecr')"
+        default=None, description="ECR-specific configuration (required when type='ecr')"
     )
     github_variables: GitHubVariablesConfig = Field(
         default_factory=GitHubVariablesConfig,
-        description="GitHub repository variables configuration"
+        description="GitHub repository variables configuration",
     )
     push_on_build: bool = Field(
-        default=False,
-        description="Automatically push to registry after build"
+        default=False, description="Automatically push to registry after build"
     )
 
 
 class DeploymentConfig(BaseModel):
     """Deployment configuration for multi-classifier repositories."""
+
     strategy: str = Field(
         default="single",
-        description="Deployment strategy: 'single' or 'multi' for separate services"
+        description="Deployment strategy: 'single' or 'multi' for separate services",
     )
     container_naming: str = Field(
-        default="{repository}-{classifier}:{version}",
-        description="Container tag format template"
+        default="{repository}-{classifier}:{version}", description="Container tag format template"
     )
     git_tag_format: str = Field(
-        default="{classifier}-v{version}",
-        description="Git tag format for releases"
+        default="{classifier}-v{version}", description="Git tag format for releases"
     )
     parallel_builds: bool = Field(
-        default=True,
-        description="Enable parallel container builds for multiple classifiers"
+        default=True, description="Enable parallel container builds for multiple classifiers"
     )
     registry: RegistryConfig = Field(
-        default_factory=RegistryConfig,
-        description="Container registry configuration"
+        default_factory=RegistryConfig, description="Container registry configuration"
     )
     resource_limits: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Resource limits for Kubernetes deployments"
+        default=None, description="Resource limits for Kubernetes deployments"
     )
     health_check: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Health check configuration"
+        default=None, description="Health check configuration"
     )
 
 
@@ -451,14 +436,12 @@ class AppConfig(BaseModel):
     classifier: Optional[dict[str, Any]] = Field(
         default=None,
         description=(
-            "Classifier metadata (name, version, description). "
-            "Auto-generated if not provided."
-        )
+            "Classifier metadata (name, version, description). Auto-generated if not provided."
+        ),
     )
     model: Optional[dict[str, Any]] = Field(default=None)  # Model metadata dict
     api: Optional[ApiConfig] = Field(
-        default=None,
-        description="API configuration. Uses sensible defaults if not provided."
+        default=None, description="API configuration. Uses sensible defaults if not provided."
     )
     build: Optional[BuildConfig] = Field(default=None)
     deployment: Optional[DeploymentConfig] = Field(default=None)  # Deployment configuration
@@ -510,29 +493,32 @@ class AppConfig(BaseModel):
             class_name = self.predictor.class_name
             # Convert CamelCase to kebab-case for name
             import re
-            name = re.sub(r'(?<!^)(?=[A-Z])', '-', class_name).lower()
+
+            name = re.sub(r"(?<!^)(?=[A-Z])", "-", class_name).lower()
             # Remove common suffixes like -predictor, -classifier
-            for suffix in ['-predictor', '-classifier', '-model']:
+            for suffix in ["-predictor", "-classifier", "-model"]:
                 if name.endswith(suffix):
-                    name = name[:-len(suffix)]
+                    name = name[: -len(suffix)]
                     break
-            object.__setattr__(self, 'classifier', {
-                'name': name or 'classifier',
-                'version': '0.1.0'
-            })
+            object.__setattr__(
+                self, "classifier", {"name": name or "classifier", "version": "0.1.0"}
+            )
 
         # Apply smart defaults for api if not provided
         if self.api is None:
-            object.__setattr__(self, 'api', ApiConfig())
+            object.__setattr__(self, "api", ApiConfig())
 
         # Convert classifier dict to ClassifierMetadata format
         try:
             from .version import ClassifierMetadata
-            self.classifier_metadata_internal = ClassifierMetadata.model_validate({
-                "classifier": self.classifier,
-                "model": self.model or {},
-                "api": self.api.model_dump()
-            })
+
+            self.classifier_metadata_internal = ClassifierMetadata.model_validate(
+                {
+                    "classifier": self.classifier,
+                    "model": self.model or {},
+                    "api": self.api.model_dump(),
+                }
+            )
         except Exception:
             # If validation fails, skip creating classifier metadata
             # This allows tests and minimal configs to work without full metadata
@@ -563,13 +549,13 @@ class AppConfig(BaseModel):
 
     def _format_api_title(self, name: str, version: str) -> str:
         """Format API title from name and version."""
-        formatted_name = name.replace('-', ' ').title()
+        formatted_name = name.replace("-", " ").title()
         return f"{formatted_name} API v{version}"
 
     def get_api_title(self) -> str:
         """Get API title with version information."""
-        name = self.classifier.get('name', 'ML Classifier')
-        version = self.classifier.get('version', '1.0.0')
+        name = self.classifier.get("name", "ML Classifier")
+        version = self.classifier.get("version", "1.0.0")
         return self._format_api_title(name, version)
 
     def get_base_path(self) -> str:

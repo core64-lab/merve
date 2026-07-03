@@ -9,6 +9,7 @@ Includes:
 - Feature schema validators (input validation from feature_order)
 - Validation suites for common workflows
 """
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
+
     passed: bool
     error_message: Optional[str] = None
     warnings: list[str] = None
@@ -35,6 +37,7 @@ class ValidationResult:
 @dataclass
 class FeatureValidationResult:
     """Result of feature validation for a single record or batch."""
+
     valid: bool
     missing_features: list[str] = field(default_factory=list)
     extra_features: list[str] = field(default_factory=list)
@@ -58,8 +61,10 @@ class FeatureValidationResult:
             parts.append(f"Unexpected features: {features_str}")
 
         if self.type_errors:
-            type_errs = [f"{e['feature']}: expected {e['expected']}, got {e['actual']}"
-                        for e in self.type_errors[:3]]
+            type_errs = [
+                f"{e['feature']}: expected {e['expected']}, got {e['actual']}"
+                for e in self.type_errors[:3]
+            ]
             parts.append(f"Type errors: {'; '.join(type_errs)}")
 
         prefix = f"Record {self.record_index}: " if self.record_index is not None else ""
@@ -80,10 +85,7 @@ class FeatureSchemaValidator:
     """
 
     def __init__(
-        self,
-        feature_order: list[str],
-        strict: bool = False,
-        allow_extra_features: bool = True
+        self, feature_order: list[str], strict: bool = False, allow_extra_features: bool = True
     ):
         """
         Initialize feature schema validator.
@@ -123,7 +125,7 @@ class FeatureSchemaValidator:
         return FeatureValidationResult(
             valid=valid,
             missing_features=sorted(missing),
-            extra_features=sorted(extra) if not self.allow_extra_features else []
+            extra_features=sorted(extra) if not self.allow_extra_features else [],
         )
 
     def validate_records(
@@ -226,8 +228,7 @@ class ProjectInitializedValidator(Validator):
 
     def __init__(self):
         super().__init__(
-            name="project_initialized",
-            description="Verify all required project files exist"
+            name="project_initialized", description="Verify all required project files exist"
         )
 
     def validate(
@@ -253,14 +254,10 @@ class ProjectInitializedValidator(Validator):
         error_msg = "Project not properly initialized - required files are missing"
         details = {
             "missing_files": missing_files,
-            "solution": "Run 'mlserver init' to create all required files"
+            "solution": "Run 'mlserver init' to create all required files",
         }
 
-        return ValidationResult(
-            passed=False,
-            error_message=error_msg,
-            details=details
-        )
+        return ValidationResult(passed=False, error_message=error_msg, details=details)
 
 
 class GitWorkingDirectoryCleanValidator(Validator):
@@ -274,7 +271,7 @@ class GitWorkingDirectoryCleanValidator(Validator):
             name="git_working_directory_clean",
             description=(
                 "Verify no uncommitted changes to tracked files (untracked files are allowed)"
-            )
+            ),
         )
 
     def validate(self, project_path: str = ".", **kwargs) -> ValidationResult:
@@ -300,15 +297,10 @@ class GitWorkingDirectoryCleanValidator(Validator):
                 "solution": "Commit your changes first with: git add . && git commit -m 'message'"
             }
 
-            return ValidationResult(
-                passed=False,
-                error_message=error_msg,
-                details=details
-            )
+            return ValidationResult(passed=False, error_message=error_msg, details=details)
         except Exception as e:
             return ValidationResult(
-                passed=False,
-                error_message=f"Failed to check git status: {str(e)}"
+                passed=False, error_message=f"Failed to check git status: {str(e)}"
             )
 
 
@@ -317,8 +309,7 @@ class GitRepositoryExistsValidator(Validator):
 
     def __init__(self):
         super().__init__(
-            name="git_repository_exists",
-            description="Verify project is a git repository"
+            name="git_repository_exists", description="Verify project is a git repository"
         )
 
     def validate(self, project_path: str = ".", **kwargs) -> ValidationResult:
@@ -336,25 +327,16 @@ class GitRepositoryExistsValidator(Validator):
         if git_dir.exists():
             return ValidationResult(passed=True)
 
-        details = {
-            "solution": "Initialize git repository with: git init"
-        }
+        details = {"solution": "Initialize git repository with: git init"}
 
-        return ValidationResult(
-            passed=False,
-            error_message="Not a git repository",
-            details=details
-        )
+        return ValidationResult(passed=False, error_message="Not a git repository", details=details)
 
 
 class ConfigurationValidValidator(Validator):
     """Validates that mlserver.yaml is valid and can be parsed."""
 
     def __init__(self):
-        super().__init__(
-            name="configuration_valid",
-            description="Verify mlserver.yaml is valid"
-        )
+        super().__init__(name="configuration_valid", description="Verify mlserver.yaml is valid")
 
     def validate(
         self, project_path: str = ".", classifier_name: Optional[str] = None, **kwargs
@@ -377,7 +359,7 @@ class ConfigurationValidValidator(Validator):
             return ValidationResult(
                 passed=False,
                 error_message="mlserver.yaml not found",
-                details={"solution": "Run 'mlserver init' to create configuration"}
+                details={"solution": "Run 'mlserver init' to create configuration"},
             )
 
         try:
@@ -417,7 +399,7 @@ class ConfigurationValidValidator(Validator):
                                     "Check classifier name or run 'mlserver init' "
                                     "to recreate configuration"
                                 )
-                            }
+                            },
                         )
                 else:
                     # No classifier specified - just validate the multi-config structure
@@ -431,7 +413,7 @@ class ConfigurationValidValidator(Validator):
             return ValidationResult(
                 passed=False,
                 error_message=f"Invalid mlserver.yaml: {str(e)}",
-                details={"solution": "Check your mlserver.yaml for syntax errors"}
+                details={"solution": "Check your mlserver.yaml for syntax errors"},
             )
 
 
@@ -448,7 +430,7 @@ class GitHubActionsConfiguredValidator(Validator):
         """
         super().__init__(
             name="github_actions_configured",
-            description="Verify GitHub Actions workflow exists and is compatible"
+            description="Verify GitHub Actions workflow exists and is compatible",
         )
         self.check_compatibility = check_compatibility
         self.strict = strict
@@ -470,9 +452,7 @@ class GitHubActionsConfiguredValidator(Validator):
             return ValidationResult(
                 passed=True,  # Don't fail validation
                 warnings=["GitHub Actions workflow not configured"],
-                details={
-                    "solution": "Run 'mlserver init-github' to add CI/CD automation"
-                }
+                details={"solution": "Run 'mlserver init-github' to add CI/CD automation"},
             )
 
         # Workflow exists - check compatibility if requested
@@ -485,25 +465,18 @@ class GitHubActionsConfiguredValidator(Validator):
                     return ValidationResult(
                         passed=False,
                         error_message=(
-                            "GitHub Actions workflow is incompatible "
-                            "with current MLServer version"
+                            "GitHub Actions workflow is incompatible with current MLServer version"
                         ),
-                        details=details
+                        details=details,
                     )
                 else:
                     # Lenient mode - pass but warn
                     return ValidationResult(
-                        passed=True,
-                        warnings=[warning] if warning else [],
-                        details=details
+                        passed=True, warnings=[warning] if warning else [], details=details
                     )
             elif warning:
                 # Valid but with warnings
-                return ValidationResult(
-                    passed=True,
-                    warnings=[warning],
-                    details=details
-                )
+                return ValidationResult(passed=True, warnings=[warning], details=details)
 
         # All good
         return ValidationResult(passed=True)
@@ -556,6 +529,7 @@ class ValidationSuite:
 
 # Pre-defined validation suites for common workflows
 
+
 def get_tag_validation_suite() -> ValidationSuite:
     """Get validation suite for tagging workflow."""
     return ValidationSuite(
@@ -566,7 +540,7 @@ def get_tag_validation_suite() -> ValidationSuite:
             ConfigurationValidValidator(),
             GitWorkingDirectoryCleanValidator(),
             GitHubActionsConfiguredValidator(check_compatibility=True, strict=False),
-        ]
+        ],
     )
 
 
@@ -577,7 +551,7 @@ def get_build_validation_suite() -> ValidationSuite:
         validators=[
             ProjectInitializedValidator(),
             ConfigurationValidValidator(),
-        ]
+        ],
     )
 
 
@@ -587,7 +561,7 @@ def get_init_validation_suite() -> ValidationSuite:
         name="init_validation",
         validators=[
             GitRepositoryExistsValidator(),
-        ]
+        ],
     )
 
 
@@ -601,5 +575,5 @@ def get_deploy_validation_suite() -> ValidationSuite:
             ConfigurationValidValidator(),
             GitWorkingDirectoryCleanValidator(),
             GitHubActionsConfiguredValidator(check_compatibility=True, strict=True),
-        ]
+        ],
     )

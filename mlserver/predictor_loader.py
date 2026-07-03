@@ -33,7 +33,7 @@ def _validate_model_files(init_kwargs: dict) -> None:
     file_size_limit_mb = 2000  # 2GB limit
 
     # Common model file parameters to check
-    file_params = ['model_path', 'preprocessor_path', 'weights_path', 'checkpoint_path']
+    file_params = ["model_path", "preprocessor_path", "weights_path", "checkpoint_path"]
 
     for param in file_params:
         if param in init_kwargs:
@@ -77,13 +77,13 @@ def resolve_module_path(module_spec: str, config_dir: Optional[str] = None) -> s
         Module name to import (file-based names load from the config directory)
     """
     # Case 1: Already a full module path (contains dots but not .py extension)
-    if '.' in module_spec and not module_spec.endswith('.py'):
+    if "." in module_spec and not module_spec.endswith(".py"):
         return module_spec
 
     # Case 2 & 3: Simple name or filename - resolve relative to the config dir.
     # Remove .py extension if present (suffix only - a '.py' mid-name like
     # 'my.pyfile' must not be mangled)
-    module_name = module_spec.removesuffix('.py')
+    module_name = module_spec.removesuffix(".py")
     if config_dir and (Path(config_dir) / f"{module_name}.py").exists():
         logger.info(
             f"Resolved module '{module_spec}' to '{module_name}' "
@@ -104,9 +104,9 @@ def _find_local_module_file(module_spec: str, config_dir: Optional[str]) -> Opti
     """
     if not config_dir:
         return None
-    if '.' in module_spec and not module_spec.endswith('.py'):
+    if "." in module_spec and not module_spec.endswith(".py"):
         return None
-    module_name = module_spec.removesuffix('.py')
+    module_name = module_spec.removesuffix(".py")
     candidate = Path(config_dir) / f"{module_name}.py"
     if candidate.exists():
         return candidate.resolve()
@@ -121,7 +121,7 @@ def _ensure_user_namespace() -> None:
     modules. Existing real packages are never replaced.
     """
     parent_name = None
-    for part in USER_MODULE_NAMESPACE.split('.'):
+    for part in USER_MODULE_NAMESPACE.split("."):
         name = f"{parent_name}.{part}" if parent_name else part
         if name not in sys.modules:
             package = types.ModuleType(name)
@@ -185,7 +185,7 @@ def _import_predictor_module(module: str, config_dir: Optional[str]) -> types.Mo
     except ImportError as e:
         # Provide helpful error message with suggestion
         suggestion_parts = []
-        if '.' not in module:
+        if "." not in module:
             suggestion_parts.append(f"Try using just the filename: '{module}.py'")
             suggestion_parts.append("Or specify the full module path (e.g., 'mypackage.predictor')")
         if config_dir:

@@ -13,10 +13,12 @@ import pandas as pd
 class CatBoostSurvivalPredictor:
     """CatBoost-based Titanic survival predictor."""
 
-    def __init__(self,
-                 model_path: str = "./artifacts/catboost-survival/model.pkl",
-                 features_path: str = "./artifacts/catboost-survival/features.json",
-                 categorical_indices_path: str = "./artifacts/catboost-survival/categorical_indices.json"):
+    def __init__(
+        self,
+        model_path: str = "./artifacts/catboost-survival/model.pkl",
+        features_path: str = "./artifacts/catboost-survival/features.json",
+        categorical_indices_path: str = "./artifacts/catboost-survival/categorical_indices.json",
+    ):
         """Initialize the CatBoost predictor.
 
         Args:
@@ -25,7 +27,7 @@ class CatBoostSurvivalPredictor:
             categorical_indices_path: Path to categorical feature indices
         """
         # Load model
-        with open(model_path, 'rb') as f:
+        with open(model_path, "rb") as f:
             self.model = pickle.load(f)
 
         # Load feature order
@@ -87,5 +89,5 @@ class CatBoostSurvivalPredictor:
             "model_type": "CatBoostClassifier",
             "features": self.feature_order,
             "categorical_features": [self.feature_order[i] for i in self.categorical_indices],
-            "n_features": len(self.feature_order)
+            "n_features": len(self.feature_order),
         }

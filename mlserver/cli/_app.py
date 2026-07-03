@@ -33,6 +33,7 @@ err_console = Console(stderr=True)
 
 class LogLevel(str, Enum):
     """Log level options."""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -55,13 +56,13 @@ def resolve_relative_paths(init_kwargs: dict, config_dir: str) -> dict:
 
 def _is_likely_file_path(key: str, value: str) -> bool:
     """Check if a key-value pair likely represents a file path."""
-    path_indicators = ['path', 'file', 'model', 'preprocessor', 'feature_order']
+    path_indicators = ["path", "file", "model", "preprocessor", "feature_order"]
     key_suggests_path = any(indicator in key.lower() for indicator in path_indicators)
 
     is_relative = (
-        value.startswith('./') or
-        value.startswith('../') or
-        (not value.startswith('/') and ':' not in value[:3])
+        value.startswith("./")
+        or value.startswith("../")
+        or (not value.startswith("/") and ":" not in value[:3])
     )
 
     return key_suggests_path and is_relative
