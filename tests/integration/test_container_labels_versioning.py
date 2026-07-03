@@ -116,9 +116,10 @@ class MockPredictor:
         # Normalize to 7 chars for comparison
         assert labels["com.classifier.git_commit"][:7] == classifier_commit[:7]
 
-        # Verify the tag name includes mlserver commit
-        assert "-mlserver-" in tag_name
-        assert mlserver_commit[:7] in tag_name
+        # Canonical tag format (RFC 0001 D1/D2): the mlserver commit is carried
+        # in the image label (com.mlserver.commit), not in the tag name.
+        assert tag_name.endswith(f"/v{version}")
+        assert labels["com.mlserver.commit"][:7] == mlserver_commit[:7]
 
     def test_label_format_and_escaping(self, temp_classifier_repo):
         """Test that labels are properly formatted and escaped."""
@@ -189,10 +190,12 @@ class MockPredictor:
         # Just verify that at least the required ones are present
         # Optional labels like git_url are nice-to-have but not critical for testing
 
-        # Verify the git tag can be used to extract version and commits
+        # Verify the git tag can be parsed back to a version (canonical format).
+        from mlserver.version_control import parse_classifier_tag
         git_tag = labels["com.classifier.git_tag"]
-        assert "-v" in git_tag
-        assert "-mlserver-" in git_tag
+        parsed = parse_classifier_tag(git_tag)
+        assert parsed is not None
+        assert parsed["version"]
 
     def test_label_count_and_structure(self, temp_classifier_repo):
         """Test that we generate the expected number of labels."""
@@ -230,16 +233,17 @@ class MockPredictor:
         repo_path = temp_classifier_repo
 
         from mlserver.container import generate_container_labels
-        from mlserver.version_control import GitVersionManager, parse_hierarchical_tag
+        from mlserver.version_control import GitVersionManager, parse_classifier_tag
 
         git_mgr = GitVersionManager(repo_path)
 
-        # Create a tag
+        # Create a tag (canonical format, RFC 0001 D1/D2)
         result = git_mgr.tag_version("patch", "test_classifier", allow_missing_mlserver=False)
         tag_name = result["tag_name"]
 
         # Parse the tag
-        parsed = parse_hierarchical_tag(tag_name)
+        parsed = parse_classifier_tag(tag_name)
+        assert parsed["format"] == "canonical"
 
         # Generate labels
         labels = generate_container_labels(
@@ -251,5 +255,6 @@ class MockPredictor:
         assert labels["com.classifier.version"] == parsed["version"]
         assert labels["org.opencontainers.image.version"] == parsed["version"]
 
-        # Verify mlserver commit in labels matches parsed commit (normalize to 7 chars)
-        assert labels["com.mlserver.commit"][:7] == parsed["mlserver_commit"][:7]
+        # The mlserver commit is no longer in the tag; it comes from the live
+        # mlserver install and is carried in the label for provenance.
+        assert labels["com.mlserver.commit"][:7] == result["mlserver_commit"][:7]

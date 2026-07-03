@@ -136,8 +136,9 @@ class TestHierarchicalVersioningWorkflow:
         assert result["mlserver_commit"] is not None
         assert result["previous_version"] is None
 
-        # Tag name should include mlserver commit
-        assert result["tag_name"].startswith("sentiment-v0.1.0-mlserver-")
+        # Tag name is canonical <classifier>/vX.Y.Z (RFC 0001 D1/D2); the
+        # mlserver commit is still returned in the result dict for provenance.
+        assert result["tag_name"] == "sentiment/v0.1.0"
 
         # Verify tag was created
         version = git_mgr.get_current_version("sentiment")
@@ -145,7 +146,7 @@ class TestHierarchicalVersioningWorkflow:
 
         # Check tag info
         tag_info = git_mgr.get_latest_tag_info("sentiment")
-        assert tag_info["tag"].startswith("sentiment-v0.1.0-mlserver-")
+        assert tag_info["tag"] == "sentiment/v0.1.0"
         assert tag_info["on_tagged_commit"] is True
         assert tag_info["commits_since_tag"] == 0
 
@@ -316,12 +317,12 @@ class TestHierarchicalVersioningWorkflow:
 
         tags = result.stdout.strip().split('\n')
 
-        # Check for hierarchical format with mlserver commits
-        sentiment_tag_found = any(tag.startswith("sentiment-v1.0.0-mlserver-") for tag in tags)
-        intent_tag_found = any(tag.startswith("intent-v0.1.0-mlserver-") for tag in tags)
+        # Canonical <classifier>/vX.Y.Z format (RFC 0001 D1/D2)
+        sentiment_tag_found = "sentiment/v1.0.0" in tags
+        intent_tag_found = "intent/v0.1.0" in tags
 
-        assert sentiment_tag_found, f"Expected sentiment-v1.0.0-mlserver-* in {tags}"
-        assert intent_tag_found, f"Expected intent-v0.1.0-mlserver-* in {tags}"
+        assert sentiment_tag_found, f"Expected sentiment/v1.0.0 in {tags}"
+        assert intent_tag_found, f"Expected intent/v0.1.0 in {tags}"
 
     def test_get_version_for_push(self, single_classifier_config):
         """Test get_version_for_push with hierarchical tags."""
@@ -535,7 +536,7 @@ class TestPhase2HierarchicalTagParsing:
         """Test parsing hierarchical tags from a real git repository."""
         repo_path = temp_git_repo_with_tags
 
-        from mlserver.version_control import GitVersionManager, parse_hierarchical_tag
+        from mlserver.version_control import GitVersionManager
 
         git_mgr = GitVersionManager(repo_path)
 
@@ -543,14 +544,15 @@ class TestPhase2HierarchicalTagParsing:
         result = git_mgr.tag_version("minor", "sentiment", allow_missing_mlserver=False)
         tag_name = result["tag_name"]
 
-        # Parse the tag we just created
-        parsed = parse_hierarchical_tag(tag_name)
+        # Parse the tag we just created (now canonical, RFC 0001 D1/D2)
+        from mlserver.version_control import parse_classifier_tag
+        parsed = parse_classifier_tag(tag_name)
 
-        assert parsed["format"] == "valid"
+        assert parsed["format"] == "canonical"
         assert parsed["classifier"] == "sentiment"
         assert parsed["version"] == "0.1.0"
-        assert parsed["mlserver_commit"] is not None
-        assert len(parsed["mlserver_commit"]) >= 7
+        # Canonical tags no longer encode the mlserver commit in the name.
+        assert parsed["mlserver_commit"] is None
 
     def test_extract_classifier_name_integration(self, temp_git_repo_with_tags):
         """Test extracting classifier name from full tags in real workflow."""
@@ -590,7 +592,9 @@ class TestPhase2HierarchicalTagParsing:
         tag_commits = get_tag_commits(tag_name, repo_path)
 
         assert tag_commits["tag_valid"] is True
-        assert tag_commits["mlserver_commit"] == result["mlserver_commit"]
+        # Canonical tags do not encode the mlserver commit; provenance lives in
+        # the annotated-tag message and the image's OCI labels (RFC 0001 D1).
+        assert tag_commits["mlserver_commit"] is None
         assert tag_commits["classifier_commit"] is not None
         assert len(tag_commits["classifier_commit"]) == 7  # Short hash
 
@@ -600,29 +604,27 @@ class TestPhase2HierarchicalTagParsing:
 
         from mlserver.version_control import (
             GitVersionManager,
-            get_mlserver_commit_hash,
             get_tag_commits,
-            parse_hierarchical_tag,
+            parse_classifier_tag,
         )
 
         git_mgr = GitVersionManager(repo_path)
 
-        # Get current mlserver commit
-        mlserver_commit = get_mlserver_commit_hash()
-
-        # Create a tag
+        # Create a tag (canonical format, RFC 0001 D1/D2)
         result = git_mgr.tag_version("patch", "fraud", allow_missing_mlserver=False)
         tag_name = result["tag_name"]
 
         # Parse the created tag
-        parsed = parse_hierarchical_tag(tag_name)
-        assert parsed["format"] == "valid"
-        assert parsed["mlserver_commit"] == mlserver_commit
+        parsed = parse_classifier_tag(tag_name)
+        assert parsed["format"] == "canonical"
+        assert parsed["classifier"] == "fraud"
+        # Canonical tags no longer carry the mlserver commit.
+        assert parsed["mlserver_commit"] is None
 
         # Get tag commits
         tag_commits = get_tag_commits(tag_name, repo_path)
         assert tag_commits["tag_valid"] is True
-        assert tag_commits["mlserver_commit"] == mlserver_commit
+        assert tag_commits["mlserver_commit"] is None
 
         # Verify tag exists in git
         result = subprocess.run(

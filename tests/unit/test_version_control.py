@@ -966,14 +966,14 @@ class TestMixedFormatTagReading:
 
     @patch("mlserver.version_control.get_mlserver_commit_hash")
     @patch("subprocess.run")
-    def test_tag_version_bumps_from_canonical_but_writes_legacy(self, mock_run, mock_commit):
-        """Wave 1: bump reads canonical tags, but tag CREATION stays legacy."""
+    def test_tag_version_writes_canonical_format(self, mock_run, mock_commit):
+        """Wave 2 (D1/D2): tag CREATION emits the canonical <classifier>/vX.Y.Z."""
         from mlserver.version_control import extract_classifier_name, parse_classifier_tag
 
         mock_commit.return_value = "b5dff2a"
         mock_run.side_effect = [
             Mock(returncode=0, stdout=""),  # working directory clean
-            Mock(returncode=0, stdout="sentiment/v1.4.0\n"),  # existing canonical tag
+            Mock(returncode=0, stdout="sentiment/v1.4.0\n"),  # existing tag
             Mock(returncode=0),  # git tag -a (creation)
         ]
 
@@ -982,11 +982,12 @@ class TestMixedFormatTagReading:
 
         assert result["version"] == "1.4.1"
         assert result["previous_version"] == "1.4.0"
-        # Emitted format is unchanged this wave (write-switch is Wave 2)
-        assert result["tag_name"] == "sentiment-v1.4.1-mlserver-b5dff2a"
+        # The emitted tag is canonical (mlserver commit no longer in the name).
+        assert result["tag_name"] == "sentiment/v1.4.1"
 
         parsed = parse_classifier_tag(result["tag_name"])
-        assert parsed["format"] == "legacy"
+        assert parsed["format"] == "canonical"
+        assert parsed["mlserver_commit"] is None
         assert extract_classifier_name(result["tag_name"]) == "sentiment"
 
     @patch("subprocess.run")
@@ -1012,8 +1013,8 @@ class TestHierarchicalTagIntegration:
     @patch("mlserver.version_control.get_mlserver_commit_hash")
     @patch("subprocess.run")
     def test_create_and_parse_tag_roundtrip(self, mock_run, mock_commit):
-        """Test creating a tag and parsing it back."""
-        from mlserver.version_control import parse_hierarchical_tag
+        """Test creating a canonical tag and parsing it back (Wave 2)."""
+        from mlserver.version_control import parse_classifier_tag
 
         mock_commit.return_value = "b5dff2a"
 
@@ -1027,13 +1028,14 @@ class TestHierarchicalTagIntegration:
         mgr = GitVersionManager(".")
         result = mgr.tag_version("minor", "sentiment")
 
-        # Parse the created tag
-        parsed = parse_hierarchical_tag(result["tag_name"])
+        # The created tag is canonical and round-trips through the parser.
+        assert result["tag_name"] == "sentiment/v0.1.0"
+        parsed = parse_classifier_tag(result["tag_name"])
 
-        assert parsed["format"] == "valid"
+        assert parsed["format"] == "canonical"
         assert parsed["classifier"] == "sentiment"
         assert parsed["version"] == result["version"]
-        assert parsed["mlserver_commit"] == "b5dff2a"
+        assert parsed["mlserver_commit"] is None
 
     @patch("mlserver.version_control.get_mlserver_commit_hash")
     @patch("subprocess.run")

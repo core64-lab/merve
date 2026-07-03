@@ -598,11 +598,18 @@ class GitVersionManager:
                 else "0.1.0" if bump_type == "minor" else "0.0.1"
             )
 
-        # Create hierarchical tag with mlserver commit
-        tag_name = f"{classifier_name}-v{new_version}-mlserver-{mlserver_commit}"
-        tag_message = (
-            message or f"Release {classifier_name} {new_version} (mlserver {mlserver_commit})"
-        )
+        # Canonical tag format (RFC 0001 D1/D2): the tag names the model release
+        # only. MLServer provenance lives in the annotated-tag message and in the
+        # image's OCI labels, not in the tag name. Legacy
+        # <classifier>-vX.Y.Z-mlserver-<hash> tags remain readable (parse_classifier_tag).
+        tag_name = f"{classifier_name}/v{new_version}"
+        if mlserver_commit:
+            tag_message = (
+                message
+                or f"Release {classifier_name} {new_version} (mlserver {mlserver_commit})"
+            )
+        else:
+            tag_message = message or f"Release {classifier_name} {new_version}"
 
         try:
             # Create annotated tag
