@@ -3,14 +3,13 @@
 Tests for consistent, predictable path resolution across all contexts.
 These tests define expected behavior FIRST as part of TDD.
 """
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import yaml
-import os
 
-from mlserver.config import AppConfig, PredictorConfig, ApiConfig
+import pytest
+import yaml
+
+from mlserver.config import ApiConfig, AppConfig, PredictorConfig
 from mlserver.errors import ConfigurationError
 
 
@@ -101,10 +100,6 @@ class TestPathTraversalPrevention:
     def test_reject_parent_directory_traversal(self):
         """Test that '../' path traversal is rejected."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create a file outside the project directory
-            parent_dir = Path(tmpdir).parent
-            outside_file = parent_dir / "secret.json"
-
             config = AppConfig(
                 predictor=PredictorConfig(
                     module="test",

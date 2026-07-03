@@ -1,5 +1,3 @@
-import pytest
-import json
 
 
 class TestHealthEndpoint:

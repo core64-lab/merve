@@ -1,15 +1,15 @@
 """Mock classifier repository fixture for testing the complete workflow."""
 
-import os
-import subprocess
-import tempfile
-import shutil
-import yaml
 import json
+import os
 import pickle
+import subprocess
+import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Optional
+
 import numpy as np
+import yaml
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 
@@ -280,14 +280,14 @@ class IntentPredictor(TestPredictor):
         git_mgr = GitVersionManager(str(self.repo_path))
         return git_mgr.tag_version(bump_type, classifier_name)
 
-    def get_classifier_names(self) -> List[str]:
+    def get_classifier_names(self) -> list[str]:
         """Get list of classifier names."""
         if self.multi_classifier:
             from mlserver.multi_classifier import list_available_classifiers
             return list_available_classifiers(str(self.config_path))
         else:
             # Single classifier
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path) as f:
                 config = yaml.safe_load(f)
             return [config['classifier']['name']]
 
@@ -308,8 +308,19 @@ class IntentPredictor(TestPredictor):
 
         return result
 
-    def serve_in_background(self, classifier_name: Optional[str] = None, port: int = 8000) -> subprocess.Popen:
-        """Start server in background and return process."""
+    def serve_in_background(
+        self,
+        classifier_name: Optional[str] = None,
+        port: int = 8000,
+        wait_for_ready: bool = True,
+        timeout: float = 30.0,
+    ) -> subprocess.Popen:
+        """Start server in background and return process.
+
+        By default this polls the /healthz endpoint until the server is
+        ready (or raises RuntimeError on startup failure/timeout), which is
+        much more reliable than a fixed sleep in slow/sandboxed environments.
+        """
         args = ["serve"]
 
         if classifier_name and self.multi_classifier:
@@ -329,11 +340,54 @@ class IntentPredictor(TestPredictor):
             env={**os.environ, "PYTHONPATH": str(Path(__file__).parent.parent.parent)}
         )
 
-        # Wait a bit for server to start
-        import time
-        time.sleep(2)
+        if wait_for_ready:
+            try:
+                self._wait_for_server_ready(process, port, timeout)
+            except Exception:
+                self.stop_server(process)
+                raise
 
         return process
+
+    def _wait_for_server_ready(self, process: subprocess.Popen, port: int, timeout: float):
+        """Poll /healthz until the server responds or the timeout expires."""
+        import time
+
+        import requests
+
+        deadline = time.time() + timeout
+        last_error = None
+        while time.time() < deadline:
+            if process.poll() is not None:
+                stdout, stderr = process.communicate()
+                raise RuntimeError(
+                    f"Server process exited early with code {process.returncode}.\n"
+                    f"stdout:\n{stdout}\nstderr:\n{stderr}"
+                )
+            try:
+                response = requests.get(f"http://localhost:{port}/healthz", timeout=1)
+                if response.status_code == 200:
+                    return
+            except requests.RequestException as exc:
+                last_error = exc
+            time.sleep(0.25)
+
+        raise RuntimeError(
+            f"Server on port {port} did not become ready within {timeout}s "
+            f"(last error: {last_error})"
+        )
+
+    @staticmethod
+    def stop_server(process: subprocess.Popen, timeout: float = 5.0):
+        """Reliably stop a background server process (terminate, then kill)."""
+        if process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=timeout)
 
     def cleanup(self):
         """Clean up the repository."""

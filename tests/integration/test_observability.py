@@ -1,9 +1,7 @@
-import pytest
-import json
-import logging
 from unittest.mock import patch
-from prometheus_client import REGISTRY
-from httpx import AsyncClient, ASGITransport
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 
 
 class TestMetricsEndpoint:
@@ -224,9 +222,9 @@ class TestMetricsDisabled:
     @pytest.fixture
     async def no_metrics_client(self):
         """Create a client with metrics disabled."""
-        from mlserver.config import AppConfig, ServerConfig, PredictorConfig, ObservabilityConfig
-        from mlserver.server import create_app, PredictorWrapper
+        from mlserver.config import AppConfig, ObservabilityConfig, PredictorConfig, ServerConfig
         from mlserver.predictor_loader import load_predictor
+        from mlserver.server import PredictorWrapper, create_app
 
         config = AppConfig(
             server=ServerConfig(host="127.0.0.1", port=8889),

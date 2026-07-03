@@ -2,31 +2,30 @@
 
 Tests for mlserver validate, mlserver doctor, and related diagnostic checks.
 """
-import pytest
 import subprocess
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from mlserver.doctor import (
-    CheckStatus,
     CheckResult,
+    CheckStatus,
     DiagnosticReport,
-    check_python_version,
-    check_docker,
-    check_git,
     check_config_file,
     check_config_schema,
-    check_predictor_import,
-    check_model_files,
+    check_dependencies,
+    check_docker,
     check_feature_order_file,
+    check_git,
     check_git_repository,
     check_gitignore,
-    check_dependencies,
+    check_model_files,
     check_port_available,
-    run_system_checks,
-    run_project_checks,
+    check_predictor_import,
+    check_python_version,
     run_all_checks,
+    run_project_checks,
+    run_system_checks,
     run_validation_checks,
 )
 

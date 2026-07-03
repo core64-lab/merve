@@ -1,10 +1,9 @@
 """Integration tests for container labels with hierarchical versioning (Phase 5, Task 5.4)."""
 
-import os
 import subprocess
 import tempfile
-import json
 from pathlib import Path
+
 import pytest
 
 
@@ -71,8 +70,8 @@ class MockPredictor:
         """Test that built container has correct labels matching the hierarchical tag."""
         repo_path = temp_classifier_repo
 
-        from mlserver.version_control import GitVersionManager, get_mlserver_commit_hash
         from mlserver.container import generate_container_labels
+        from mlserver.version_control import GitVersionManager
 
         git_mgr = GitVersionManager(repo_path)
 
@@ -125,13 +124,13 @@ class MockPredictor:
         """Test that labels are properly formatted and escaped."""
         repo_path = temp_classifier_repo
 
-        from mlserver.version_control import GitVersionManager
         from mlserver.container import generate_container_labels
+        from mlserver.version_control import GitVersionManager
 
         git_mgr = GitVersionManager(repo_path)
 
         # Create a tag
-        result = git_mgr.tag_version("patch", "test_classifier", allow_missing_mlserver=False)
+        git_mgr.tag_version("patch", "test_classifier", allow_missing_mlserver=False)
 
         # Generate labels
         labels = generate_container_labels(
@@ -157,13 +156,13 @@ class MockPredictor:
         """Test that labels contain all info needed for reproducible rebuild."""
         repo_path = temp_classifier_repo
 
-        from mlserver.version_control import GitVersionManager
         from mlserver.container import generate_container_labels
+        from mlserver.version_control import GitVersionManager
 
         git_mgr = GitVersionManager(repo_path)
 
         # Create a tag
-        result = git_mgr.tag_version("major", "test_classifier", allow_missing_mlserver=False)
+        git_mgr.tag_version("major", "test_classifier", allow_missing_mlserver=False)
 
         # Generate labels
         labels = generate_container_labels(
@@ -178,11 +177,9 @@ class MockPredictor:
             "com.mlserver.commit",            # MLServer tool commit
         ]
 
-        # These are optional (might not be available in temp repos)
-        optional_for_rebuild = [
-            "com.classifier.git_url",         # Classifier repo URL (if available)
-            "com.mlserver.git_url"            # MLServer repo URL (if available)
-        ]
+        # These are optional (might not be available in temp repos):
+        # com.classifier.git_url (classifier repo URL),
+        # com.mlserver.git_url (MLServer repo URL)
 
         for label in required_for_rebuild:
             assert label in labels, f"Missing required label for reproducibility: {label}"
@@ -201,13 +198,13 @@ class MockPredictor:
         """Test that we generate the expected number of labels."""
         repo_path = temp_classifier_repo
 
-        from mlserver.version_control import GitVersionManager
         from mlserver.container import generate_container_labels
+        from mlserver.version_control import GitVersionManager
 
         git_mgr = GitVersionManager(repo_path)
 
         # Create a tag
-        result = git_mgr.tag_version("minor", "test_classifier", allow_missing_mlserver=False)
+        git_mgr.tag_version("minor", "test_classifier", allow_missing_mlserver=False)
 
         # Generate labels
         labels = generate_container_labels(
@@ -232,8 +229,8 @@ class MockPredictor:
         """Test that version in labels matches version extracted from hierarchical tag."""
         repo_path = temp_classifier_repo
 
-        from mlserver.version_control import GitVersionManager, parse_hierarchical_tag
         from mlserver.container import generate_container_labels
+        from mlserver.version_control import GitVersionManager, parse_hierarchical_tag
 
         git_mgr = GitVersionManager(repo_path)
 

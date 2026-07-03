@@ -1,14 +1,11 @@
 """Integration tests for complex response format handling."""
 
-import pytest
-import tempfile
 import os
-import json
-import time
-from pathlib import Path
 import subprocess
+import tempfile
+import time
+
 import requests
-import signal
 
 
 class TestComplexResponseFormats:
@@ -28,7 +25,7 @@ class TestComplexResponseFormats:
             try:
                 server_process.terminate()
                 server_process.wait(timeout=5)
-            except:
+            except Exception:
                 server_process.kill()
 
         # Clean up temp directory
@@ -98,7 +95,7 @@ class TestComplexResponseFormats:
                 response = requests.get(f"http://localhost:{port}/healthz")
                 if response.status_code == 200:
                     break
-            except:
+            except Exception:
                 pass
             time.sleep(0.5)
         else:
@@ -124,7 +121,7 @@ class TestComplexResponseFormats:
         # Verify custom format structure
         assert "result" in data
         assert "time_ms" in data
-        assert "model" in data
+        assert "predictor_class" in data
         assert "metadata" in data
 
         result = data["result"]
@@ -157,7 +154,7 @@ class TestComplexResponseFormats:
         # Verify standard format structure
         assert "predictions" in data
         assert "time_ms" in data
-        assert "model" in data
+        assert "predictor_class" in data
         assert "metadata" in data
 
         # In standard format, dict response is wrapped in list
@@ -209,43 +206,44 @@ class TestComplexResponseFormats:
         # Should NOT have standard wrapper fields
         assert "predictions" not in data
         assert "time_ms" not in data
-        assert "model" not in data
+        assert "predictor_class" not in data
 
     def test_batch_predict_with_custom_format(self):
-        """Test batch prediction with custom response format."""
-        # Reuse server from first test if still running, or start new one
-        try:
-            # Make request to batch endpoint
-            payload = {
-                "payload": {
-                    "records": [
-                        {"feature1": 1.5, "feature2": 2.3},
-                        {"feature1": 2.1, "feature2": 1.7}
-                    ]
-                }
+        """Test batch prediction (multiple records via /predict) with custom response format."""
+        # Batch predictions go through /predict with multiple records
+        # (the separate /batch_predict endpoint no longer exists).
+        payload = {
+            "payload": {
+                "records": [
+                    {"feature1": 1.5, "feature2": 2.3},
+                    {"feature1": 2.1, "feature2": 1.7}
+                ]
             }
-            response = requests.post("http://localhost:9991/batch_predict", json=payload)
+        }
 
+        # Reuse server from first test if still running, or start a new one
+        try:
+            response = requests.get("http://localhost:9991/healthz", timeout=2)
             if response.status_code != 200:
-                # Server not running, start it
-                config_path = self.create_config(response_format="custom", port=9994)
-                self.start_server(config_path, 9994)
-                response = requests.post("http://localhost:9994/batch_predict", json=payload)
+                raise RuntimeError("Server not running")
+            port = 9991
+        except Exception:
+            config_path = self.create_config(response_format="custom", port=9994)
+            self.start_server(config_path, 9994)
+            port = 9994
 
-            assert response.status_code == 200
-            data = response.json()
+        response = requests.post(f"http://localhost:{port}/predict", json=payload)
 
-            # Verify custom format for batch
-            assert "result" in data
-            result = data["result"]
+        assert response.status_code == 200
+        data = response.json()
 
-            # Should handle multiple records
-            assert "predictions" in result
-            assert len(result["predictions"]) == 2
-        except:
-            # If test fails due to server issues, mark as expected behavior
-            # since we're testing the implementation
-            pass
+        # Verify custom format for batch
+        assert "result" in data
+        result = data["result"]
+
+        # Should handle multiple records
+        assert "predictions" in result
+        assert len(result["predictions"]) == 2
 
     def test_predict_proba_with_custom_format(self):
         """Test predict_proba endpoint with custom format."""
@@ -255,7 +253,7 @@ class TestComplexResponseFormats:
             response = requests.get(f"http://localhost:{port}/healthz")
             if response.status_code != 200:
                 raise Exception("Server not running")
-        except:
+        except Exception:
             config_path = self.create_config(response_format="custom", port=9995)
             self.start_server(config_path, 9995)
             port = 9995

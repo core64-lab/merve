@@ -1,20 +1,21 @@
 """Unit tests for multi_classifier module."""
-import pytest
 import tempfile
-import yaml
 from pathlib import Path
 
+import pytest
+import yaml
+
+from mlserver.config import AppConfig
 from mlserver.multi_classifier import (
     MultiClassifierConfig,
-    load_multi_classifier_config,
-    extract_single_classifier_config,
-    list_available_classifiers,
-    detect_multi_classifier_config,
-    get_default_classifier,
-    generate_dockerfile_for_classifier,
     build_all_classifiers,
+    detect_multi_classifier_config,
+    extract_single_classifier_config,
+    generate_dockerfile_for_classifier,
+    get_default_classifier,
+    list_available_classifiers,
+    load_multi_classifier_config,
 )
-from mlserver.config import AppConfig
 
 
 @pytest.fixture
@@ -315,10 +316,18 @@ classifiers:
 
 
 class TestBuildAllClassifiers:
-    """Test build_all_classifiers function."""
+    """Test build_all_classifiers function.
 
-    def test_build_all(self, multi_config_file, capsys):
+    build_all_classifiers writes generated Dockerfiles to the current working
+    directory, so these tests chdir into tmp_path to avoid polluting the repo
+    root with Dockerfile.sentiment / Dockerfile.fraud (deleted from git and
+    gitignored).
+    """
+
+    def test_build_all(self, multi_config_file, capsys, tmp_path, monkeypatch):
         """Test building all classifiers."""
+        monkeypatch.chdir(tmp_path)
+
         results = build_all_classifiers(multi_config_file)
 
         assert "sentiment" in results
@@ -326,13 +335,19 @@ class TestBuildAllClassifiers:
         assert results["sentiment"]["status"] == "pending"
         assert results["fraud"]["status"] == "pending"
 
+        # Dockerfiles are generated in the (temporary) working directory
+        assert (tmp_path / "Dockerfile.sentiment").exists()
+        assert (tmp_path / "Dockerfile.fraud").exists()
+
         # Check output
         captured = capsys.readouterr()
         assert "sentiment" in captured.out
         assert "fraud" in captured.out
 
-    def test_build_all_with_registry(self, multi_config_file):
+    def test_build_all_with_registry(self, multi_config_file, tmp_path, monkeypatch):
         """Test building all with registry option."""
+        monkeypatch.chdir(tmp_path)
+
         results = build_all_classifiers(multi_config_file, registry="ghcr.io/org")
 
         assert results["sentiment"]["registry"] == "ghcr.io/org"

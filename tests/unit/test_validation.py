@@ -1,24 +1,25 @@
 """Unit tests for validation module."""
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from mlserver.validation import (
-    ValidationResult,
-    FeatureValidationResult,
-    FeatureSchemaValidator,
-    Validator,
-    ProjectInitializedValidator,
-    GitWorkingDirectoryCleanValidator,
-    GitRepositoryExistsValidator,
     ConfigurationValidValidator,
+    FeatureSchemaValidator,
+    FeatureValidationResult,
     GitHubActionsConfiguredValidator,
+    GitRepositoryExistsValidator,
+    GitWorkingDirectoryCleanValidator,
+    ProjectInitializedValidator,
+    ValidationResult,
     ValidationSuite,
-    get_tag_validation_suite,
+    Validator,
     get_build_validation_suite,
-    get_init_validation_suite,
     get_deploy_validation_suite,
+    get_init_validation_suite,
+    get_tag_validation_suite,
 )
 
 

@@ -2,8 +2,12 @@ import pytest
 from pydantic import ValidationError
 
 from mlserver.config import (
-    AppConfig, ServerConfig, PredictorConfig, ApiConfig,
-    ObservabilityConfig, CORSConfig
+    ApiConfig,
+    AppConfig,
+    CORSConfig,
+    ObservabilityConfig,
+    PredictorConfig,
+    ServerConfig,
 )
 
 

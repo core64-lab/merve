@@ -3,19 +3,19 @@
 Tests for mlserver schema command and schema generation functionality.
 These tests are written FIRST as part of test-driven development.
 """
-import pytest
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+
+import pytest
 
 # Import will fail until we implement the module
 try:
     from mlserver.schema_generator import (
         generate_config_schema,
         generate_multi_classifier_schema,
-        save_schema,
         get_schema_for_config_type,
+        save_schema,
     )
     SCHEMA_MODULE_EXISTS = True
 except ImportError:
@@ -194,6 +194,7 @@ class TestCLISchemaCommand:
     def test_schema_command_help(self):
         """Test schema command has help text."""
         from typer.testing import CliRunner
+
         from mlserver.cli import app
 
         runner = CliRunner()

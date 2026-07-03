@@ -1,27 +1,27 @@
 """Unit tests for version module."""
-import pytest
-import os
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 import yaml
 
+from mlserver.errors import ConfigurationError
 from mlserver.version import (
-    GitInfo,
-    ClassifierVersion,
-    ModelVersion,
     ApiVersion,
     ClassifierMetadata,
+    ClassifierVersion,
+    GitInfo,
+    ModelVersion,
+    generate_container_tags,
     get_git_info,
     get_repository_name,
+    get_version_info,
     load_classifier_metadata,
     save_classifier_metadata,
-    generate_container_tags,
     validate_version_consistency,
-    get_version_info,
 )
-from mlserver.errors import ConfigurationError
 
 
 class TestGitInfo:

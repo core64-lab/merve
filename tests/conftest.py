@@ -1,26 +1,34 @@
-import pytest
-import tempfile
-import os
-import sys
 import json
+import os
 import pickle
-from typing import Any, List
+import sys
+import tempfile
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
+import pytest
+from prometheus_client import REGISTRY
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from prometheus_client import REGISTRY, CollectorRegistry
 
 # Ensure project root is on sys.path for proper module imports
 project_root = str(Path(__file__).parent.parent.resolve())
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from mlserver.config import AppConfig, ServerConfig, PredictorConfig, ApiConfig, ObservabilityConfig
-from mlserver.server import create_app
-from mlserver.metrics import reset_metrics
-from httpx import AsyncClient, ASGITransport
+# Imports below must stay after the sys.path bootstrap above (E402 intended)
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+
+from mlserver.config import (  # noqa: E402
+    ApiConfig,
+    AppConfig,
+    ObservabilityConfig,
+    PredictorConfig,
+    ServerConfig,
+)
+from mlserver.metrics import reset_metrics  # noqa: E402
+from mlserver.server import create_app  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -72,7 +80,7 @@ class MockPredictor:
 # Mock predictor with preprocessing
 class MockPredictorWithPreprocessing:
     def __init__(self, model_path: str = None, preprocessor_path: str = None,
-                 feature_order: List[str] = None, **kwargs):
+                 feature_order: list[str] = None, **kwargs):
         self.model_path = model_path
         self.preprocessor_path = preprocessor_path
         self.feature_order = feature_order or ["f1", "f2", "f3", "f4", "f5"]
@@ -289,9 +297,9 @@ def test_app(basic_config):
     app = create_app(basic_config)
     # Manually initialize state for testing since lifespan may not trigger in test environment
     if not hasattr(app.state, "predictor") or app.state.predictor is None:
+        from mlserver.metrics import init_metrics
         from mlserver.predictor_loader import load_predictor
         from mlserver.server import PredictorWrapper
-        from mlserver.metrics import init_metrics
 
         predictor = load_predictor(
             basic_config.predictor.module,
@@ -316,9 +324,9 @@ def test_app_with_preprocessing(config_with_preprocessing):
     app = create_app(config_with_preprocessing)
     # Manually initialize state for testing since lifespan may not trigger in test environment
     if not hasattr(app.state, "predictor") or app.state.predictor is None:
+        from mlserver.metrics import init_metrics
         from mlserver.predictor_loader import load_predictor
         from mlserver.server import PredictorWrapper
-        from mlserver.metrics import init_metrics
 
         predictor = load_predictor(
             config_with_preprocessing.predictor.module,
@@ -343,9 +351,9 @@ def observability_app(observability_config):
     app = create_app(observability_config)
     # Manually initialize state for testing since lifespan may not trigger in test environment
     if not hasattr(app.state, "predictor") or app.state.predictor is None:
+        from mlserver.metrics import init_metrics
         from mlserver.predictor_loader import load_predictor
         from mlserver.server import PredictorWrapper
-        from mlserver.metrics import init_metrics
 
         predictor = load_predictor(
             observability_config.predictor.module,

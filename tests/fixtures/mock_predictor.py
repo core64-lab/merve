@@ -1,16 +1,23 @@
 """Mock predictor classes for testing."""
+import time
+
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
-from typing import List
 
 
 class MockPredictor:
-    """Simple mock predictor for testing."""
+    """Simple mock predictor for testing.
 
-    def __init__(self, model_path: str = None, **kwargs):
+    Supports an optional ``delay_seconds`` init kwarg that makes each
+    prediction take at least that long (used by concurrency tests to
+    simulate a slow model). Defaults to 0 (no delay).
+    """
+
+    def __init__(self, model_path: str = None, delay_seconds: float = 0.0, **kwargs):
         self.model_path = model_path
+        self.delay_seconds = delay_seconds
         # Create a simple mock model
         self.model = RandomForestClassifier(n_estimators=3, random_state=42)
         # Train on dummy data
@@ -19,6 +26,8 @@ class MockPredictor:
         self.model.fit(X_dummy, y_dummy)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        if self.delay_seconds:
+            time.sleep(self.delay_seconds)
         if len(X.shape) == 1:
             X = X.reshape(1, -1)
         if X.shape[1] != 5:
@@ -47,7 +56,7 @@ class MockPredictorWithPreprocessing:
     """Mock predictor with preprocessing for testing."""
 
     def __init__(self, model_path: str = None, preprocessor_path: str = None,
-                 feature_order: List[str] = None, **kwargs):
+                 feature_order: list[str] = None, **kwargs):
         self.model_path = model_path
         self.preprocessor_path = preprocessor_path
         self.feature_order = feature_order or ["f1", "f2", "f3", "f4", "f5"]

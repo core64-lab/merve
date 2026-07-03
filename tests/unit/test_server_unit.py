@@ -1,24 +1,22 @@
 """Unit tests for server module components."""
-import pytest
-import time
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from fastapi import Request, Response, HTTPException
-from starlette.responses import JSONResponse
+from unittest.mock import Mock, patch
 
+import pytest
+from fastapi import HTTPException, Request, Response
+
+from mlserver.config import AppConfig, PredictorConfig, ServerConfig
+from mlserver.schemas import PredictRequest
 from mlserver.server import (
     ObservabilityMiddleware,
-    create_app,
     PredictorWrapper,
-    _prepare_input_data,
-    _track_prediction_metrics,
     _create_predict_handler,
     _create_predict_proba_handler,
+    _prepare_input_data,
     _to_jsonable,
-    _tolist2d
+    _tolist2d,
+    _track_prediction_metrics,
+    create_app,
 )
-from mlserver.config import AppConfig, ServerConfig, PredictorConfig, ObservabilityConfig
-from mlserver.schemas import PredictRequest
-from mlserver.adapters import AdapterError
 
 
 @pytest.fixture
@@ -76,28 +74,61 @@ def mock_config_minimal():
 class TestObservabilityMiddleware:
     """Test the ObservabilityMiddleware class."""
 
-    def test_middleware_init(self, mock_config):
-        """Test middleware initialization."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics:
-            mock_metrics = Mock()
-            mock_get_metrics.return_value = mock_metrics
+    def test_middleware_init_does_not_cache_metrics(self, mock_config):
+        """Middleware must NOT cache the metrics collector at init time.
 
+        Metrics are initialized in the app lifespan, which runs AFTER
+        middleware construction - caching get_metrics() in __init__ would
+        always capture None and request metrics would never be recorded.
+        """
+        with patch('mlserver.server.get_metrics') as mock_get_metrics:
             app = Mock()
             middleware = ObservabilityMiddleware(app, mock_config)
 
             assert middleware.config == mock_config
-            assert middleware.metrics == mock_metrics
+            # No init-time lookup and no cached collector attribute
+            mock_get_metrics.assert_not_called()
+            assert not hasattr(middleware, "metrics")
 
-    def test_middleware_init_no_metrics(self, mock_config_minimal):
-        """Test middleware initialization when metrics are disabled."""
-        with patch('mlserver.server.get_metrics') as mock_get_metrics:
-            mock_get_metrics.return_value = None
+    @pytest.mark.asyncio
+    async def test_middleware_looks_up_metrics_per_request(self, mock_config):
+        """Dispatch consults get_metrics() per request, so a collector
+        initialized after middleware construction (by the lifespan) is used."""
+        with patch('mlserver.server.get_metrics') as mock_get_metrics, \
+             patch('mlserver.server.set_correlation_id'), \
+             patch('mlserver.server.log_request'), \
+             patch('mlserver.server.log_response'):
 
             app = Mock()
-            middleware = ObservabilityMiddleware(app, mock_config_minimal)
+            # Collector does not exist yet when the middleware is constructed
+            mock_get_metrics.return_value = None
+            middleware = ObservabilityMiddleware(app, mock_config)
 
-            assert middleware.config == mock_config_minimal
-            assert middleware.metrics is None
+            mock_request = Mock(spec=Request)
+            mock_request.url = Mock()
+            mock_request.url.path = "/predict"
+            mock_request.method = "POST"
+
+            mock_response = Mock(spec=Response)
+            mock_response.status_code = 200
+
+            async def mock_call_next(request):
+                return mock_response
+
+            # First request: collector still not initialized - no tracking, no crash
+            result = await middleware.dispatch(mock_request, mock_call_next)
+            assert result == mock_response
+
+            # Collector becomes available later (initialized by the app lifespan)
+            mock_metrics = Mock()
+            mock_get_metrics.return_value = mock_metrics
+
+            # Second request: middleware must pick up the new collector
+            result = await middleware.dispatch(mock_request, mock_call_next)
+            assert result == mock_response
+            mock_metrics.inc_active_requests.assert_called_once()
+            mock_metrics.track_request.assert_called_once()
+            mock_metrics.dec_active_requests.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_middleware_dispatch_full_observability(self, mock_config):
@@ -269,7 +300,7 @@ class TestCreateApp:
             mock_predictor = Mock()
             mock_load_predictor.return_value = mock_predictor
 
-            app = create_app(config)
+            create_app(config)
 
             # CORS middleware is added via app.add_middleware(), check middleware_stack
             # The middleware_stack is populated on first request, so we check user_middleware
@@ -527,8 +558,9 @@ class TestValidateInputFeatures:
 
     def test_validate_input_features_valid_records(self, mock_config):
         """Test validation with valid records."""
-        from mlserver.server import _validate_input_features
         import logging
+
+        from mlserver.server import _validate_input_features
 
         logger = logging.getLogger(__name__)
         feature_order = ["feature1", "feature2", "feature3"]
@@ -542,8 +574,9 @@ class TestValidateInputFeatures:
 
     def test_validate_input_features_missing_features(self, mock_config):
         """Test validation with missing features."""
-        from mlserver.server import _validate_input_features
         import logging
+
+        from mlserver.server import _validate_input_features
 
         logger = logging.getLogger(__name__)
         feature_order = ["feature1", "feature2", "feature3"]
@@ -559,8 +592,9 @@ class TestValidateInputFeatures:
 
     def test_validate_input_features_instances_format(self, mock_config):
         """Test validation with 'instances' key format."""
-        from mlserver.server import _validate_input_features
         import logging
+
+        from mlserver.server import _validate_input_features
 
         logger = logging.getLogger(__name__)
         feature_order = ["a", "b"]
@@ -573,8 +607,9 @@ class TestValidateInputFeatures:
 
     def test_validate_input_features_single_record_via_features(self, mock_config):
         """Test validation with single record via 'features' key."""
-        from mlserver.server import _validate_input_features
         import logging
+
+        from mlserver.server import _validate_input_features
 
         logger = logging.getLogger(__name__)
         feature_order = ["x", "y"]
@@ -585,8 +620,9 @@ class TestValidateInputFeatures:
 
     def test_validate_input_features_skips_ndarray_format(self, mock_config):
         """Test validation skips ndarray format."""
-        from mlserver.server import _validate_input_features
         import logging
+
+        from mlserver.server import _validate_input_features
 
         logger = logging.getLogger(__name__)
         feature_order = ["a", "b"]
@@ -597,8 +633,9 @@ class TestValidateInputFeatures:
 
     def test_validate_input_features_non_dict_payload(self, mock_config):
         """Test validation skips non-dict payload."""
-        from mlserver.server import _validate_input_features
         import logging
+
+        from mlserver.server import _validate_input_features
 
         logger = logging.getLogger(__name__)
         feature_order = ["a", "b"]
@@ -625,8 +662,8 @@ class TestFormatResponse:
 
     def test_format_response_custom_with_dict(self, mock_config):
         """Test custom response format with dict predictions."""
-        from mlserver.server import _format_response
         from mlserver.schemas import CustomPredictResponse
+        from mlserver.server import _format_response
 
         mock_config.api.response_format = 'custom'
 
@@ -639,8 +676,8 @@ class TestFormatResponse:
 
     def test_format_response_custom_with_list(self, mock_config):
         """Test custom response format with list predictions."""
-        from mlserver.server import _format_response
         from mlserver.schemas import CustomPredictResponse
+        from mlserver.server import _format_response
 
         mock_config.api.response_format = 'custom'
 
@@ -652,9 +689,10 @@ class TestFormatResponse:
 
     def test_format_response_standard_with_numpy(self, mock_config):
         """Test standard response format with numpy array."""
-        from mlserver.server import _format_response
-        from mlserver.schemas import PredictResponse
         import numpy as np
+
+        from mlserver.schemas import PredictResponse
+        from mlserver.server import _format_response
 
         mock_config.api.response_format = 'standard'
 
@@ -780,7 +818,7 @@ class TestMiddlewareHealthEndpoint:
             async def mock_call_next(request):
                 return mock_response
 
-            result = await middleware.dispatch(mock_request, mock_call_next)
+            await middleware.dispatch(mock_request, mock_call_next)
 
             # Should not track metrics for health endpoint
             mock_metrics.inc_active_requests.assert_not_called()

@@ -1,19 +1,17 @@
 """Unit tests for logging configuration module."""
-import pytest
-import logging
 import json
-from unittest.mock import patch, MagicMock
+import logging
 
 from mlserver.logging_conf import (
+    DEFAULT_LOG_FORMAT,
     StructuredFormatter,
     configure_logging,
-    set_correlation_id,
+    correlation_id_var,
     get_correlation_id,
+    log_prediction,
     log_request,
     log_response,
-    log_prediction,
-    correlation_id_var,
-    DEFAULT_LOG_FORMAT,
+    set_correlation_id,
 )
 
 

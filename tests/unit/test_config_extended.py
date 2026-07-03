@@ -1,12 +1,16 @@
 """Extended config validation tests to improve coverage."""
+
 import pytest
-from pathlib import Path
-from unittest.mock import patch, mock_open
 from pydantic import ValidationError
 
 from mlserver.config import (
-    AppConfig, ServerConfig, PredictorConfig, ApiConfig,
-    ObservabilityConfig, CORSConfig, BuildConfig
+    ApiConfig,
+    AppConfig,
+    BuildConfig,
+    CORSConfig,
+    ObservabilityConfig,
+    PredictorConfig,
+    ServerConfig,
 )
 
 

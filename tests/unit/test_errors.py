@@ -1,11 +1,12 @@
 """Unit tests for the errors module."""
 import pytest
+
 from mlserver.errors import (
-    MLServerError,
-    ConfigurationError,
-    PredictorError,
     AdapterError,
+    ConfigurationError,
     ContainerError,
+    MLServerError,
+    PredictorError,
     ValidationError,
     VersionControlError,
     format_error_for_cli,

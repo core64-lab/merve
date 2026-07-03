@@ -3,11 +3,12 @@ Simplified integration tests for concurrency control functionality.
 
 Tests the core concurrency control components without multiprocessing.
 """
-import pytest
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
+
+import pytest
 from fastapi.testclient import TestClient
-from pathlib import Path
 
 from mlserver.config import AppConfig
 from mlserver.server import create_app
@@ -110,17 +111,14 @@ class TestConcurrencyControlIntegration:
         result = response.json()
         assert "predictions" in result
         assert "time_ms" in result
-        assert "model" in result
-        assert result["model"] == "MockPredictor"
+        assert "predictor_class" in result
+        assert result["predictor_class"] == "MockPredictor"
 
         # Should take at least 1 second due to artificial delay
         assert duration >= 1.0
 
     def test_concurrent_predictions_with_testclient(self, concurrency_app):
         """Test concurrent predictions using multiple TestClient instances."""
-        # Create multiple test clients to simulate concurrent requests
-        clients = [TestClient(concurrency_app) for _ in range(3)]
-
         payload = {
             "payload": {
                 "records": [
@@ -152,22 +150,36 @@ class TestConcurrencyControlIntegration:
                     "error": str(e)
                 }
 
-        # Execute requests concurrently
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(make_request, client) for client in clients]
-            results = [future.result() for future in as_completed(futures)]
+        # TestClient must be used as a context manager so the app lifespan
+        # runs and the predictor is loaded before requests are made.
+        with ExitStack() as stack:
+            clients = [
+                stack.enter_context(TestClient(concurrency_app)) for _ in range(3)
+            ]
+
+            # Execute requests concurrently
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = [executor.submit(make_request, client) for client in clients]
+                results = [future.result() for future in as_completed(futures)]
 
         # Note: TestClient runs synchronously, so we expect different behavior than real HTTP
         # This test validates the structure but may not show true concurrency rejection
         print(f"Results: {results}")  # For debugging
 
-        # All requests should complete (TestClient doesn't show true concurrency behavior)
-        # But we can still validate the response structure
+        # With max_concurrent_predictions=1 each request either succeeds or is
+        # rejected with 503 (service unavailable) by the concurrency limiter
         for result in results:
             assert result["status_code"] in [200, 503]  # Either success or service unavailable
 
-    def test_batch_predict_endpoint(self, concurrency_client):
-        """Test that batch_predict endpoint works."""
+        # At least one request must have gotten through
+        assert any(result["status_code"] == 200 for result in results)
+
+    def test_batch_via_predict_endpoint(self, concurrency_client):
+        """Test that /predict handles batch requests (multiple records).
+
+        The dedicated /batch_predict endpoint no longer exists; /predict
+        handles both single and batch predictions.
+        """
         payload = {
             "payload": {
                 "records": [
@@ -177,13 +189,13 @@ class TestConcurrencyControlIntegration:
             }
         }
 
-        response = concurrency_client.post("/batch_predict", json=payload)
+        response = concurrency_client.post("/predict", json=payload)
         assert response.status_code == 200
 
         result = response.json()
         assert "predictions" in result
         assert len(result["predictions"]) == 2
-        assert result["model"] == "MockPredictor"
+        assert result["predictor_class"] == "MockPredictor"
 
     def test_metrics_endpoint_available(self, concurrency_client):
         """Test that metrics endpoint is available when enabled."""
@@ -228,18 +240,19 @@ class TestConcurrencyControlUnit:
 
     def test_prediction_limiter_context_manager(self):
         """Test PredictionLimiter context manager functionality."""
-        from mlserver.concurrency_limiter import PredictionSemaphore, PredictionLimiter
         from fastapi import HTTPException
+
+        from mlserver.concurrency_limiter import PredictionLimiter, PredictionSemaphore
 
         semaphore = PredictionSemaphore(max_concurrent=1)
 
         # First limiter should succeed
-        with PredictionLimiter(semaphore) as limiter1:
+        with PredictionLimiter(semaphore):
             assert semaphore.active_predictions == 1
 
             # Second limiter should raise HTTPException
             with pytest.raises(HTTPException) as exc_info:
-                with PredictionLimiter(semaphore) as limiter2:
+                with PredictionLimiter(semaphore):
                     pass
 
             assert exc_info.value.status_code == 503
@@ -277,7 +290,11 @@ class TestConcurrencyControlUnit:
         assert semaphore.active_predictions == 2
 
     def test_config_with_disabled_concurrency_control(self):
-        """Test configuration with concurrency control disabled."""
+        """Test configuration with concurrency control disabled.
+
+        max_concurrent_predictions=0 is valid (ge=0) and disables the
+        prediction limiter entirely.
+        """
         config = AppConfig.model_validate({
             "server": {"title": "Test", "host": "0.0.0.0", "port": 8000},
             "predictor": {
@@ -293,14 +310,17 @@ class TestConcurrencyControlUnit:
             }
         })
 
+        # 0 must validate (not be rejected) and be preserved as-is
+        assert config.api.max_concurrent_predictions == 0
+
         app = create_app(config)
-        client = TestClient(app)
+        with TestClient(app) as client:
+            # Status endpoint should show concurrency control disabled
+            response = client.get("/status")
+            assert response.status_code == 200
 
-        # Status endpoint should show concurrency control disabled
-        response = client.get("/status")
-        assert response.status_code == 200
-
-        status = response.json()
-        assert status["concurrency_control_enabled"] is False
-        assert status["max_concurrent_predictions"] is None
-        assert status["prediction_slots_available"] is True
+            status = response.json()
+            assert status["concurrency_control_enabled"] is False
+            assert status["max_concurrent_predictions"] is None
+            assert status["prediction_slots_available"] is True
+            assert status["active_predictions"] == 0

@@ -1,19 +1,21 @@
 """Unit tests for settings module."""
-import pytest
 import os
 import tempfile
-import yaml
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
+import yaml
+from pydantic import ValidationError
 
 from mlserver.settings import (
-    ServerSettings,
-    MonitoringSettings,
     ContainerSettings,
-    FilesSettings,
     DevelopmentSettings,
-    LoadTestingSettings,
+    FilesSettings,
     GlobalSettings,
+    LoadTestingSettings,
+    MonitoringSettings,
+    ServerSettings,
     SettingsSingleton,
     get_settings,
     reload_settings,
@@ -58,7 +60,7 @@ class TestMonitoringSettings:
         assert settings.prometheus_port == 9090
         assert settings.grafana_host == "localhost"
         assert settings.grafana_port == 3000
-        assert settings.grafana_credentials == "admin/admin123"
+        assert settings.grafana_credentials == "admin/changeme"
         assert settings.metrics_endpoint == "/metrics"
 
     def test_custom_values(self):
@@ -236,7 +238,7 @@ class TestGlobalSettings:
             assert config_path.exists()
 
             # Verify contents
-            with open(config_path, 'r') as f:
+            with open(config_path) as f:
                 loaded = yaml.safe_load(f)
                 assert loaded["server"]["default_port"] == 9999
 
@@ -413,7 +415,7 @@ server:
             config_path = f.name
 
         # Pydantic requires int for default_port, null is not valid
-        with pytest.raises(Exception):  # ValidationError
+        with pytest.raises(ValidationError):
             GlobalSettings.from_yaml(config_path)
 
     def test_yaml_with_extra_fields(self):

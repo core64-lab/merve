@@ -1,17 +1,18 @@
 """Unit tests for predictor_loader module."""
-import pytest
-import tempfile
-import sys
 import os
+import sys
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
+import pytest
+
+from mlserver.errors import PredictorError
 from mlserver.predictor_loader import (
     _validate_model_files,
-    resolve_module_path,
     load_predictor,
+    resolve_module_path,
 )
-from mlserver.errors import PredictorError
 
 
 class TestValidateModelFiles:

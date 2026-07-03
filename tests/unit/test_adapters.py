@@ -1,10 +1,16 @@
-import pytest
 import numpy as np
+import pytest
+
 from mlserver.adapters import (
-    to_ndarray, AdapterError, _infer_adapter_type,
-    _get_cached_feature_order, _records_to_numpy_fast,
-    _extract_ndarray_data, _extract_records_data,
-    _process_records_to_array, _FEATURE_ORDER_CACHE
+    _FEATURE_ORDER_CACHE,
+    AdapterError,
+    _extract_ndarray_data,
+    _extract_records_data,
+    _get_cached_feature_order,
+    _infer_adapter_type,
+    _process_records_to_array,
+    _records_to_numpy_fast,
+    to_ndarray,
 )
 
 

@@ -1,29 +1,31 @@
 """Comprehensive tests for container module functionality."""
-import pytest
-import tempfile
+import json
 import os
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, mock_open, MagicMock
-from typing import Dict, Any
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from mlserver.config import AppConfig, BuildConfig, PredictorConfig, ServerConfig
 from mlserver.container import (
     ContainerError,
-    _find_mlserver_source,
-    _build_mlserver_wheel,
-    detect_required_files,
-    _looks_like_file_path,
     _analyze_python_imports,
+    _build_mlserver_wheel,
+    _find_mlserver_source,
+    _looks_like_file_path,
     _resolve_local_import,
-    generate_dockerignore,
-    generate_dockerfile,
     build_container,
-    push_container,
+    check_docker_availability,
+    detect_required_files,
+    generate_dockerfile,
+    generate_dockerignore,
     list_images,
+    push_container,
     remove_images,
-    check_docker_availability
 )
-from mlserver.config import AppConfig, PredictorConfig, ServerConfig, BuildConfig
 
 
 @pytest.fixture
@@ -107,6 +109,23 @@ def mock_config():
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_mlserver_env(monkeypatch):
+    """Keep tests deterministic regardless of ambient MLSERVER_* env vars.
+
+    container.py reads these for source discovery and git metadata embedding;
+    a developer machine with them set must not change test outcomes.
+    """
+    for var in (
+        "MLSERVER_SOURCE_PATH",
+        "MLSERVER_GIT_URL",
+        "MLSERVER_GIT_COMMIT",
+        "MLSERVER_GIT_TAG",
+        "MLSERVER_GIT_BRANCH",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 class TestContainerError:
     """Test ContainerError exception."""
 
@@ -137,31 +156,40 @@ class TestFindMLServerSource:
             # Result depends on other strategies, but shouldn't be the env var path
             assert result != test_path
 
-    @pytest.mark.skip(reason="Mock setup needs refactoring for new Path.exists signature")
-    def test_find_mlserver_source_pyproject_detection(self):
-        """Test finding mlserver source via pyproject.toml."""
-        mock_pyproject_content = """
-[project]
-name = "mlserver-fastapi-wrapper"
-version = "1.0.0"
-"""
+    def test_find_mlserver_source_pyproject_detection(self, tmp_path):
+        """Test finding mlserver source via pyproject.toml walk-up.
 
-        with patch.dict(os.environ, {}, clear=True), \
-             patch('pathlib.Path.exists') as mock_exists, \
-             patch('pathlib.Path.open', mock_open(read_data=mock_pyproject_content)) as mock_file, \
-             patch('importlib.util.find_spec', return_value=None):  # tomllib not available
+        Builds a fake source tree and repoints the module's __file__ so the
+        walk-up starts inside the fake tree instead of the real install.
+        """
+        source_root = tmp_path / "wrapper_src"
+        package_dir = source_root / "mlserver"
+        package_dir.mkdir(parents=True)
+        (source_root / "pyproject.toml").write_text(
+            '[project]\nname = "mlserver-fastapi-wrapper"\nversion = "1.0.0"\n'
+        )
 
-            # Mock the Path.exists calls
-            def exists_side_effect(self):
-                return str(self).endswith('pyproject.toml')
-
-            mock_exists.side_effect = exists_side_effect
-
-            # Should find pyproject.toml and return the parent directory
+        fake_module_file = str(package_dir / "container.py")
+        with patch('mlserver.container.__file__', fake_module_file):
             result = _find_mlserver_source()
-            # The function searches upward from package parent, so result may be None
-            # or the path depending on the search logic
-            assert isinstance(result, (str, type(None)))
+
+        assert result == str(source_root)
+
+    def test_find_mlserver_source_pyproject_name_mismatch(self, tmp_path):
+        """A pyproject.toml belonging to a different project is not a match."""
+        # Nest deep enough that the 5-level walk-up stays inside tmp_path
+        source_root = tmp_path / "a" / "b" / "c" / "d" / "other_project"
+        package_dir = source_root / "mlserver"
+        package_dir.mkdir(parents=True)
+        (source_root / "pyproject.toml").write_text(
+            '[project]\nname = "some-other-package"\nversion = "1.0.0"\n'
+        )
+
+        fake_module_file = str(package_dir / "container.py")
+        with patch('mlserver.container.__file__', fake_module_file):
+            result = _find_mlserver_source()
+
+        assert result is None
 
     def test_find_mlserver_source_no_tomllib(self):
         """Test when neither tomllib nor tomli are available."""
@@ -174,47 +202,88 @@ version = "1.0.0"
             assert isinstance(result, (str, type(None)))
 
 
-@pytest.mark.skip(reason="Container tests need refactoring - wheel build API changed")
 class TestBuildMLServerWheel:
-    """Test _build_mlserver_wheel function."""
+    """Test _build_mlserver_wheel function (rewritten 2026-07-03 for current API).
 
-    def test_build_mlserver_wheel_success(self, temp_project_dir):
-        """Test successful wheel building."""
-        mlserver_source = str(temp_project_dir)
+    Current contract: returns the wheel FILENAME (str) after copying it into
+    the project dir, or None on any failure (it never raises ContainerError).
+    """
 
-        # Mock successful subprocess call
-        with patch('subprocess.run') as mock_run:
+    def test_build_mlserver_wheel_success(self, tmp_path):
+        """Successful build copies the wheel into the project and returns its name."""
+        source_dir = tmp_path / "source"
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        wheel_name = "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        dist_dir = source_dir / "dist"
+        dist_dir.mkdir(parents=True)
+        (dist_dir / wheel_name).write_bytes(b"dummy wheel")
+
+        with patch('mlserver.container.subprocess.run') as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            mock_wheel_file = temp_project_dir / "dist" / "mlserver-1.0.0-py3-none-any.whl"
-            mock_wheel_file.parent.mkdir(exist_ok=True)
-            mock_wheel_file.write_bytes(b"dummy wheel")
 
-            result = _build_mlserver_wheel(mlserver_source, str(temp_project_dir))
+            result = _build_mlserver_wheel(str(source_dir), str(project_dir))
 
-            mock_run.assert_called_once()
-            assert result is not None
-            assert result.endswith(".whl")
+        assert result == wheel_name
+        assert (project_dir / wheel_name).exists()
 
-    def test_build_mlserver_wheel_build_failure(self, temp_project_dir):
-        """Test wheel building failure."""
-        mlserver_source = str(temp_project_dir)
+        # The build must run `<python> -m build --wheel` in the source dir
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd == [sys.executable, "-m", "build", "--wheel"]
+        assert mock_run.call_args.kwargs["cwd"] == str(source_dir)
 
-        with patch('subprocess.run') as mock_run:
+    def test_build_mlserver_wheel_picks_newest_wheel(self, tmp_path):
+        """When multiple wheels exist, the most recently modified one wins."""
+        source_dir = tmp_path / "source"
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        dist_dir = source_dir / "dist"
+        dist_dir.mkdir(parents=True)
+
+        old_wheel = dist_dir / "mlserver_fastapi_wrapper-0.9.0-py3-none-any.whl"
+        new_wheel = dist_dir / "mlserver_fastapi_wrapper-1.1.0-py3-none-any.whl"
+        old_wheel.write_bytes(b"old")
+        new_wheel.write_bytes(b"new")
+        os.utime(old_wheel, (1000000, 1000000))
+        os.utime(new_wheel, (2000000, 2000000))
+
+        with patch('mlserver.container.subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            result = _build_mlserver_wheel(str(source_dir), str(project_dir))
+
+        assert result == new_wheel.name
+
+    def test_build_mlserver_wheel_build_failure_returns_none(self, tmp_path):
+        """Build failure returns None (no exception) and copies nothing."""
+        source_dir = tmp_path / "source"
+        project_dir = tmp_path / "project"
+        source_dir.mkdir()
+        project_dir.mkdir()
+
+        with patch('mlserver.container.subprocess.run') as mock_run:
             mock_run.return_value = MagicMock(returncode=1, stderr="Build failed")
 
-            with pytest.raises(ContainerError, match="Failed to build mlserver wheel"):
-                _build_mlserver_wheel(mlserver_source, str(temp_project_dir))
+            result = _build_mlserver_wheel(str(source_dir), str(project_dir))
 
-    def test_build_mlserver_wheel_no_dist_files(self, temp_project_dir):
-        """Test when build succeeds but no wheel files found."""
-        mlserver_source = str(temp_project_dir)
+        assert result is None
+        assert list(project_dir.glob("*.whl")) == []
 
-        with patch('subprocess.run') as mock_run:
+    def test_build_mlserver_wheel_no_dist_files(self, tmp_path):
+        """Build succeeding but producing no wheel files returns None."""
+        source_dir = tmp_path / "source"
+        project_dir = tmp_path / "project"
+        source_dir.mkdir()
+        project_dir.mkdir()
+
+        with patch('mlserver.container.subprocess.run') as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
-            # Don't create any wheel files
+            # No dist/ directory, no wheel files
 
-            result = _build_mlserver_wheel(mlserver_source, str(temp_project_dir))
-            assert result is None
+            result = _build_mlserver_wheel(str(source_dir), str(project_dir))
+
+        assert result is None
 
 
 class TestDetectRequiredFiles:
@@ -322,33 +391,34 @@ class TestUtilityFunctions:
         assert not _looks_like_file_path("url", "http://example.com")
         assert not _looks_like_file_path("threshold", "0.5")
 
-    @pytest.mark.skip(reason="_analyze_python_imports return type changed - needs update")
-    def test_analyze_python_imports(self, temp_project_dir):
-        """Test _analyze_python_imports function."""
-        # Create a Python file with various imports
-        python_file = temp_project_dir / "test_imports.py"
+    def test_analyze_python_imports_returns_local_files_only(self, temp_project_dir):
+        """_analyze_python_imports returns a set of resolved local file paths.
+
+        Rewritten 2026-07-03: current return type is Set[str] containing only
+        imports that resolve to files inside the project; stdlib and
+        third-party imports are excluded.
+        """
+        (temp_project_dir / "helper_module.py").write_text("def helper(): pass")
+        pkg_dir = temp_project_dir / "utils_pkg"
+        pkg_dir.mkdir()
+        (pkg_dir / "__init__.py").write_text("")
+
+        python_file = temp_project_dir / "main_entry.py"
         python_file.write_text("""
 import os
 import sys
 from pathlib import Path
 import pandas as pd
 import sklearn.ensemble
-from local_module import helper
-import non_standard_package
+import helper_module
+from utils_pkg import something
 """)
 
-        with patch('mlserver.container._resolve_local_import', return_value=None):
-            imports = _analyze_python_imports(str(temp_project_dir), str(python_file))
+        result = _analyze_python_imports(str(temp_project_dir), "main_entry.py")
 
-            # Returns dict with imports and local_modules
-            assert isinstance(imports, dict)
-            assert "imports" in imports or isinstance(imports, set)
-            # Allow for different return formats - check flexibility
-            if isinstance(imports, dict):
-                pkg_imports = imports.get("imports", set())
-            else:
-                pkg_imports = imports
-            # At least the function should run without error
+        assert isinstance(result, set)
+        # Only the two local imports resolve to project files
+        assert result == {"helper_module.py", "utils_pkg/__init__.py"}
 
     def test_resolve_local_import(self, temp_project_dir):
         """Test _resolve_local_import function."""
@@ -364,37 +434,21 @@ import non_standard_package
         assert result is None
 
 
-@pytest.mark.skip(reason="Dockerfile generation API changed - needs refactoring")
 class TestDockerfileGeneration:
-    """Test Dockerfile and dockerignore generation."""
+    """Test Dockerfile generation and Docker file writing (rewritten 2026-07-03).
 
-    def test_generate_dockerignore_basic(self, temp_project_dir):
-        """Test basic dockerignore generation."""
-        auto_excludes = {"__pycache__", "*.pyc", ".git"}
-        manual_excludes = {"test_data/", "docs/"}
+    Covers the current list-based generate_dockerfile API and the
+    _write_docker_files 3-tuple contract. The old dict-based required_files
+    API no longer exists.
+    """
 
-        result = generate_dockerignore(
-            str(temp_project_dir),
-            auto_excludes,
-            manual_excludes
-        )
+    def test_generate_dockerfile_copy_generation(self, temp_project_dir, mock_config):
+        """Root files are batched into one COPY; subdirectories copied as trees."""
+        models_dir = temp_project_dir / "models"
+        models_dir.mkdir()
+        (models_dir / "model.pkl").write_bytes(b"model data")
 
-        assert isinstance(result, str)
-        assert "__pycache__" in result
-        assert "*.pyc" in result
-        assert ".git" in result
-        assert "test_data/" in result
-        assert "docs/" in result
-
-    def test_generate_dockerfile_basic(self, temp_project_dir, mock_config):
-        """Test basic Dockerfile generation."""
-        required_files = {
-            "detected_files": ["predictor.py", "model.pkl", "requirements.txt"],
-            "python_files": ["predictor.py"],
-            "requirements_files": ["requirements.txt"],
-            "model_files": ["model.pkl"],
-            "missing_files": []
-        }
+        required_files = ["predictor.py", "model.pkl", "models/model.pkl", "mlserver.yaml"]
 
         result = generate_dockerfile(
             str(temp_project_dir),
@@ -404,184 +458,416 @@ class TestDockerfileGeneration:
 
         assert isinstance(result, str)
         assert "FROM python:" in result
-        assert "COPY requirements.txt" in result
-        assert "RUN pip install" in result
-        assert "COPY predictor.py" in result
-        assert "COPY model.pkl" in result
-        assert "CMD [" in result
+        # Subdirectory files become a directory COPY
+        assert "COPY models/ ./models/" in result
+        # Root files are batched into a single COPY, in input order
+        assert "COPY predictor.py model.pkl mlserver.yaml ./" in result
+        # requirements.txt exists in the fixture project -> dependency install
+        assert "COPY requirements.txt ." in result
+        assert "RUN pip install --no-cache-dir -r requirements.txt" in result
+        assert 'CMD ["mlserver", "serve", "mlserver.yaml"]' in result
 
-    def test_generate_dockerfile_with_custom_base_image(self, temp_project_dir):
-        """Test Dockerfile generation with custom base image."""
+    def test_generate_dockerfile_expose_and_healthcheck_use_config_port(self, temp_project_dir):
+        """EXPOSE and HEALTHCHECK follow server.port from config (not hardcoded 8000)."""
+        from mlserver.config import ApiConfig
         config = AppConfig(
-            predictor=PredictorConfig(
-                module="predictor",
-                class_name="TestPredictor"
-            ),
-            build=BuildConfig(base_image="python:3.9-alpine")
+            server=ServerConfig(host="0.0.0.0", port=9123),
+            predictor=PredictorConfig(module="predictor", class_name="TestPredictor"),
+            classifier={"name": "test-classifier", "version": "1.0.0"},
+            api=ApiConfig(version="v1", adapter="auto")
         )
 
-        required_files = {
-            "detected_files": ["predictor.py"],
-            "python_files": ["predictor.py"],
-            "requirements_files": [],
-            "model_files": [],
-            "missing_files": []
-        }
+        result = generate_dockerfile(str(temp_project_dir), config, ["predictor.py"])
 
-        result = generate_dockerfile(str(temp_project_dir), config, required_files)
+        assert "EXPOSE 9123" in result
+        assert "http://localhost:9123/healthz" in result
+        assert "EXPOSE 8000" not in result
 
-        assert "FROM python:3.9-alpine" in result
+    def test_generate_dockerfile_classifier_name_param_overrides_config(
+        self, temp_project_dir, mock_config
+    ):
+        """An explicit classifier_name wins over the config classifier metadata."""
+        result = generate_dockerfile(
+            str(temp_project_dir),
+            mock_config,
+            ["predictor.py"],
+            classifier_name="explicit-clf"
+        )
 
-    def test_generate_dockerfile_with_mlserver_wheel(self, temp_project_dir, mock_config):
-        """Test Dockerfile generation with mlserver wheel."""
-        required_files = {
-            "detected_files": ["predictor.py"],
-            "python_files": ["predictor.py"],
-            "requirements_files": [],
-            "model_files": [],
-            "missing_files": []
-        }
+        assert "# Generated Dockerfile for explicit-clf v1.0.0" in result
+        assert 'LABEL com.classifier.name="explicit-clf"' in result
 
-        mlserver_wheel_path = "/path/to/mlserver.whl"
+    def test_generate_dockerfile_classifier_name_falls_back_to_config(
+        self, temp_project_dir, mock_config
+    ):
+        """Without an explicit classifier_name the config classifier name is used."""
+        result = generate_dockerfile(str(temp_project_dir), mock_config, ["predictor.py"])
+
+        assert "# Generated Dockerfile for test-classifier v1.0.0" in result
+        assert 'LABEL com.classifier.name="test-classifier"' in result
+
+    def test_generate_dockerfile_wheel_install_section(self, temp_project_dir, mock_config):
+        """has_wheel=True copies the wheel in, installs it, then removes it."""
+        from mlserver.settings import get_settings
+        temp_dir = get_settings().container.temp_dir
 
         result = generate_dockerfile(
             str(temp_project_dir),
             mock_config,
-            required_files,
-            mlserver_wheel_path=mlserver_wheel_path
+            ["predictor.py"],
+            has_wheel=True
         )
 
-        assert "COPY mlserver.whl" in result
-        assert "RUN pip install mlserver.whl" in result
+        assert f"COPY mlserver_fastapi_wrapper*.whl {temp_dir}/" in result
+        assert (
+            f"RUN pip install --no-cache-dir {temp_dir}/mlserver_fastapi_wrapper*.whl "
+            f"&& rm {temp_dir}/mlserver_fastapi_wrapper*.whl"
+        ) in result
+
+    def test_write_docker_files_uses_config_base_image(self, temp_project_dir):
+        """_write_docker_files honors build.base_image from config (custom base image)."""
+        from mlserver.config import ApiConfig
+        config = AppConfig(
+            predictor=PredictorConfig(module="predictor", class_name="TestPredictor"),
+            classifier={"name": "test-classifier", "version": "1.0.0"},
+            api=ApiConfig(version="v1", adapter="auto"),
+            build=BuildConfig(base_image="python:3.12-slim")
+        )
+        from mlserver.container import _write_docker_files
+
+        analysis = {"auto_excludes": {"__pycache__", ".git"}}
+        dockerfile_path, dockerignore_path, temp_config_file = _write_docker_files(
+            str(temp_project_dir), config, ["predictor.py"], analysis,
+            has_wheel=False, needs_git=False
+        )
+
+        assert temp_config_file is None
+        assert dockerfile_path.exists()
+        assert dockerignore_path.exists()
+        assert "FROM python:3.12-slim" in dockerfile_path.read_text()
+
+    def test_write_docker_files_multi_classifier_writes_and_renames_temp_config(
+        self, temp_project_dir, mock_config
+    ):
+        """Multi-classifier builds write a per-classifier config and COPY-rename it.
+
+        _write_docker_files returns a 3-tuple; for multi-classifier configs the
+        third element is the temporary single-classifier config, and the
+        Dockerfile renames it to mlserver.yaml inside the image.
+        """
+        from mlserver.container import _write_docker_files
+
+        # Make the on-disk config a multi-classifier one
+        (temp_project_dir / "mlserver.yaml").write_text("""
+classifiers:
+  clf-a:
+    predictor:
+      module: predictor
+      class_name: TestPredictor
+  clf-b:
+    predictor:
+      module: predictor
+      class_name: TestPredictor
+""")
+
+        required_files = ["predictor.py", "mlserver.yaml"]
+        analysis = {"auto_excludes": {"__pycache__"}}
+
+        dockerfile_path, dockerignore_path, temp_config_file = _write_docker_files(
+            str(temp_project_dir), mock_config, required_files, analysis,
+            has_wheel=False, needs_git=False, classifier_name="clf-a"
+        )
+
+        # Temp single-classifier config written for the build
+        assert temp_config_file == temp_project_dir / ".mlserver.clf-a.yaml"
+        assert temp_config_file.exists()
+
+        # required_files swapped to the temp config
+        assert "mlserver.yaml" not in required_files
+        assert ".mlserver.clf-a.yaml" in required_files
+
+        # Dockerfile renames the temp config to mlserver.yaml inside the image
+        dockerfile_content = dockerfile_path.read_text()
+        assert "COPY .mlserver.clf-a.yaml ./mlserver.yaml" in dockerfile_content
 
 
-@pytest.mark.skip(reason="Docker operations tests need refactoring for new API")
+def _mock_build_process(returncode=0, lines=None):
+    """Create a mock subprocess.Popen process for docker build."""
+    if lines is None:
+        lines = ["Step 1/5 : FROM python:3.11-slim\n", "Successfully built abc123\n"]
+    process = MagicMock()
+    process.stdout.readline.side_effect = lines + [""]
+    process.returncode = returncode
+    return process
+
+
+def _docker_popen_router(mock_process):
+    """Popen side_effect that mocks docker commands only.
+
+    Patching subprocess.Popen patches the shared subprocess module, which
+    would also break the real git subprocess calls used for label/metadata
+    generation - so git (and anything else) passes through to the real Popen
+    while docker gets the mock.
+    """
+    real_popen = subprocess.Popen
+
+    def router(cmd, *args, **kwargs):
+        if cmd and cmd[0] == "docker":
+            if isinstance(mock_process, Exception):
+                raise mock_process
+            return mock_process
+        return real_popen(cmd, *args, **kwargs)
+
+    return router
+
+
 class TestDockerOperations:
-    """Test Docker operations (mocked)."""
+    """Test Docker operations against the current API (rewritten 2026-07-03).
 
-    def test_check_docker_availability_success(self):
-        """Test Docker availability check success."""
-        with patch('subprocess.run') as mock_run:
-            mock_run.return_value = MagicMock(returncode=0)
+    All docker interactions are mocked (subprocess.Popen for builds,
+    subprocess.run for push/rmi/images) - no docker daemon required.
+    The old check_docker_availability duplicates were deleted: they are
+    covered by TestCheckDockerAvailability below.
+    """
 
-            result = check_docker_availability()
-            assert result is True
+    def test_build_container_success(self, temp_project_dir):
+        """Full build path: config load, file detection, Docker files, tags, build cmd."""
+        repo_name = temp_project_dir.name.lower()
+        mock_process = _mock_build_process(returncode=0)
 
-    def test_check_docker_availability_failure(self):
-        """Test Docker availability check failure."""
-        with patch('subprocess.run') as mock_run:
-            mock_run.side_effect = FileNotFoundError()
-
-            result = check_docker_availability()
-            assert result is False
-
-    def test_build_container_success(self, temp_project_dir, mock_config):
-        """Test successful container build."""
-        with patch('mlserver.container.check_docker_availability', return_value=True), \
-             patch('mlserver.container.detect_required_files') as mock_detect, \
-             patch('mlserver.container.generate_dockerfile') as mock_dockerfile, \
-             patch('mlserver.container.generate_dockerignore') as mock_dockerignore, \
-             patch('mlserver.container.get_version_info') as mock_version, \
-             patch('mlserver.container.generate_container_tags') as mock_tags, \
-             patch('subprocess.run') as mock_run:
-
-            # Setup mocks
-            mock_detect.return_value = {
-                "detected_files": ["predictor.py"],
-                "python_files": ["predictor.py"],
-                "requirements_files": [],
-                "model_files": [],
-                "missing_files": []
-            }
-            mock_dockerfile.return_value = "FROM python:3.11\nCMD ['python']"
-            mock_dockerignore.return_value = "*.pyc\n__pycache__"
-            mock_version.return_value = {"git": {"commit": "abc123"}}
-            mock_tags.return_value = ["test-image:latest"]
-            mock_run.return_value = MagicMock(returncode=0, stdout="Successfully built")
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container._find_mlserver_source', return_value=None), \
+             patch('mlserver.container.subprocess.Popen',
+                   side_effect=_docker_popen_router(mock_process)) as mock_popen:
 
             result = build_container(
                 project_path=str(temp_project_dir),
                 config_file=None,
-                tag_prefix="test",
-                registry=None
+                tag_prefix="ml-models",
+                registry="registry.example.com"
             )
 
-            assert result["success"] is True
-            assert "tags" in result
-            assert len(result["tags"]) > 0
+        assert result["success"] is True, result.get("error")
 
-    def test_build_container_docker_unavailable(self, temp_project_dir):
-        """Test container build when Docker is unavailable."""
-        with patch('mlserver.container.check_docker_availability', return_value=False):
+        # Tags: registry/prefix applied to <repo>:latest and <repo>:v<version>
+        assert f"registry.example.com/ml-models/{repo_name}:latest" in result["tags"]
+        assert f"registry.example.com/ml-models/{repo_name}:v1.0.0" in result["tags"]
 
-            result = build_container(
-                project_path=str(temp_project_dir),
-                config_file=None
-            )
+        # Docker files were written to the project
+        assert Path(result["dockerfile"]).exists()
+        assert Path(result["dockerignore"]).exists()
 
-            assert result["success"] is False
-            assert "Docker is not available" in result["error"]
+        # File detection ran for real
+        assert "predictor.py" in result["required_files"]
+        assert "model.pkl" in result["required_files"]
 
-    def test_list_images_success(self, temp_project_dir):
-        """Test listing Docker images."""
-        mock_output = '''[
-    {
-        "Repository": "test-repo",
-        "Tag": "latest",
-        "ImageID": "abc123def456",
-        "CreatedAt": "2024-01-01T00:00:00Z",
-        "Size": "100MB"
-    }
-]'''
+        # Build command: docker build with -t for every tag, BuildKit disabled
+        # (the router also records passed-through git Popen calls - filter them)
+        docker_calls = [c for c in mock_popen.call_args_list if c[0][0][0] == "docker"]
+        assert len(docker_calls) == 1
+        build_cmd = docker_calls[0][0][0]
+        assert build_cmd[:5] == ["docker", "build", ".", "-f", "Dockerfile"]
+        for tag in result["tags"]:
+            assert tag in build_cmd
+        assert docker_calls[0].kwargs["cwd"] == str(temp_project_dir)
+        assert docker_calls[0].kwargs["env"]["DOCKER_BUILDKIT"] == "0"
+
+    def test_build_container_docker_missing_fails_gracefully(self, temp_project_dir):
+        """Missing docker binary yields success=False, not an exception.
+
+        build_container no longer pre-checks docker availability; the
+        FileNotFoundError from launching docker is caught and reported.
+        """
+        router = _docker_popen_router(FileNotFoundError("No such file or directory: 'docker'"))
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container._find_mlserver_source', return_value=None), \
+             patch('mlserver.container.subprocess.Popen', side_effect=router):
+
+            result = build_container(project_path=str(temp_project_dir), config_file=None)
+
+        assert result["success"] is False
+        assert "docker" in result["error"]
+
+    def test_build_container_build_failure_reports_exit_code(self, temp_project_dir):
+        """A non-zero docker build exit code is reported in the error message."""
+        mock_process = _mock_build_process(returncode=1, lines=["error: build failed\n"])
+
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container._find_mlserver_source', return_value=None), \
+             patch('mlserver.container.subprocess.Popen',
+                   side_effect=_docker_popen_router(mock_process)):
+
+            result = build_container(project_path=str(temp_project_dir), config_file=None)
+
+        assert result["success"] is False
+        assert "exit code 1" in result["error"]
+
+    def test_list_images_filters_by_repository(self, temp_project_dir):
+        """Only images belonging to the project repository are listed."""
+        mock_output = (
+            "test-repo:latest|abc123|2024-01-01|100MB\n"
+            "test-repo/sentiment:v1.0.0|def456|2024-01-02|90MB\n"
+            "other-repo:latest|zzz999|2024-01-03|80MB\n"
+        )
 
         with patch('mlserver.container.get_repository_name', return_value="test-repo"), \
-             patch('subprocess.run') as mock_run:
-
-            mock_run.return_value = MagicMock(
-                returncode=0,
-                stdout=mock_output,
-                stderr=""
-            )
+             patch('mlserver.container.subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=mock_output)
 
             result = list_images(str(temp_project_dir))
 
-            assert isinstance(result, list)
-            assert len(result) == 1
-            assert result[0]["tag"] == "test-repo:latest"
+        tags = [img["tag"] for img in result]
+        assert tags == ["test-repo:latest", "test-repo/sentiment:v1.0.0"]
+        assert result[0]["image_id"] == "abc123"
+        assert result[0]["created"] == "2024-01-01"
+        assert result[0]["size"] == "100MB"
 
-    def test_remove_images_success(self, temp_project_dir):
-        """Test removing Docker images."""
-        with patch('mlserver.container.list_images') as mock_list, \
-             patch('subprocess.run') as mock_run:
+    def test_list_images_classifier_name_filter(self, temp_project_dir):
+        """classifier_name narrows the listing to <repo>/<classifier> images."""
+        mock_output = (
+            "test-repo:latest|abc123|2024-01-01|100MB\n"
+            "test-repo/sentiment:v1.0.0|def456|2024-01-02|90MB\n"
+            "test-repo/churn:v2.0.0|ghi789|2024-01-03|95MB\n"
+        )
 
-            mock_list.return_value = [
-                {"tag": "test-repo:latest", "image_id": "abc123"}
-            ]
+        with patch('mlserver.container.get_repository_name', return_value="test-repo"), \
+             patch('mlserver.container.subprocess.run') as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=mock_output)
+
+            result = list_images(str(temp_project_dir), classifier_name="sentiment")
+
+        assert [img["tag"] for img in result] == ["test-repo/sentiment:v1.0.0"]
+
+    def test_remove_images_multi_tag_command_construction(self, temp_project_dir):
+        """Each image gets its own `docker rmi <image_id>` call (no -f by default)."""
+        images = [
+            {"tag": "test-repo:latest", "image_id": "abc123"},
+            {"tag": "test-repo:v1.0.0", "image_id": "def456"},
+            {"tag": "test-repo:v1.0.0-abcdef0", "image_id": "ghi789"},
+        ]
+
+        with patch('mlserver.container.list_images', return_value=images), \
+             patch('mlserver.container.subprocess.run') as mock_run:
             mock_run.return_value = MagicMock(returncode=0)
 
             result = remove_images(str(temp_project_dir), force=False)
 
-            assert result["success"] is True
-            assert len(result["removed_images"]) == 1
+        assert result["success"] is True
+        assert result["removed_images"] == [img["tag"] for img in images]
+        assert result["errors"] == []
 
-    def test_push_container_success(self, temp_project_dir):
-        """Test pushing container to registry."""
-        with patch('mlserver.container.get_version_info') as mock_version, \
+        assert mock_run.call_count == 3
+        for call, image in zip(mock_run.call_args_list, images):
+            assert call[0][0] == ["docker", "rmi", image["image_id"]]
+
+    def test_push_container_tag_construction_with_prefix_registry_and_version(
+        self, temp_project_dir
+    ):
+        """Pushed tags are <registry>/<prefix>/<tag>; version param overrides metadata."""
+        with patch('mlserver.container.load_classifier_metadata') as mock_meta, \
+             patch('mlserver.container.get_git_info', return_value=None), \
              patch('mlserver.container.generate_container_tags') as mock_tags, \
-             patch('subprocess.run') as mock_run:
+             patch('mlserver.container.subprocess.run') as mock_run:
 
-            mock_version.return_value = {"git": {"commit": "abc123"}}
-            mock_tags.return_value = ["registry.io/test:latest", "registry.io/test:v1.0.0"]
+            mock_meta.return_value = MagicMock()
+            mock_tags.return_value = ["test-repo:latest", "test-repo:v2.0.0"]
             mock_run.return_value = MagicMock(returncode=0)
 
             result = push_container(
-                project_path=str(temp_project_dir),
-                registry="registry.io",
-                tag_prefix="test"
+                str(temp_project_dir),
+                registry="registry.example.com",
+                tag_prefix="ml-models",
+                version="2.0.0"
             )
 
-            assert result["success"] is True
-            assert len(result["pushed_tags"]) > 0
+        # The validated version overrides the metadata version before tagging
+        assert mock_meta.return_value.classifier.version == "2.0.0"
+
+        assert result["success"] is True
+        assert result["pushed_tags"] == [
+            "registry.example.com/ml-models/test-repo:latest",
+            "registry.example.com/ml-models/test-repo:v2.0.0",
+        ]
+        assert result["failed_tags"] == []
+        assert result["registry"] == "registry.example.com"
+
+        # One docker push per final tag
+        pushed_cmds = [call[0][0] for call in mock_run.call_args_list]
+        assert pushed_cmds == [
+            ["docker", "push", "registry.example.com/ml-models/test-repo:latest"],
+            ["docker", "push", "registry.example.com/ml-models/test-repo:v2.0.0"],
+        ]
+
+    def test_push_container_passes_classifier_name_to_tag_generation(self, temp_project_dir):
+        """classifier_name flows into tag generation for single-classifier configs."""
+        with patch('mlserver.container.load_classifier_metadata') as mock_meta, \
+             patch('mlserver.container.get_git_info', return_value=None), \
+             patch('mlserver.container.generate_container_tags') as mock_tags, \
+             patch('mlserver.container.subprocess.run') as mock_run:
+
+            mock_meta.return_value = MagicMock()
+            mock_tags.return_value = ["test-repo/sentiment:latest"]
+            mock_run.return_value = MagicMock(returncode=0)
+
+            result = push_container(
+                str(temp_project_dir),
+                registry="registry.example.com",
+                classifier_name="sentiment"
+            )
+
+        assert result["success"] is True
+        assert mock_tags.call_args.kwargs["classifier_name"] == "sentiment"
+
+    def test_push_container_multi_classifier_uses_extracted_config(self, temp_project_dir):
+        """Multi-classifier configs extract the named classifier before pushing."""
+        multi_config = MagicMock()
+        extracted_config = MagicMock()
+
+        with patch('mlserver.multi_classifier.detect_multi_classifier_config',
+                   return_value=True), \
+             patch('mlserver.multi_classifier.load_multi_classifier_config',
+                   return_value=multi_config), \
+             patch('mlserver.multi_classifier.extract_single_classifier_config',
+                   return_value=extracted_config) as mock_extract, \
+             patch('mlserver.container._prepare_container_metadata') as mock_prepare, \
+             patch('mlserver.container.get_git_info', return_value=None), \
+             patch('mlserver.container.generate_container_tags',
+                   return_value=["test-repo/clf-a:latest"]), \
+             patch('mlserver.container.subprocess.run') as mock_run:
+
+            mock_prepare.return_value = MagicMock()
+            mock_run.return_value = MagicMock(returncode=0)
+
+            result = push_container(
+                str(temp_project_dir),
+                registry="registry.example.com",
+                classifier_name="clf-a"
+            )
+
+        assert result["success"] is True
+        mock_extract.assert_called_once_with(multi_config, "clf-a")
+        mock_prepare.assert_called_once_with(extracted_config, str(temp_project_dir))
+
+    def test_push_container_partial_failure_is_not_success(self, temp_project_dir):
+        """If any tag fails to push, success is False (callers exit nonzero)."""
+        with patch('mlserver.container.load_classifier_metadata') as mock_meta, \
+             patch('mlserver.container.get_git_info', return_value=None), \
+             patch('mlserver.container.generate_container_tags') as mock_tags, \
+             patch('mlserver.container.subprocess.run') as mock_run:
+
+            mock_meta.return_value = MagicMock()
+            mock_tags.return_value = ["test-repo:latest", "test-repo:v1.0.0"]
+            mock_run.side_effect = [
+                MagicMock(returncode=0),
+                MagicMock(returncode=1, stderr="denied: access forbidden"),
+            ]
+
+            result = push_container(str(temp_project_dir), registry="registry.example.com")
+
+        assert result["success"] is False
+        assert len(result["pushed_tags"]) == 1
+        assert len(result["failed_tags"]) == 1
+        assert "denied" in result["failed_tags"][0]
 
 
 class TestGenerateDockerignoreUpdated:
@@ -1060,6 +1346,30 @@ class TestDetectRequiredFilesExtended:
         assert ".git" in auto_excludes
         assert "Dockerfile" in auto_excludes
 
+    def test_detect_includes_local_import_dependencies(self, temp_project_dir):
+        """Local modules imported by the predictor are picked up as dependencies."""
+        from mlserver.config import ApiConfig
+
+        (temp_project_dir / "feature_utils.py").write_text("def transform(x): return x")
+        (temp_project_dir / "predictor.py").write_text("""
+import feature_utils
+
+class TestPredictor:
+    def predict(self, X):
+        return [feature_utils.transform(x) for x in X]
+""")
+
+        config = AppConfig(
+            predictor=PredictorConfig(module="predictor", class_name="TestPredictor"),
+            classifier={"name": "test", "version": "1.0.0"},
+            api=ApiConfig(version="v1", adapter="auto")
+        )
+
+        result = detect_required_files(str(temp_project_dir), config)
+
+        assert "feature_utils.py" in result["required_files"]
+        assert "feature_utils.py" in result["analysis"]["dependency_files"]
+
 
 class TestAddFileOrDirectory:
     """Test _add_file_or_directory function."""
@@ -1154,6 +1464,37 @@ class TestGetMlserverGitUrl:
             result = _get_mlserver_git_url()
 
         assert result is None or isinstance(result, str)
+
+    def test_direct_url_git_install(self, tmp_path):
+        """A pip git install is detected via direct_url.json (url form)."""
+        from mlserver.container import _get_mlserver_git_url
+
+        (tmp_path / "direct_url.json").write_text(json.dumps(
+            {"url": "git+https://github.com/test/mlserver.git@abc123"}
+        ))
+        mock_dist = MagicMock()
+        mock_dist._path = tmp_path
+
+        with patch('importlib.metadata.distribution', return_value=mock_dist):
+            result = _get_mlserver_git_url()
+
+        assert result == "git+https://github.com/test/mlserver.git@abc123"
+
+    def test_direct_url_vcs_info(self, tmp_path):
+        """A pip git install is detected via direct_url.json (vcs_info form)."""
+        from mlserver.container import _get_mlserver_git_url
+
+        (tmp_path / "direct_url.json").write_text(json.dumps({
+            "url": "https://github.com/test/mlserver.git",
+            "vcs_info": {"vcs": "git", "commit_id": "abc123"}
+        }))
+        mock_dist = MagicMock()
+        mock_dist._path = tmp_path
+
+        with patch('importlib.metadata.distribution', return_value=mock_dist):
+            result = _get_mlserver_git_url()
+
+        assert result == "git+https://github.com/test/mlserver.git@abc123"
 
 
 class TestFindGitSourceDirectory:
@@ -1358,7 +1699,7 @@ class TestRemoveImages:
             ]
             mock_run.return_value = MagicMock(returncode=0)
 
-            result = remove_images(str(temp_project_dir), force=True)
+            remove_images(str(temp_project_dir), force=True)
 
         # Check -f flag was used
         mock_run.assert_called_once()
@@ -1472,6 +1813,69 @@ class TestHandleWheelPreparation:
 
         assert needs_git is True
 
+    def test_git_url_with_local_source_builds_wheel(self, tmp_path):
+        """Git install with a local source builds a wheel; no git needed in image."""
+        from mlserver.container import _handle_wheel_preparation
+
+        with patch('mlserver.container._find_git_source_directory',
+                   return_value="/fake/git/source"), \
+             patch('mlserver.container._build_mlserver_wheel',
+                   return_value="mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl") as mock_build:
+
+            wheel_file, needs_git = _handle_wheel_preparation(
+                str(tmp_path),
+                git_url="git+https://github.com/test/repo.git@main"
+            )
+
+        assert wheel_file == "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        assert needs_git is False
+        mock_build.assert_called_once_with("/fake/git/source", str(tmp_path))
+
+    def test_git_url_wheel_build_failure_falls_back_to_git_install(self, tmp_path):
+        """Git install where wheel build fails installs git in the Dockerfile."""
+        from mlserver.container import _handle_wheel_preparation
+
+        with patch('mlserver.container._find_git_source_directory',
+                   return_value="/fake/git/source"), \
+             patch('mlserver.container._build_mlserver_wheel', return_value=None):
+
+            wheel_file, needs_git = _handle_wheel_preparation(
+                str(tmp_path),
+                git_url="git+https://github.com/test/repo.git@main"
+            )
+
+        assert wheel_file is None
+        assert needs_git is True
+
+    def test_explicit_source_path_builds_wheel(self, tmp_path):
+        """An explicit mlserver_source_path is used for the wheel build."""
+        from mlserver.container import _handle_wheel_preparation
+
+        with patch('mlserver.container._build_mlserver_wheel',
+                   return_value="mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl") as mock_build:
+            wheel_file, needs_git = _handle_wheel_preparation(
+                str(tmp_path), mlserver_source_path="/explicit/source"
+            )
+
+        assert wheel_file == "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        assert needs_git is False
+        mock_build.assert_called_once_with("/explicit/source", str(tmp_path))
+
+    def test_auto_discovered_source_builds_wheel(self, tmp_path):
+        """A source found by _find_mlserver_source is used for the wheel build."""
+        from mlserver.container import _handle_wheel_preparation
+
+        with patch('mlserver.container._find_mlserver_source',
+                   return_value="/discovered/source"), \
+             patch('mlserver.container._build_mlserver_wheel',
+                   return_value="mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl") as mock_build:
+
+            wheel_file, needs_git = _handle_wheel_preparation(str(tmp_path))
+
+        assert wheel_file == "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        assert needs_git is False
+        mock_build.assert_called_once_with("/discovered/source", str(tmp_path))
+
 
 class TestGenerateLabelDirectives:
     """Test _generate_label_directives function."""
@@ -1518,8 +1922,9 @@ class TestLoadContainerConfig:
 
     def test_load_single_classifier_config(self, temp_project_dir):
         """Test loading single classifier config."""
-        from mlserver.container import _load_container_config
         import os
+
+        from mlserver.container import _load_container_config
 
         # Need to change to project dir for detect_config_file to work
         original_dir = os.getcwd()
@@ -1539,3 +1944,256 @@ class TestLoadContainerConfig:
         result = _load_container_config(str(temp_project_dir), config_file="mlserver.yaml")
 
         assert isinstance(result, AppConfig)
+
+    def test_load_multi_classifier_named(self, temp_project_dir):
+        """A named classifier is extracted from a multi-classifier config."""
+        from mlserver.container import _load_container_config
+
+        multi_config = MagicMock()
+        multi_config.classifiers = {"clf-a": object(), "clf-b": object()}
+
+        with patch('mlserver.multi_classifier.detect_multi_classifier_config',
+                   return_value=True), \
+             patch('mlserver.multi_classifier.load_multi_classifier_config',
+                   return_value=multi_config), \
+             patch('mlserver.multi_classifier.extract_single_classifier_config',
+                   side_effect=lambda cfg, name: f"config-for-{name}"):
+
+            result = _load_container_config(str(temp_project_dir), classifier_name="clf-a")
+
+        assert result == "config-for-clf-a"
+
+    def test_load_multi_classifier_default(self, temp_project_dir):
+        """Without classifier_name the default classifier is used."""
+        from mlserver.container import _load_container_config
+
+        multi_config = MagicMock()
+        multi_config.classifiers = {"clf-a": object(), "clf-b": object()}
+        multi_config.default_classifier = "clf-b"
+
+        with patch('mlserver.multi_classifier.detect_multi_classifier_config',
+                   return_value=True), \
+             patch('mlserver.multi_classifier.load_multi_classifier_config',
+                   return_value=multi_config), \
+             patch('mlserver.multi_classifier.extract_single_classifier_config',
+                   side_effect=lambda cfg, name: f"config-for-{name}"):
+
+            result = _load_container_config(str(temp_project_dir))
+
+        assert result == "config-for-clf-b"
+
+    def test_load_multi_classifier_first_when_no_default(self, temp_project_dir):
+        """Without a default, the first classifier in the config is used."""
+        from mlserver.container import _load_container_config
+
+        multi_config = MagicMock()
+        multi_config.classifiers = {"clf-a": object(), "clf-b": object()}
+        multi_config.default_classifier = None
+
+        with patch('mlserver.multi_classifier.detect_multi_classifier_config',
+                   return_value=True), \
+             patch('mlserver.multi_classifier.load_multi_classifier_config',
+                   return_value=multi_config), \
+             patch('mlserver.multi_classifier.extract_single_classifier_config',
+                   side_effect=lambda cfg, name: f"config-for-{name}"):
+
+            result = _load_container_config(str(temp_project_dir))
+
+        assert result == "config-for-clf-a"
+
+
+class TestBuildContainerWheelHandling:
+    """Wheel lifecycle inside build_container (added 2026-07-03).
+
+    The build must clean up only wheels it created itself; wheels the user
+    placed in the project are preserved.
+    """
+
+    def test_build_created_wheel_cleaned_up_after_build(self, temp_project_dir):
+        """A wheel built by the build process is deleted after the build."""
+        wheel_name = "mlserver_fastapi_wrapper-0.1.0-py3-none-any.whl"
+
+        def fake_build_wheel(source, project):
+            (Path(project) / wheel_name).write_bytes(b"wheel")
+            return wheel_name
+
+        mock_process = _mock_build_process(returncode=0)
+
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container._find_mlserver_source', return_value="/fake/source"), \
+             patch('mlserver.container._build_mlserver_wheel',
+                   side_effect=fake_build_wheel), \
+             patch('mlserver.container.subprocess.Popen',
+                   side_effect=_docker_popen_router(mock_process)):
+
+            result = build_container(project_path=str(temp_project_dir))
+
+        assert result["success"] is True, result.get("error")
+        # The build-created wheel was cleaned up afterwards
+        assert not (temp_project_dir / wheel_name).exists()
+        # But the Dockerfile was generated for a wheel-based install
+        assert "mlserver_fastapi_wrapper*.whl" in Path(result["dockerfile"]).read_text()
+
+    def test_preexisting_user_wheel_preserved(self, temp_project_dir):
+        """A wheel the user placed in the project survives the build."""
+        wheel_name = "mlserver_fastapi_wrapper-9.9.9-py3-none-any.whl"
+        user_wheel = temp_project_dir / wheel_name
+        user_wheel.write_bytes(b"user wheel")
+
+        mock_process = _mock_build_process(returncode=0)
+
+        with patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container.subprocess.Popen',
+                   side_effect=_docker_popen_router(mock_process)):
+
+            result = build_container(project_path=str(temp_project_dir))
+
+        assert result["success"] is True, result.get("error")
+        # User-provided wheel is left untouched
+        assert user_wheel.exists()
+        assert user_wheel.read_bytes() == b"user wheel"
+
+
+class TestPrepareDockerBuildCommand:
+    """Test _prepare_docker_build_command (added 2026-07-03)."""
+
+    def test_basic_command_with_tags(self):
+        from mlserver.container import _prepare_docker_build_command
+
+        cmd = _prepare_docker_build_command(["repo:latest", "repo:v1.0.0"])
+
+        assert cmd == [
+            "docker", "build", ".", "-f", "Dockerfile",
+            "-t", "repo:latest", "-t", "repo:v1.0.0",
+        ]
+
+    def test_build_args_and_no_cache(self):
+        from mlserver.container import _prepare_docker_build_command
+
+        cmd = _prepare_docker_build_command(
+            ["repo:latest"],
+            build_args={"HTTP_PROXY": "http://proxy:3128"},
+            no_cache=True
+        )
+
+        assert cmd == [
+            "docker", "build", ".", "-f", "Dockerfile",
+            "-t", "repo:latest",
+            "--build-arg", "HTTP_PROXY=http://proxy:3128",
+            "--no-cache",
+        ]
+
+
+class TestPrepareContainerMetadata:
+    """Test _prepare_container_metadata (added 2026-07-03)."""
+
+    def test_metadata_from_config_dict(self, temp_project_dir):
+        """Classifier dict from config is validated into ClassifierMetadata."""
+        from mlserver.config import ApiConfig
+        from mlserver.container import _prepare_container_metadata
+
+        config = AppConfig(
+            predictor=PredictorConfig(module="predictor", class_name="TestPredictor"),
+            classifier={
+                "name": "test-classifier",
+                "version": "1.0.0",
+                "repository": "test-repo",
+                "description": "Test classifier"
+            },
+            model={"version": "1.0.0"},
+            api=ApiConfig(version="v1", adapter="auto")
+        )
+
+        metadata = _prepare_container_metadata(config, str(temp_project_dir))
+
+        assert metadata.classifier.name == "test-classifier"
+        assert metadata.classifier.version == "1.0.0"
+        assert metadata.classifier.repository == "test-repo"
+        assert metadata.model.version == "1.0.0"
+
+    @pytest.mark.parametrize("env_tag,expected_version", [
+        # Hierarchical tag created by `mlserver tag`
+        ("sentiment-v2.3.4-mlserver-abc1234", "2.3.4"),
+        # Non-hierarchical tag with a -vX.Y.Z segment (regex fallback)
+        ("release-v9.9.9", "9.9.9"),
+        # Plain semver tag
+        ("3.2.1", "3.2.1"),
+    ])
+    def test_metadata_version_from_git_tag(self, temp_project_dir, env_tag, expected_version):
+        """When config omits the version, it is extracted from the git tag."""
+        from mlserver.config import ApiConfig
+        from mlserver.container import _prepare_container_metadata
+
+        config = AppConfig(
+            predictor=PredictorConfig(module="predictor", class_name="TestPredictor"),
+            classifier={"name": "sentiment", "repository": "test-repo"},
+            api=ApiConfig(version="v1", adapter="auto")
+        )
+        # auto_detect.get_git_info reads these env vars first (container-embedded metadata)
+        with patch.dict(os.environ, {"MLSERVER_GIT_TAG": env_tag,
+                                     "MLSERVER_GIT_COMMIT": "abc1234"}):
+            metadata = _prepare_container_metadata(config, str(temp_project_dir))
+
+        assert metadata.classifier.version == expected_version
+        assert metadata.model.version == expected_version
+
+    def test_metadata_missing_classifier_raises(self, temp_project_dir):
+        """A config without any classifier section raises ConfigurationError.
+
+        AppConfig auto-generates classifier metadata from the predictor class
+        name (even via model_construct, through model_post_init), so a bare
+        mock is used to reach the guard branch.
+        """
+        from mlserver.container import _prepare_container_metadata
+        from mlserver.errors import ConfigurationError
+
+        config = MagicMock()
+        config.classifier = None
+
+        with pytest.raises(ConfigurationError, match="missing required 'classifier' section"):
+            _prepare_container_metadata(config, str(temp_project_dir))
+
+
+class TestGenerateContainerTagsInternal:
+    """Test _generate_container_tags (added 2026-07-03)."""
+
+    def test_tags_use_git_version_for_classifier(self, temp_project_dir, mock_config):
+        """The classifier's git-tag version overrides the metadata version."""
+        from mlserver.container import _generate_container_tags
+
+        repo_name = temp_project_dir.name.lower()
+        metadata = MagicMock()
+        metadata.classifier.version = "1.0.0"
+
+        with patch('mlserver.version_control.GitVersionManager') as mock_gvm:
+            mock_gvm.return_value.get_current_version.return_value = "2.1.0"
+
+            tags = _generate_container_tags(
+                metadata, mock_config, str(temp_project_dir),
+                tag_prefix="ml-models", registry="registry.example.com",
+                classifier_name="clf-a"
+            )
+
+        assert metadata.classifier.version == "2.1.0"
+        assert f"registry.example.com/ml-models/{repo_name}/clf-a:latest" in tags
+        assert f"registry.example.com/ml-models/{repo_name}/clf-a:v2.1.0" in tags
+
+    def test_tags_missing_git_tag_uses_untagged_placeholder(self, temp_project_dir, mock_config):
+        """No git tag for the classifier yields explicit 'untagged' tags."""
+        from mlserver.container import _generate_container_tags
+
+        repo_name = temp_project_dir.name.lower()
+        metadata = MagicMock()
+        metadata.classifier.version = "1.0.0"
+
+        with patch('mlserver.version_control.GitVersionManager') as mock_gvm:
+            mock_gvm.return_value.get_current_version.return_value = None
+
+            tags = _generate_container_tags(
+                metadata, mock_config, str(temp_project_dir),
+                classifier_name="clf-b"
+            )
+
+        assert metadata.classifier.version == "missing-git-tag"
+        assert f"{repo_name}/clf-b:latest" in tags
+        assert f"{repo_name}/clf-b:untagged" in tags

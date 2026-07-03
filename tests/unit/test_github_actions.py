@@ -1,19 +1,19 @@
 """Unit tests for github_actions module."""
-import pytest
-import os
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import pytest
 
 from mlserver.github_actions import (
+    check_github_actions_setup,
+    generate_build_and_push_workflow,
     get_git_remote_info,
     get_mlserver_source_url,
-    generate_build_and_push_workflow,
-    check_github_actions_setup,
-    validate_workflow_compatibility,
     init_github_actions,
     parse_workflow_version,
+    validate_workflow_compatibility,
 )
 
 

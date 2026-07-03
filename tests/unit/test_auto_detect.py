@@ -1,19 +1,18 @@
 """Unit tests for auto_detect module."""
-import pytest
 import os
-import tempfile
 import subprocess
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from mlserver.auto_detect import (
-    get_git_project_name,
-    get_project_name,
-    get_git_info,
-    get_deployed_timestamp,
-    get_mlserver_package_version,
-    get_mlserver_git_info,
     generate_simplified_metadata,
+    get_deployed_timestamp,
+    get_git_info,
+    get_git_project_name,
+    get_mlserver_git_info,
+    get_mlserver_package_version,
+    get_project_name,
     get_simplified_info_response,
 )
 

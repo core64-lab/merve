@@ -1,15 +1,15 @@
 """Unit tests for concurrency_limiter module."""
-import pytest
 import asyncio
 import threading
 import time
-from unittest.mock import MagicMock
+
+import pytest
 from fastapi import HTTPException
 
 from mlserver.concurrency_limiter import (
-    PredictionSemaphore,
-    PredictionLimiter,
     AsyncPredictionLimiter,
+    PredictionLimiter,
+    PredictionSemaphore,
     create_prediction_limiter,
 )
 
@@ -118,7 +118,7 @@ class TestPredictionLimiter:
         """Test successful context manager usage."""
         sem = PredictionSemaphore(max_concurrent=1)
 
-        with PredictionLimiter(sem) as limiter:
+        with PredictionLimiter(sem):
             assert sem.active_predictions == 1
 
         assert sem.active_predictions == 0
@@ -292,7 +292,7 @@ class TestConcurrencyEdgeCases:
         """Test that limiters can be reused."""
         sem = PredictionSemaphore(max_concurrent=1)
 
-        for i in range(5):
+        for _ in range(5):
             with PredictionLimiter(sem):
                 assert sem.active_predictions == 1
             assert sem.active_predictions == 0

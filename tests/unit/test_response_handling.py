@@ -1,11 +1,12 @@
 """Test complex response handling and formatting."""
 
-import pytest
+
 import numpy as np
-from unittest.mock import Mock
-from mlserver.server import _to_jsonable, _format_response
-from mlserver.config import AppConfig, ApiConfig
+import pytest
+
+from mlserver.config import ApiConfig, AppConfig
 from mlserver.schemas import ClassifierMetadataResponse
+from mlserver.server import _format_response, _to_jsonable
 
 
 class TestToJsonable:

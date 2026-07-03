@@ -1,13 +1,10 @@
 """Basic tests for CLI module functionality."""
-import pytest
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 from mlserver.cli import (
-    resolve_relative_paths,
     _is_likely_file_path,
     _resolve_path,
+    resolve_relative_paths,
 )
 
 

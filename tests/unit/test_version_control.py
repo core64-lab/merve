@@ -1,15 +1,15 @@
 """Unit tests for version control functionality."""
 
-import pytest
 import subprocess
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from mlserver.version_control import (
     GitVersionManager,
     VersionControlError,
     get_version_for_push,
-    safe_push_container
+    safe_push_container,
 )
 
 

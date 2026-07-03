@@ -3,13 +3,14 @@
 Tests for minimal configs, auto-detection, and smart defaults.
 These tests define expected behavior FIRST as part of TDD.
 """
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import yaml
 
-from mlserver.config import AppConfig, PredictorConfig, ApiConfig
+import pytest
+import yaml
+from pydantic import ValidationError
+
+from mlserver.config import AppConfig
 
 
 class TestMinimalConfiguration:
@@ -160,7 +161,7 @@ class TestConfigurationValidation:
 
     def test_validate_rejects_empty_config(self):
         """Test that completely empty config is rejected."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             AppConfig.model_validate({})
 
     def test_validate_rejects_missing_predictor(self):
@@ -172,19 +173,19 @@ class TestConfigurationValidation:
             }
         }
 
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):
             AppConfig.model_validate(config_dict)
 
     def test_validate_predictor_requires_module_and_class(self):
         """Test that predictor requires both module and class_name."""
         # Missing class_name
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             AppConfig.model_validate({
                 "predictor": {"module": "test"}
             })
 
         # Missing module
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             AppConfig.model_validate({
                 "predictor": {"class_name": "Test"}
             })

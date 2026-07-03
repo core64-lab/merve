@@ -4,39 +4,30 @@
 
 This document serves as the central index for the MLServer test suite. It tracks test coverage, organization, and evolution plans. **Always update this document when modifying functionality or adding tests.**
 
-## Current Test Coverage Status (as of 2025-01-16)
+## Current Test Status (as of 2026-07-03)
 
-- **Total Coverage**: 32% (Target: 80%)
-- **Test Results**: 223 passing, 31 failing, 5 errors
-- **Critical Files Coverage**:
-  - `server.py`: 72% coverage
-  - `adapters.py`: 93% coverage
-  - `config.py`: 94% coverage
-  - `predictor_loader.py`: 9% coverage
-  - `metrics.py`: 45% coverage
-  - `concurrency_limiter.py`: 63% coverage
+Coverage numbers and pass/fail counts are **not** tracked in this document - they go stale. Get the live numbers instead:
+
+- **Test results**: `pytest tests/`
+- **Coverage**: `pytest tests/ --cov=mlserver --cov-report=term-missing`
+- **Machine-readable coverage**: `make coverage-export` (writes `coverage.json`)
 
 ## Test Organization
 
 ### Unit Tests (`tests/unit/`)
 
-| File | Purpose | Coverage | Status |
-|------|---------|----------|--------|
-| `test_adapters.py` | Input/output adapters | 93% | ✅ Good |
-| `test_config.py` | Configuration validation | 94% | ✅ Good |
-| `test_config_extended.py` | Extended config features | Partial | ⚠️ Needs work |
-| `test_cli_basic.py` | CLI functionality | Partial | ⚠️ Needs work |
-| `test_container.py` | Docker container building | Low | ❌ Many failures |
-| `test_server_unit.py` | Server components | 72% | ✅ Improved |
-| `test_version_control.py` | Git versioning & safe push | New | ✅ Complete |
+**24 test files** (as of 2026-07-03 - run `ls tests/unit/` for the current list) covering:
+
+- Adapters and input handling: `test_adapters.py`, `test_auto_detect.py`, `test_response_handling.py`
+- Configuration: `test_config.py`, `test_config_extended.py`, `test_config_simplification.py`, `test_settings.py`, `test_path_resolution.py`, `test_validation.py`
+- CLI and project tooling: `test_cli_basic.py`, `test_init_project.py`, `test_doctor.py`, `test_schema_generator.py`
+- Server and runtime: `test_server_unit.py`, `test_concurrency_limiter.py`, `test_predictor_loader.py`, `test_errors.py`, `test_logging_conf.py`, `test_metrics.py`
+- Multi-classifier support: `test_multi_classifier.py`
+- Containers and versioning: `test_container.py`, `test_github_actions.py`, `test_version.py`, `test_version_control.py`
 
 ### Integration Tests (`tests/integration/`)
 
-| File | Purpose | Coverage | Status |
-|------|---------|----------|--------|
-| `test_server_endpoints.py` | API endpoint testing | Good | ✅ Working |
-| `test_concurrency_simplified.py` | Concurrency control | Partial | ⚠️ Some failures |
-| `test_observability.py` | Metrics & logging | Good | ✅ Working |
+**7 test files** (as of 2026-07-03 - run `ls tests/integration/` for the current list) covering: API endpoints (`test_server_endpoints.py`), observability (`test_observability.py`), concurrency control (`test_concurrency_simplified.py`), complex response formats (`test_complex_response_formats.py`), container labels and hierarchical versioning (`test_container_labels_versioning.py`, `test_hierarchical_versioning.py`), and the end-to-end CLI workflow.
 
 ### Load Tests (`tests/load/`)
 
@@ -49,6 +40,8 @@ This document serves as the central index for the MLServer test suite. It tracks
 | File | Purpose | Status |
 |------|---------|--------|
 | `mock_predictor.py` | Mock ML predictor with delay | ✅ Working |
+| `mock_classifier_repo.py` | Mock multi-classifier repository | ✅ Working |
+| `concurrency_test_config.yaml` | Config for concurrency tests | ✅ Working |
 
 ## Recent Fixes Applied
 
@@ -58,7 +51,7 @@ This document serves as the central index for the MLServer test suite. It tracks
 - ✅ Fixed feature ordering in test configurations
 
 ### Endpoint Fixes
-- ✅ Updated URLs from `/v1/{classifier}/predict` to `/predict`
+- ✅ Updated URLs from the old versioned classifier-prefixed paths to flat `/predict`
 - ✅ Fixed payload format to use `{"payload": {"records": [...]}}` wrapper
 - ✅ Fixed health endpoint assertions (returns "ok" not "healthy")
 
@@ -67,8 +60,8 @@ This document serves as the central index for the MLServer test suite. It tracks
 - ✅ Fixed test fixtures to properly initialize predictor state
 - ✅ Added proper lifespan handling in test apps
 
-### Version Control Features (NEW)
-- ✅ Added `ml_server tag <major|minor|patch>` command for semantic versioning
+### Version Control Features
+- ✅ Added `mlserver tag <major|minor|patch>` command for semantic versioning
 - ✅ Implemented safe_push_container with registry tag validation
 - ✅ Enhanced /info endpoint to show git-based version information
 - ✅ Added comprehensive tests for version control functionality
@@ -102,9 +95,8 @@ This document serves as the central index for the MLServer test suite. It tracks
 - [ ] Test environment variable overrides
 
 ### Phase 4: CLI Tests (Priority: HIGH)
-**Files**: `mlserver/cli.py`, `mlserver/cli_v2.py`
-- [ ] Test classic CLI commands
-- [ ] Add tests for new Typer CLI (cli_v2.py)
+**File**: `mlserver/cli.py` (the Typer-based CLI - the only CLI)
+- [ ] Test CLI commands
 - [ ] Test config file auto-detection
 - [ ] Test multi-classifier selection
 - [ ] Test build/push/clean commands
@@ -125,19 +117,13 @@ This document serves as the central index for the MLServer test suite. It tracks
 - [ ] Test concurrent predictions with limiter
 - [ ] Test metrics collection accuracy
 
-### Phase 7: AI Init Tests (Priority: LOW)
-**Files**: `mlserver/ainit/`
-- [ ] Test notebook analysis
-- [ ] Test code generation
-- [ ] Test template rendering
-- [ ] Mock LLM responses for testing
-
-### Phase 8: Container Tests (Priority: MEDIUM)
-**File**: `mlserver/container.py`
-- [ ] Fix Docker detection tests
-- [ ] Test wheel building
-- [ ] Test Dockerfile generation
-- [ ] Test image building/pushing
+### Phase 7: Container Tests ✅ COMPLETED (2026-07-03, W0.4)
+**File**: `mlserver/container.py` (unit tests: `tests/unit/test_container.py`)
+- [x] Fix Docker detection tests
+- [x] Test wheel building (`_build_mlserver_wheel`, wheel cleanup vs user-wheel preservation)
+- [x] Test Dockerfile generation (COPY generation, config port, classifier_name fallback, wheel install)
+- [x] Test image building/pushing (build_container, push_container tag construction incl. partial failure, list/remove images)
+- All 16 stale skipped tests rewritten or deleted; all docker interactions mocked (no daemon needed)
 
 ## Test Commands
 
@@ -167,6 +153,13 @@ cd tests/load && locust -f locustfile.py --host http://localhost:8000
 ```
 
 ## Testing Guidelines
+
+### Skip Policy (RFC 0001 / D21)
+
+- Every `@pytest.mark.skip` / `skipif` must carry a **reason and a date** (e.g. `reason="... (2026-07-03)"`).
+- Any skip older than **one sprint** is rewritten against the current API or deleted - permanently-skipped tests are not allowed to accumulate.
+- The only acceptable long-lived skips are environment-gated ones (e.g. tests requiring a live docker daemon), which must state the gating condition in the reason.
+- Applied 2026-07-03: the 16 stale skips in `tests/unit/test_container.py` were rewritten or deleted (W0.4).
 
 ### When Adding New Functionality
 
@@ -223,8 +216,8 @@ def test_config_validation():
 ## Known Issues and TODOs
 
 ### High Priority
-- [ ] Fix remaining container.py test failures
-- [ ] Add comprehensive CLI v2 tests
+- [x] Fix remaining container.py test failures (done 2026-07-03: skip rewrite, W0.4)
+- [ ] Add comprehensive CLI tests
 - [ ] Test multi-classifier functionality end-to-end
 
 ### Medium Priority
@@ -233,7 +226,6 @@ def test_config_validation():
 - [ ] Test model hot-reloading scenarios
 
 ### Low Priority
-- [ ] Mock AI init LLM calls for deterministic testing
 - [ ] Add property-based tests for adapters
 - [ ] Create test data generators
 

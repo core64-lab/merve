@@ -1,12 +1,11 @@
 """Integration tests for hierarchical versioning and tagging system."""
 
-import os
 import subprocess
 import tempfile
-import shutil
-import yaml
 from pathlib import Path
+
 import pytest
+import yaml
 
 
 class TestHierarchicalVersioningWorkflow:
@@ -283,9 +282,10 @@ class TestHierarchicalVersioningWorkflow:
 
         git_mgr = GitVersionManager(repo_path)
 
-        # Create uncommitted file
-        dirty_file = Path(repo_path) / "dirty.txt"
-        dirty_file.write_text("uncommitted changes")
+        # Modify a TRACKED file without committing.
+        # (Untracked files deliberately do NOT count as a dirty working tree.)
+        with open(config_path, "a") as f:
+            f.write("\n# uncommitted change\n")
 
         # Should raise error when trying to tag
         with pytest.raises(VersionControlError) as exc_info:
@@ -302,8 +302,8 @@ class TestHierarchicalVersioningWorkflow:
         git_mgr = GitVersionManager(repo_path)
 
         # Tag different classifiers
-        sentiment_result = git_mgr.tag_version("major", "sentiment", allow_missing_mlserver=False)
-        intent_result = git_mgr.tag_version("minor", "intent", allow_missing_mlserver=False)
+        git_mgr.tag_version("major", "sentiment", allow_missing_mlserver=False)
+        git_mgr.tag_version("minor", "intent", allow_missing_mlserver=False)
 
         # Get all tags from git
         result = subprocess.run(
@@ -329,8 +329,8 @@ class TestHierarchicalVersioningWorkflow:
 
         from mlserver.version_control import (
             GitVersionManager,
+            VersionControlError,
             get_version_for_push,
-            VersionControlError
         )
 
         git_mgr = GitVersionManager(repo_path)
@@ -415,9 +415,10 @@ class TestValidatePushReadiness:
         # Tag the commit
         git_mgr.tag_version("minor", "test_classifier", allow_missing_mlserver=False)
 
-        # Create uncommitted changes
-        dirty_file = Path(repo_path) / "dirty.txt"
-        dirty_file.write_text("uncommitted")
+        # Modify a TRACKED file without committing.
+        # (Untracked files deliberately do NOT count as a dirty working tree.)
+        with open(Path(repo_path) / "README.md", "a") as f:
+            f.write("\nuncommitted change\n")
 
         # Validate - should not be ready
         validation = git_mgr.validate_push_readiness("test_classifier")
@@ -437,9 +438,10 @@ class TestValidatePushReadiness:
         # Tag the commit
         git_mgr.tag_version("minor", "test_classifier", allow_missing_mlserver=False)
 
-        # Create uncommitted changes
-        dirty_file = Path(repo_path) / "dirty.txt"
-        dirty_file.write_text("uncommitted")
+        # Modify a TRACKED file without committing.
+        # (Untracked files deliberately do NOT count as a dirty working tree.)
+        with open(Path(repo_path) / "README.md", "a") as f:
+            f.write("\nuncommitted change\n")
 
         # Validate with force - should be ready with warnings
         validation = git_mgr.validate_push_readiness("test_classifier", force=True)
@@ -598,9 +600,9 @@ class TestPhase2HierarchicalTagParsing:
 
         from mlserver.version_control import (
             GitVersionManager,
-            parse_hierarchical_tag,
+            get_mlserver_commit_hash,
             get_tag_commits,
-            get_mlserver_commit_hash
+            parse_hierarchical_tag,
         )
 
         git_mgr = GitVersionManager(repo_path)

@@ -1,16 +1,34 @@
 """Integration tests for CLI v2 workflow using mock classifier repo."""
 
-import tempfile
-import time
-import requests
-import pytest
-from pathlib import Path
+import subprocess
 import sys
-import os
+import tempfile
+from pathlib import Path
+
+import pytest
+import requests
 
 # Add parent directory to path to import fixtures
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from fixtures.mock_classifier_repo import MockClassifierRepo
+
+
+def _docker_daemon_available() -> bool:
+    """Return True if the Docker CLI is installed AND the daemon responds.
+
+    `mlserver build` needs a running daemon, not just the docker binary
+    (see mlserver.container.check_docker_availability, which only checks
+    the binary).
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            timeout=15,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 class TestCLIv2WorkflowIntegration:
@@ -34,15 +52,12 @@ class TestCLIv2WorkflowIntegration:
 
     def test_single_classifier_serve(self, single_classifier_repo):
         """Test serving a single classifier."""
-        # Start server in background
+        # Start server in background (waits for /healthz to respond)
         process = single_classifier_repo.serve_in_background(port=8080)
 
         try:
-            # Wait for server to start
-            time.sleep(3)
-
             # Test health endpoint
-            response = requests.get("http://localhost:8080/healthz")
+            response = requests.get("http://localhost:8080/healthz", timeout=5)
             assert response.status_code == 200
             health = response.json()
             assert health["status"] == "ok"
@@ -55,46 +70,44 @@ class TestCLIv2WorkflowIntegration:
                     ]
                 }
             }
-            response = requests.post("http://localhost:8080/predict", json=payload)
+            response = requests.post("http://localhost:8080/predict", json=payload, timeout=30)
             assert response.status_code == 200
             result = response.json()
             assert "predictions" in result
 
         finally:
             # Clean up
-            process.terminate()
-            process.wait(timeout=5)
+            single_classifier_repo.stop_server(process)
 
     def test_multi_classifier_serve(self, multi_classifier_repo):
         """Test serving multiple classifiers."""
-        # Test sentiment classifier
-        process1 = multi_classifier_repo.serve_in_background(
-            classifier_name="sentiment", port=8081
-        )
-
-        # Test intent classifier
-        process2 = multi_classifier_repo.serve_in_background(
-            classifier_name="intent", port=8082
-        )
-
+        process1 = None
+        process2 = None
         try:
-            # Wait for servers to start
-            time.sleep(3)
+            # Start sentiment classifier (waits for readiness)
+            process1 = multi_classifier_repo.serve_in_background(
+                classifier_name="sentiment", port=8081
+            )
+
+            # Start intent classifier (waits for readiness)
+            process2 = multi_classifier_repo.serve_in_background(
+                classifier_name="intent", port=8082
+            )
 
             # Test sentiment server
-            response = requests.get("http://localhost:8081/healthz")
+            response = requests.get("http://localhost:8081/healthz", timeout=5)
             assert response.status_code == 200
 
             # Test intent server
-            response = requests.get("http://localhost:8082/healthz")
+            response = requests.get("http://localhost:8082/healthz", timeout=5)
             assert response.status_code == 200
 
         finally:
             # Clean up
-            process1.terminate()
-            process1.wait(timeout=5)
-            process2.terminate()
-            process2.wait(timeout=5)
+            if process1 is not None:
+                multi_classifier_repo.stop_server(process1)
+            if process2 is not None:
+                multi_classifier_repo.stop_server(process2)
 
     def test_version_command(self, single_classifier_repo):
         """Test the version command."""
@@ -149,6 +162,9 @@ class TestCLIv2WorkflowIntegration:
 
     def test_build_command(self, single_classifier_repo):
         """Test building Docker container."""
+        if not _docker_daemon_available():
+            pytest.skip("Docker daemon not available")
+
         # Make a change and tag
         single_classifier_repo.make_change()
         single_classifier_repo.run_cli_command(
@@ -158,40 +174,35 @@ class TestCLIv2WorkflowIntegration:
         # Build container
         result = single_classifier_repo.run_cli_command("build")
 
-        # Note: This will fail if Docker is not available
-        # Check for either success or Docker-not-found error
-        if "docker" in result.stderr.lower() and "not found" in result.stderr.lower():
-            pytest.skip("Docker not available")
-        else:
-            assert result.returncode == 0
-            assert "Successfully built" in result.stdout or "Building" in result.stdout
+        assert result.returncode == 0
+        assert "Successfully built" in result.stdout or "Building" in result.stdout
 
     def test_info_command(self, single_classifier_repo):
         """Test the info command for getting server information."""
-        # Start server
+        # Start server (waits for readiness)
         process = single_classifier_repo.serve_in_background(port=8083)
 
         try:
-            # Wait for server to start
-            time.sleep(3)
-
             # Get info
-            response = requests.get("http://localhost:8083/info")
+            response = requests.get("http://localhost:8083/info", timeout=5)
             assert response.status_code == 200
             info = response.json()
 
+            # Simplified /info response contract
             assert info["classifier"] == "test-classifier"
-            assert info["version"] == "1.0.0"
-            assert info["repository"] == "mlserver"
+            assert info["predictor_class"] == "TestPredictor"
+            assert "project" in info
+            assert "classifier_repository" in info
+            assert info["endpoints"]["predict"] == "/predict"
+            assert info["endpoints"]["health"] == "/healthz"
 
         finally:
             # Clean up
-            process.terminate()
-            process.wait(timeout=5)
+            single_classifier_repo.stop_server(process)
 
     def test_list_classifiers(self, multi_classifier_repo):
         """Test listing available classifiers."""
-        result = multi_classifier_repo.run_cli_command("list")
+        result = multi_classifier_repo.run_cli_command("list-classifiers")
         assert result.returncode == 0
         assert "sentiment" in result.stdout
         assert "intent" in result.stdout

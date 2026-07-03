@@ -1,17 +1,17 @@
 """Unit tests for init_project module."""
-import pytest
 import tempfile
-import yaml
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+
+import yaml
 
 from mlserver.init_project import (
-    sanitize_name,
+    check_project_files,
+    generate_gitignore,
     generate_mlserver_yaml,
     generate_predictor_skeleton,
-    generate_gitignore,
     init_mlserver_project,
-    check_project_files,
+    sanitize_name,
 )
 
 
@@ -398,8 +398,14 @@ predictor:
             assert all_present is False
             assert any("my_predictor.py" in m for m in missing)
 
-    def test_missing_github_workflow(self):
-        """Test returns missing when GitHub workflow not present."""
+    def test_missing_github_workflow_not_required(self):
+        """A missing GitHub workflow must NOT be reported as a missing file.
+
+        The workflow is intentionally not hard-required by check_project_files
+        ('mlserver init --no-github' is a supported setup); it is covered by
+        the warning-level validation.GitHubActionsConfiguredValidator instead
+        (see tests/unit/test_validation.py::TestGitHubActionsConfiguredValidator).
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             mlserver_yaml = Path(tmpdir) / "mlserver.yaml"
             mlserver_yaml.write_text("""
@@ -412,8 +418,8 @@ predictor:
 
             all_present, missing = check_project_files(tmpdir)
 
-            assert all_present is False
-            assert any("ml-classifier-container-build.yml" in m for m in missing)
+            assert all_present is True
+            assert not any("ml-classifier-container-build.yml" in m for m in missing)
 
     def test_multi_classifier_config(self):
         """Test handles multi-classifier config."""

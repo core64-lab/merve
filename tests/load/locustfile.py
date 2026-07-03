@@ -13,9 +13,10 @@ Usage:
            --users 10 --spawn-rate 2 --run-time 60s --headless
 """
 
-import random
 import json
-from locust import HttpUser, task, between
+import random
+
+from locust import HttpUser, between, task
 
 
 class MLServerUser(HttpUser):
@@ -217,8 +218,9 @@ class MLServerUser(HttpUser):
 
     @task(2)
     def batch_predict(self):
-        """Test batch predict endpoint"""
-        # Generate larger batch for batch endpoint
+        """Test batch prediction (multiple records via /predict)"""
+        # Generate larger batch; /predict handles batches natively
+        # (the dedicated /batch_predict endpoint no longer exists)
         batch_payload = {
             "payload": {
                 "records": [
@@ -240,7 +242,7 @@ class MLServerUser(HttpUser):
         }
 
         with self.client.post(
-            "/batch_predict",
+            "/predict",
             json=batch_payload,
             catch_response=True
         ) as response:

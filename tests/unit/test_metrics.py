@@ -1,19 +1,11 @@
-import pytest
-import time
+from unittest.mock import Mock
+
 import numpy as np
 import pandas as pd
-from unittest.mock import Mock, MagicMock
 from fastapi import Request, Response
-from prometheus_client import REGISTRY, CollectorRegistry
+from prometheus_client import REGISTRY
 
-from mlserver.metrics import (
-    MetricsCollector,
-    init_metrics,
-    get_metrics,
-    reset_metrics,
-    count_samples,
-    create_test_registry
-)
+from mlserver.metrics import MetricsCollector, count_samples, get_metrics, init_metrics
 
 
 class TestCountSamples:
@@ -308,7 +300,6 @@ class TestMetricsModule:
         assert collector1.model_name == "Model1"
 
         # Clear registry before reinitializing to avoid duplicate metrics
-        from prometheus_client import REGISTRY
         collectors = list(REGISTRY._collector_to_names.keys())
         for collector in collectors:
             try:
@@ -368,7 +359,7 @@ class TestMetricsIntegration:
         collector = MetricsCollector("ConcurrentTest")
 
         # Simulate multiple concurrent requests
-        for i in range(5):
+        for _ in range(5):
             collector.inc_active_requests()
 
         # Process requests
