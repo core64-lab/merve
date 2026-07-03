@@ -508,8 +508,7 @@ class TestDockerfileGeneration:
 
     def test_generate_dockerfile_wheel_install_section(self, temp_project_dir, mock_config):
         """has_wheel=True copies the wheel in, installs it, then removes it."""
-        from mlserver.settings import get_settings
-        temp_dir = get_settings().container.temp_dir
+        from mlserver.defaults import CONTAINER_TEMP_DIR as temp_dir
 
         result = generate_dockerfile(
             str(temp_project_dir),
@@ -523,6 +522,89 @@ class TestDockerfileGeneration:
             f"RUN pip install --no-cache-dir {temp_dir}/mlserver_fastapi_wrapper*.whl "
             f"&& rm {temp_dir}/mlserver_fastapi_wrapper*.whl"
         ) in result
+
+        # The wheel is installed in the BUILDER stage (into /opt/venv), not
+        # in the runtime stage
+        builder_stage = result.split("# ============================ Stage 2")[0]
+        assert f"COPY mlserver_fastapi_wrapper*.whl {temp_dir}/" in builder_stage
+
+    def test_generate_dockerfile_two_stage_structure(self, temp_project_dir, mock_config):
+        """Generated Dockerfile is a two-stage build (RFC 0001, D15).
+
+        Stage 1 (builder): build-essential + venv + dependency install.
+        Stage 2 (runtime): curl only, venv copied over, no compilers.
+        """
+        result = generate_dockerfile(
+            str(temp_project_dir),
+            mock_config,
+            ["predictor.py", "mlserver.yaml"]
+        )
+
+        # Exactly two FROM directives, first one named "builder"
+        from_lines = [
+            line for line in result.splitlines() if line.startswith("FROM ")
+        ]
+        assert len(from_lines) == 2
+        assert from_lines[0].endswith(" AS builder")
+        assert " AS " not in from_lines[1]
+
+        # Builder creates the venv; runtime copies it and puts it on PATH
+        assert "RUN python -m venv /opt/venv" in result
+        assert "COPY --from=builder /opt/venv /opt/venv" in result
+        assert result.count('ENV PATH="/opt/venv/bin:$PATH"') == 2
+
+        # Build tooling only in the builder stage
+        builder_stage, runtime_stage = result.split("# ============================ Stage 2")
+        assert "build-essential" in builder_stage
+        assert "build-essential" not in runtime_stage
+        assert "gcc" not in runtime_stage
+        assert "g++" not in runtime_stage
+
+        # Runtime stage installs curl (healthcheck) and runs the app
+        assert "curl" in runtime_stage
+        assert "WORKDIR /app" in runtime_stage
+        assert "HEALTHCHECK" in runtime_stage
+        assert 'CMD ["mlserver", "serve", "mlserver.yaml"]' in runtime_stage
+
+        # Project files are copied in the runtime stage, not the builder
+        assert "COPY predictor.py" in runtime_stage
+
+    def test_generate_dockerfile_requirements_installed_in_builder(
+        self, temp_project_dir, mock_config
+    ):
+        """requirements.txt is installed in the builder stage (into the venv)."""
+        result = generate_dockerfile(
+            str(temp_project_dir),
+            mock_config,
+            ["predictor.py", "mlserver.yaml"]
+        )
+
+        builder_stage, runtime_stage = result.split("# ============================ Stage 2")
+        assert "COPY requirements.txt ." in builder_stage
+        assert "RUN pip install --no-cache-dir -r requirements.txt" in builder_stage
+        assert "RUN pip install --no-cache-dir -r requirements.txt" not in runtime_stage
+
+    def test_generate_dockerfile_git_only_in_builder_stage(
+        self, temp_project_dir, mock_config
+    ):
+        """needs_git installs git in the builder stage only."""
+        result = generate_dockerfile(
+            str(temp_project_dir),
+            mock_config,
+            ["predictor.py"],
+            needs_git=True
+        )
+
+        builder_stage, runtime_stage = result.split("# ============================ Stage 2")
+        assert "git" in builder_stage
+        # runtime apt line installs curl only
+        runtime_apt = [
+            line for line in runtime_stage.splitlines() if "apt-get install" in line
+        ]
+        assert len(runtime_apt) == 1
+        assert "git" not in "".join(
+            runtime_stage.split("apt-get install")[1].split("rm -rf")[0]
+        )
 
     def test_write_docker_files_uses_config_base_image(self, temp_project_dir):
         """_write_docker_files honors build.base_image from config (custom base image)."""
@@ -661,7 +743,7 @@ class TestDockerOperations:
         assert "predictor.py" in result["required_files"]
         assert "model.pkl" in result["required_files"]
 
-        # Build command: docker build with -t for every tag, BuildKit disabled
+        # Build command: docker build with -t for every tag
         # (the router also records passed-through git Popen calls - filter them)
         docker_calls = [c for c in mock_popen.call_args_list if c[0][0][0] == "docker"]
         assert len(docker_calls) == 1
@@ -670,7 +752,9 @@ class TestDockerOperations:
         for tag in result["tags"]:
             assert tag in build_cmd
         assert docker_calls[0].kwargs["cwd"] == str(temp_project_dir)
-        assert docker_calls[0].kwargs["env"]["DOCKER_BUILDKIT"] == "0"
+        # BuildKit is no longer force-disabled (RFC 0001, D15): no custom env
+        # is injected, the daemon default applies
+        assert "env" not in docker_calls[0].kwargs
 
     def test_build_container_docker_missing_fails_gracefully(self, temp_project_dir):
         """Missing docker binary yields success=False, not an exception.
@@ -1605,6 +1689,137 @@ class TestContainerLabels:
         assert "com.classifier.predictor.module" in labels
 
 
+class TestOCIAndMerveLabels:
+    """OCI + dev.merve.* label set (RFC 0001, D5 / W1.4)."""
+
+    def _labels(self, project_dir, config, git_url=None, git_info=None):
+        """Generate labels with fully mocked git/tool lookups."""
+        from mlserver.container import generate_container_labels
+
+        def fake_run(cmd, *args, **kwargs):
+            if cmd[:4] == ["git", "config", "--get", "remote.origin.url"]:
+                if git_url:
+                    return MagicMock(returncode=0, stdout=git_url + "\n")
+                return MagicMock(returncode=1, stdout="")
+            return MagicMock(returncode=1, stdout="")
+
+        with patch('mlserver.container.get_mlserver_commit_hash', return_value="abc1234"), \
+             patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container.get_git_info', return_value=git_info), \
+             patch('mlserver.container.GitVersionManager') as mock_gvm, \
+             patch('mlserver.container.get_repository_name', return_value="test-repo"), \
+             patch('mlserver.container.subprocess.run', side_effect=fake_run):
+
+            mock_gvm.return_value.get_current_version.return_value = "1.2.3"
+
+            return generate_container_labels(
+                str(project_dir),
+                classifier_name="my-classifier",
+                config=config
+            )
+
+    def test_oci_label_set_complete(self, temp_project_dir, mock_config):
+        """source/revision/version/created/title are all emitted."""
+        from mlserver.version import GitInfo
+
+        git_info = GitInfo(tag=None, commit="deadbee1", branch="main", is_dirty=False)
+        labels = self._labels(
+            temp_project_dir, mock_config,
+            git_url="https://github.com/enmacc/test-repo.git",
+            git_info=git_info,
+        )
+
+        assert labels["org.opencontainers.image.source"] == (
+            "https://github.com/enmacc/test-repo"
+        )
+        assert labels["org.opencontainers.image.revision"] == "deadbee1"
+        assert labels["org.opencontainers.image.version"] == "1.2.3"
+        assert "org.opencontainers.image.created" in labels
+        # Title is the plain classifier name (D5)
+        assert labels["org.opencontainers.image.title"] == "my-classifier"
+
+    def test_oci_source_normalizes_ssh_remote(self, temp_project_dir, mock_config):
+        """git@ SSH remotes are normalized to https for the source label."""
+        labels = self._labels(
+            temp_project_dir, mock_config,
+            git_url="git@github.com:enmacc/test-repo.git",
+        )
+
+        assert labels["org.opencontainers.image.source"] == (
+            "https://github.com/enmacc/test-repo"
+        )
+        # the raw remote stays available on the legacy label
+        assert labels["com.classifier.git_url"] == "git@github.com:enmacc/test-repo.git"
+
+    def test_dev_merve_labels(self, temp_project_dir, mock_config):
+        """dev.merve.{classifier,mlserver_version,mlserver_commit} are emitted."""
+        import mlserver as mlserver_module
+
+        labels = self._labels(temp_project_dir, mock_config)
+
+        assert labels["dev.merve.classifier"] == "my-classifier"
+        assert labels["dev.merve.mlserver_commit"] == "abc1234"
+        assert labels["dev.merve.mlserver_version"] == mlserver_module.__version__
+
+    def test_legacy_labels_kept_this_release(self, temp_project_dir, mock_config):
+        """All pre-D5 labels survive for dashboard continuity."""
+        labels = self._labels(
+            temp_project_dir, mock_config,
+            git_url="https://github.com/enmacc/test-repo.git",
+        )
+
+        for legacy_key in (
+            "com.mlserver.commit",
+            "com.mlserver.version",
+            "com.classifier.name",
+            "com.classifier.version",
+            "com.classifier.repository",
+            "com.classifier.git_url",
+            "com.classifier.predictor.class",
+            "com.classifier.predictor.module",
+        ):
+            assert legacy_key in labels, f"legacy label {legacy_key} was dropped"
+
+    def test_version_falls_back_to_config_without_git_tags(
+        self, temp_project_dir, mock_config
+    ):
+        """Without git tags the (display-only) config version fills the label."""
+        from mlserver.container import generate_container_labels
+
+        with patch('mlserver.container.get_mlserver_commit_hash', return_value=None), \
+             patch('mlserver.container._get_mlserver_git_url', return_value=None), \
+             patch('mlserver.container.get_git_info', return_value=None), \
+             patch('mlserver.container.GitVersionManager') as mock_gvm, \
+             patch('mlserver.container.get_repository_name', return_value="test-repo"):
+
+            mock_gvm.return_value.get_current_version.return_value = None
+
+            labels = generate_container_labels(
+                str(temp_project_dir),
+                classifier_name="my-classifier",
+                config=mock_config
+            )
+
+        # mock_config carries classifier version 1.0.0
+        assert labels["com.classifier.version"] == "1.0.0"
+        assert labels["org.opencontainers.image.version"] == "1.0.0"
+
+    @pytest.mark.parametrize("raw,expected", [
+        ("git@github.com:org/repo.git", "https://github.com/org/repo"),
+        ("git@github.com:org/repo", "https://github.com/org/repo"),
+        ("ssh://git@github.com/org/repo.git", "https://github.com/org/repo"),
+        ("https://github.com/org/repo.git", "https://github.com/org/repo"),
+        ("https://github.com/org/repo", "https://github.com/org/repo"),
+        ("http://gitlab.local/org/repo.git", "https://gitlab.local/org/repo"),
+        ("git+https://github.com/org/repo.git", "https://github.com/org/repo"),
+    ])
+    def test_normalize_git_url_to_https(self, raw, expected):
+        """Remote URL shapes normalize to a browsable https URL."""
+        from mlserver.container import _normalize_git_url_to_https
+
+        assert _normalize_git_url_to_https(raw) == expected
+
+
 class TestListImages:
     """Test list_images function."""
 
@@ -2082,6 +2297,29 @@ class TestPrepareDockerBuildCommand:
             "--build-arg", "HTTP_PROXY=http://proxy:3128",
             "--no-cache",
         ]
+
+    def test_platform_flag(self):
+        """--platform is forwarded to docker build (RFC 0001, D15)."""
+        from mlserver.container import _prepare_docker_build_command
+
+        cmd = _prepare_docker_build_command(
+            ["repo:latest"],
+            platform="linux/amd64"
+        )
+
+        assert cmd == [
+            "docker", "build", ".", "-f", "Dockerfile",
+            "-t", "repo:latest",
+            "--platform", "linux/amd64",
+        ]
+
+    def test_no_platform_flag_by_default(self):
+        """Without a platform argument no --platform flag is emitted."""
+        from mlserver.container import _prepare_docker_build_command
+
+        cmd = _prepare_docker_build_command(["repo:latest"])
+
+        assert "--platform" not in cmd
 
 
 class TestPrepareContainerMetadata:

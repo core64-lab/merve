@@ -3,16 +3,17 @@ Docker containerization utilities for ML classifier projects.
 """
 import ast
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from .config import AppConfig
+from .defaults import CONTAINER_TEMP_DIR, DEFAULT_BASE_IMAGE
 
 # Import ContainerError from errors module for consistency
 from .errors import ContainerError
-from .settings import get_settings
 from .version import (
     ClassifierMetadata,
     generate_container_tags,
@@ -20,7 +21,35 @@ from .version import (
     get_repository_name,
     load_classifier_metadata,
 )
-from .version_control import GitVersionManager, get_mlserver_commit_hash, parse_hierarchical_tag
+from .version_control import GitVersionManager, get_mlserver_commit_hash, parse_classifier_tag
+
+
+def _normalize_git_url_to_https(url: str) -> str:
+    """Normalize a git remote URL to a plain https URL.
+
+    Used for the ``org.opencontainers.image.source`` label (RFC 0001, D5),
+    which by convention carries a browsable https URL.
+
+    Examples:
+        git@github.com:org/repo.git      -> https://github.com/org/repo
+        ssh://git@github.com/org/repo    -> https://github.com/org/repo
+        https://github.com/org/repo.git  -> https://github.com/org/repo
+    """
+    url = url.strip()
+    if url.startswith("git+"):
+        url = url[len("git+"):]
+
+    # SSH forms: git@host:org/repo(.git) or ssh://git@host/org/repo(.git)
+    match = re.match(r'^(?:ssh://)?git@([^:/]+)[:/](.+?)(?:\.git)?/?$', url)
+    if match:
+        return f"https://{match.group(1)}/{match.group(2)}"
+
+    # HTTP(S) forms: strip trailing .git and slash
+    match = re.match(r'^https?://(.+?)(?:\.git)?/?$', url)
+    if match:
+        return f"https://{match.group(1)}"
+
+    return url
 
 
 def generate_container_labels(
@@ -31,10 +60,14 @@ def generate_container_labels(
     """Generate Docker labels for full container traceability.
 
     Creates comprehensive labels including:
-    - Standard OCI image labels
+    - Standard OCI image labels (source/revision/version/created/title)
+    - Custom ``dev.merve.*`` labels (RFC 0001, D5)
     - MLServer tool version and commit
     - Classifier version and git information
     - Build timestamp
+
+    The legacy ``com.mlserver.*`` / ``com.classifier.*`` labels are all kept
+    for this release (dashboard continuity); removal is scheduled later.
 
     Args:
         project_path: Path to classifier project
@@ -71,10 +104,12 @@ def generate_container_labels(
         labels["com.mlserver.git_url"] = mlserver_git_url
 
     # Get mlserver version from package
+    mlserver_version = None
     try:
         import mlserver
-        if hasattr(mlserver, '__version__'):
-            labels["com.mlserver.version"] = mlserver.__version__
+        mlserver_version = getattr(mlserver, '__version__', None)
+        if mlserver_version:
+            labels["com.mlserver.version"] = mlserver_version
     except Exception:
         pass
 
@@ -112,7 +147,7 @@ def generate_container_labels(
     if classifier_name:
         labels["com.classifier.name"] = classifier_name
 
-        # Get version from git tag
+        # Get version from git tag (reads canonical AND legacy tag formats)
         git_mgr = GitVersionManager(project_path)
         version = git_mgr.get_current_version(classifier_name)
         if version:
@@ -120,23 +155,35 @@ def generate_container_labels(
 
         # If on a tagged commit, parse the tag for full info
         if classifier_git_info and classifier_git_info.tag:
-            parsed = parse_hierarchical_tag(classifier_git_info.tag)
-            if parsed["format"] == "valid" and parsed["classifier"] == classifier_name:
+            parsed = parse_classifier_tag(classifier_git_info.tag)
+            if parsed and parsed["classifier"] == classifier_name:
                 # Tag matches this classifier
                 labels["com.classifier.version"] = parsed["version"]
-                labels["com.classifier.tag.mlserver_commit"] = parsed["mlserver_commit"]
+                if parsed["mlserver_commit"]:
+                    labels["com.classifier.tag.mlserver_commit"] = parsed["mlserver_commit"]
+
+    # Fall back to the config's (display-only) version when git has no tag yet
+    if "com.classifier.version" not in labels and config is not None:
+        config_version = None
+        if getattr(config, "classifier", None):
+            if isinstance(config.classifier, dict):
+                config_version = config.classifier.get("version")
+            else:
+                config_version = config.classifier.classifier.version
+        if config_version:
+            labels["com.classifier.version"] = str(config_version)
 
     # Repository name
     repo_name = get_repository_name(project_path)
     labels["com.classifier.repository"] = repo_name
 
     # ========================================================================
-    # Standard OCI Labels
+    # Standard OCI Labels (RFC 0001, D5)
     # ========================================================================
 
-    # Image metadata
+    # Image metadata: title is the classifier name
     if classifier_name:
-        labels["org.opencontainers.image.title"] = f"{classifier_name}-classifier"
+        labels["org.opencontainers.image.title"] = classifier_name
         labels["org.opencontainers.image.description"] = f"ML classifier: {classifier_name}"
 
     # Version from classifier
@@ -146,13 +193,26 @@ def generate_container_labels(
     # Build timestamp
     labels["org.opencontainers.image.created"] = build_time
 
-    # Source repository
+    # Source repository (https-normalized project git remote URL)
     if "com.classifier.git_url" in labels:
-        labels["org.opencontainers.image.source"] = labels["com.classifier.git_url"]
+        labels["org.opencontainers.image.source"] = _normalize_git_url_to_https(
+            labels["com.classifier.git_url"]
+        )
 
-    # Revision (git commit)
+    # Revision (project git commit)
     if "com.classifier.git_commit" in labels:
         labels["org.opencontainers.image.revision"] = labels["com.classifier.git_commit"]
+
+    # ========================================================================
+    # Custom merve labels (RFC 0001, D5)
+    # ========================================================================
+
+    if classifier_name:
+        labels["dev.merve.classifier"] = classifier_name
+    if mlserver_version:
+        labels["dev.merve.mlserver_version"] = mlserver_version
+    if mlserver_commit:
+        labels["dev.merve.mlserver_commit"] = mlserver_commit
 
     # ========================================================================
     # Additional Metadata from Config
@@ -298,7 +358,7 @@ def _find_mlserver_source() -> Optional[str]:
             try:
                 import tomllib
             except ImportError:
-                # Python < {}, use tomli".format(get_settings().container.python_version_threshold)
+                # Python < 3.11: fall back to tomli
                 try:
                     import tomli as tomllib
                 except ImportError:
@@ -627,7 +687,11 @@ def generate_dockerfile(project_path: str, config: AppConfig,
                        has_wheel: bool = False, needs_git: bool = False,
                        classifier_name: Optional[str] = None) -> str:
     """
-    Generate Dockerfile content for the classifier project with intelligent file copying.
+    Generate a two-stage Dockerfile for the classifier project (RFC 0001, D15).
+
+    Stage 1 (builder) installs build tooling and creates a virtualenv at
+    /opt/venv with all Python dependencies; stage 2 (runtime) copies only the
+    virtualenv and the project files, keeping compilers out of the final image.
 
     Args:
         project_path: Path to the project
@@ -635,7 +699,7 @@ def generate_dockerfile(project_path: str, config: AppConfig,
         required_files: List of files to copy
         base_image: Base Docker image (optional)
         has_wheel: Whether a wheel file is available
-        needs_git: Whether git needs to be installed in the container
+        needs_git: Whether git needs to be installed in the builder stage
         classifier_name: Name of classifier being built (for labels)
 
     Returns:
@@ -644,12 +708,12 @@ def generate_dockerfile(project_path: str, config: AppConfig,
 
     # Use default base image if not provided
     if base_image is None:
-        base_image = get_settings().container.default_base_image
+        base_image = DEFAULT_BASE_IMAGE
 
     # Use modern config file format
     config_file = "mlserver.yaml"
 
-    # Check for requirements.txt
+    # Check for requirements.txt (installed in the builder stage)
     requirements_file = Path(project_path) / "requirements.txt"
     additional_deps = ""
     if requirements_file.exists():
@@ -737,16 +801,18 @@ def generate_dockerfile(project_path: str, config: AppConfig,
 
     copy_section = "\n".join(copy_commands) if copy_commands else "COPY . ."
 
-    # Determine system dependencies based on installation method
-    base_system_deps = ["gcc", "g++", "curl"]
+    # Builder-stage system dependencies: compilers for source builds, plus
+    # git when pip must clone the framework. None of these reach the runtime
+    # stage, which only needs curl for the healthcheck.
+    builder_system_deps = ["build-essential"]
     if needs_git:
-        base_system_deps.insert(0, "git")  # Add git at the beginning if needed
+        builder_system_deps.insert(0, "git")  # Add git at the beginning if needed
 
-    system_deps_line = " \\\n    ".join(base_system_deps)
+    builder_deps_line = " \\\n    ".join(builder_system_deps)
 
     # Generate wheel installation section
     if has_wheel:
-        temp_dir = get_settings().container.temp_dir
+        temp_dir = CONTAINER_TEMP_DIR
         temp_wheel = f"{temp_dir}/mlserver_fastapi_wrapper*.whl"
         wheel_install_section = f"""COPY mlserver_fastapi_wrapper*.whl {temp_dir}/
 RUN pip install --no-cache-dir {temp_wheel} && rm {temp_wheel}"""
@@ -807,23 +873,43 @@ RUN pip install --no-cache-dir mlserver-fastapi-wrapper"""
 
     dockerfile_content = f'''# Generated Dockerfile for {classifier_name} v{classifier_version}
 # Generated at: {datetime.now().isoformat()}
+# Two-stage build (RFC 0001, D15): build tooling stays out of the runtime image
 
+# ============================ Stage 1: builder =============================
+FROM {base_image} AS builder
+
+WORKDIR /build
+
+# Install build-time system dependencies (not shipped in the final image)
+RUN apt-get update && apt-get install -y \\
+    {builder_deps_line} \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Create the virtualenv that will be copied into the runtime stage
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install mlserver-fastapi-wrapper
+{wheel_install_section}
+{additional_deps}
+
+# ============================ Stage 2: runtime =============================
 FROM {base_image}
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Runtime system dependencies (curl is needed for the container healthcheck)
 RUN apt-get update && apt-get install -y \\
-    {system_deps_line} \\
+    curl \\
     && rm -rf /var/lib/apt/lists/*
 
-# Install mlserver-fastapi-wrapper
-{wheel_install_section}
+# Copy the pre-built virtualenv from the builder stage
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy project files (intelligently selected)
 {copy_section}
-{additional_deps}
 
 # Set PYTHONPATH to include current directory for local modules
 ENV PYTHONPATH=/app
@@ -1031,21 +1117,19 @@ def _prepare_container_metadata(config: 'AppConfig', project_path: str) -> 'Clas
     """Extract or create container metadata from configuration."""
     from .auto_detect import get_git_info, get_project_name
     from .version import ClassifierMetadata
-    from .version_control import parse_hierarchical_tag
 
     # Get git info for auto-detection
     git_info = get_git_info(project_path)
 
-    # Extract version from hierarchical tag if present
+    # Extract version from classifier tag if present (canonical or legacy)
     version_from_tag = '1.0.0'
     if git_info.get('tag'):
         tag = git_info.get('tag')
-        parsed = parse_hierarchical_tag(tag)
-        if parsed['format'] == 'valid':
+        parsed = parse_classifier_tag(tag)
+        if parsed:
             version_from_tag = parsed['version']
         else:
             # Fallback: try to extract version with simpler regex
-            import re
             match = re.search(r'-v(\d+\.\d+\.\d+)', tag)
             if match:
                 version_from_tag = match.group(1)
@@ -1133,7 +1217,8 @@ def _generate_container_tags(metadata: 'ClassifierMetadata', config: 'AppConfig'
 
 def _prepare_docker_build_command(final_tags: list[str],
                                  build_args: Optional[dict[str, str]] = None,
-                                 no_cache: bool = False) -> list[str]:
+                                 no_cache: bool = False,
+                                 platform: Optional[str] = None) -> list[str]:
     """Prepare Docker build command with all arguments."""
     build_cmd = ["docker", "build", ".", "-f", "Dockerfile"]
 
@@ -1149,6 +1234,10 @@ def _prepare_docker_build_command(final_tags: list[str],
     # Add no-cache flag
     if no_cache:
         build_cmd.append("--no-cache")
+
+    # Target platform (single platform; cross-arch builds need binfmt/buildx)
+    if platform:
+        build_cmd.extend(["--platform", platform])
 
     return build_cmd
 
@@ -1173,7 +1262,7 @@ def _write_docker_files(project_path: str, config: 'AppConfig', required_files: 
         multi-classifier builds (None otherwise)
     """
     # Get base image from config
-    base_image = get_settings().container.default_base_image
+    base_image = DEFAULT_BASE_IMAGE
     if config.build and config.build.base_image:
         base_image = config.build.base_image
 
@@ -1289,7 +1378,8 @@ def build_container(
     registry: Optional[str] = None,
     build_args: Optional[dict[str, str]] = None,
     no_cache: bool = False,
-    mlserver_source_path: Optional[str] = None
+    mlserver_source_path: Optional[str] = None,
+    platform: Optional[str] = None
 ) -> dict[str, Any]:
     """
     Build Docker container for the classifier project with intelligent file detection.
@@ -1302,6 +1392,8 @@ def build_container(
         build_args: Optional build arguments
         no_cache: Whether to use Docker cache
         mlserver_source_path: Path to mlserver source for wheel building
+        platform: Optional target platform passed to `docker build --platform`
+            (single platform; cross-arch builds require binfmt/buildx)
 
     Returns:
         Build result with tags and metadata
@@ -1343,7 +1435,7 @@ def build_container(
         )
 
         # Prepare Docker build command
-        build_cmd = _prepare_docker_build_command(final_tags, build_args, no_cache)
+        build_cmd = _prepare_docker_build_command(final_tags, build_args, no_cache, platform)
 
         # Execute build
         print(
@@ -1357,12 +1449,9 @@ def build_container(
         print("Docker build output:")
         print("="*60)
 
-        # Disable BuildKit to avoid glob pattern issues with special characters
-        # (e.g., square brackets): BuildKit treats [brackets] as character
-        # classes, causing errors with paths like "name[text]"
-        build_env = os.environ.copy()
-        build_env['DOCKER_BUILDKIT'] = '0'
-
+        # BuildKit is left at the daemon default (RFC 0001, D15). Paths with
+        # glob special characters are already routed around by
+        # get_parent_without_glob() during COPY generation.
         process = subprocess.Popen(
             build_cmd,
             cwd=project_path,
@@ -1371,7 +1460,6 @@ def build_container(
             text=True,
             bufsize=1,  # Line buffered
             universal_newlines=True,
-            env=build_env
         )
 
         # Stream output in real-time

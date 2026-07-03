@@ -267,33 +267,35 @@ def generate_container_tags(metadata: ClassifierMetadata, git_info: Optional[Git
 def validate_version_consistency(
     metadata: ClassifierMetadata, project_path: str
 ) -> dict[str, str]:
-    """Validate version consistency across project files."""
+    """Validate version-related git state for the project.
+
+    Per RFC 0001 (D3), git tags are the canonical version source and the
+    config's ``classifier.version`` is display-only, so a difference between
+    the two is NO LONGER reported as an issue. When such a difference exists
+    it is logged informationally (the tag wins everywhere that matters).
+
+    Only genuine problems are returned as issues:
+    - git_dirty: uncommitted changes in the working directory
+    """
     # Imported here to avoid any risk of an import cycle with version_control
-    from .version_control import parse_hierarchical_tag
+    from .version_control import parse_classifier_tag
 
     issues = {}
 
-    # Check git tag consistency
     git_info = get_git_info(project_path)
-    if git_info and git_info.tag:
-        tag = git_info.tag
-        parsed = parse_hierarchical_tag(tag)
 
-        if parsed["format"] == "valid":
-            # Hierarchical tag created by 'mlserver tag'
-            # (<classifier>-v<X.Y.Z>-mlserver-<hash>): compare the version
-            # segment, but only for tags belonging to this classifier
-            if (parsed["classifier"] == metadata.classifier.name and
-                    parsed["version"] != metadata.classifier.version):
-                issues['git_tag'] = (
-                    f"Git tag '{tag}' version 'v{parsed['version']}' doesn't match "
-                    f"classifier version 'v{metadata.classifier.version}'"
-                )
-        elif tag != f"v{metadata.classifier.version}":
-            # Plain version tags (v1.2.3) must match exactly
-            issues['git_tag'] = (
-                f"Git tag '{tag}' doesn't match classifier version "
-                f"'v{metadata.classifier.version}'"
+    # Informational only (D3): config version differing from the tag is
+    # expected during normal workflows and must not fail validation.
+    if git_info and git_info.tag:
+        parsed = parse_classifier_tag(git_info.tag)
+        if (parsed and parsed["classifier"] == metadata.classifier.name
+                and parsed["version"] != metadata.classifier.version):
+            import logging
+            logging.getLogger(__name__).info(
+                "Git tag '%s' version differs from config classifier.version '%s'; "
+                "the git tag is canonical (RFC 0001 D3) and config version is "
+                "display-only",
+                git_info.tag, metadata.classifier.version,
             )
 
     # Check if working directory is dirty

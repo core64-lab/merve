@@ -323,7 +323,13 @@ class TestGenerateContainerTags:
 
 
 class TestValidateVersionConsistency:
-    """Test validate_version_consistency function."""
+    """Test validate_version_consistency function.
+
+    Per RFC 0001 (D3) git tags are the canonical version source, so a
+    config-version-vs-tag difference is informational only and MUST NOT be
+    reported as an issue anymore. Only genuine problems (dirty working
+    directory) remain issues.
+    """
 
     def test_no_issues_when_consistent(self):
         """Test no issues when versions are consistent."""
@@ -339,8 +345,8 @@ class TestValidateVersionConsistency:
                 issues = validate_version_consistency(metadata, tmpdir)
                 assert len(issues) == 0
 
-    def test_detects_tag_mismatch(self):
-        """Test detection of tag mismatch."""
+    def test_tag_mismatch_is_not_an_issue(self):
+        """Config-vs-tag version differences are no longer errors (D3)."""
         metadata = ClassifierMetadata(
             classifier=ClassifierVersion(name="test", version="1.0.0"),
             model=ModelVersion(),
@@ -351,7 +357,27 @@ class TestValidateVersionConsistency:
             with patch('mlserver.version.get_git_info') as mock:
                 mock.return_value = GitInfo(tag="v2.0.0", commit="abc", branch="main", is_dirty=False)
                 issues = validate_version_consistency(metadata, tmpdir)
-                assert "git_tag" in issues
+                assert "git_tag" not in issues
+                assert issues == {}
+
+    @pytest.mark.parametrize("tag", [
+        "test-v9.9.9-mlserver-abc1234",  # legacy tag, different version
+        "test/v9.9.9",                   # canonical tag, different version
+        "test-v9.9.9",                   # bare legacy tag, different version
+    ])
+    def test_classifier_tag_version_difference_not_flagged(self, tag):
+        """Classifier tags with a different version stay informational (D3)."""
+        metadata = ClassifierMetadata(
+            classifier=ClassifierVersion(name="test", version="1.0.0"),
+            model=ModelVersion(),
+            api=ApiVersion()
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('mlserver.version.get_git_info') as mock:
+                mock.return_value = GitInfo(tag=tag, commit="abc", branch="main", is_dirty=False)
+                issues = validate_version_consistency(metadata, tmpdir)
+                assert issues == {}
 
     def test_detects_dirty_working_directory(self):
         """Test detection of dirty working directory."""

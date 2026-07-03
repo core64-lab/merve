@@ -39,6 +39,9 @@ app = typer.Typer(
 )
 
 console = Console()
+# Deprecation/diagnostic messages go to stderr so --json output on stdout
+# stays a single parseable document
+err_console = Console(stderr=True)
 
 
 class LogLevel(str, Enum):
@@ -543,6 +546,15 @@ def build(
         "--no-cache",
         help="Do not use cache when building"
     ),
+    platform: Optional[str] = typer.Option(
+        None,
+        "--platform",
+        help=(
+            "Target platform for the image, e.g. linux/amd64 (single platform only). "
+            "Cross-architecture builds require BuildKit with binfmt/QEMU emulation "
+            "or docker buildx on the host."
+        )
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose", "-v",
@@ -556,9 +568,10 @@ def build(
 ):
     """🏗️  Build Docker container for the classifier project.
 
-    The --classifier parameter accepts both simple names and full hierarchical tags:
+    The --classifier parameter accepts simple names and full version tags:
     - Simple: --classifier sentiment
-    - Full tag: --classifier sentiment-v1.0.0-mlserver-b5dff2a
+    - Canonical tag: --classifier sentiment/v1.0.0
+    - Legacy tag: --classifier sentiment-v1.0.0-mlserver-b5dff2a
 
     When using a full tag, the build will validate that your current code matches
     the tag's expected commits and warn if there are mismatches.
@@ -577,7 +590,7 @@ def build(
             extract_classifier_name,
             get_mlserver_commit_hash,
             get_tag_commits,
-            parse_hierarchical_tag,
+            parse_classifier_tag,
         )
 
         # Extract classifier name from full tag if provided
@@ -588,13 +601,14 @@ def build(
             )
             raise typer.Exit(1)
 
-        # If full tag was provided, validate commits
-        parsed = parse_hierarchical_tag(original_input)
-        if parsed['format'] == 'valid':
+        # If full tag was provided (canonical or legacy), validate commits
+        parsed = parse_classifier_tag(original_input)
+        if parsed:
             console.print(f"[yellow]→[/yellow] Full tag provided: [cyan]{original_input}[/cyan]")
             console.print()
 
-            # Get expected commits from tag
+            # Get expected commits from tag (mlserver commit is only encoded
+            # in legacy tags; canonical tags carry the classifier commit only)
             tag_commits = get_tag_commits(original_input, path)
             expected_classifier_commit = tag_commits['classifier_commit']
             expected_mlserver_commit = parsed['mlserver_commit']
@@ -634,7 +648,10 @@ def build(
                 console.print(
                     f"  Classifier commit: {expected_classifier_commit_short or 'unknown'}"
                 )
-                console.print(f"  MLServer commit:   {expected_mlserver_commit_short}")
+                console.print(
+                    f"  MLServer commit:   "
+                    f"{expected_mlserver_commit_short or 'n/a (not encoded in tag)'}"
+                )
                 console.print()
                 console.print("[dim]Current working directory:[/dim]")
                 classifier_marker = (
@@ -720,7 +737,8 @@ def build(
         registry=registry,
         build_args=parsed_build_args,
         no_cache=no_cache,
-        mlserver_source_path=None  # Auto-detect
+        mlserver_source_path=None,  # Auto-detect
+        platform=platform
     )
 
     if result["success"]:
@@ -761,16 +779,30 @@ def push(
         "--force", "-f",
         help="Force push even if not on tagged commit or tag exists"
     ),
-    version_source: str = typer.Option(
-        "auto",
+    version_source: Optional[str] = typer.Option(
+        None,
         "--version-source",
-        help="Version source: 'git-tag', 'config', or 'auto'"
+        help=(
+            "[DEPRECATED] Version source: 'git-tag', 'config', or 'auto'. "
+            "Git tags are the canonical version source (RFC 0001 D3); "
+            "this flag will be removed in v0.5.0."
+        )
     ),
 ):
     """📤 Push container to registry (requires tagged commit for specific classifier)."""
     if not check_docker_availability():
         console.print("[red]✗[/red] Docker is not available or not running", style="bold red")
         raise typer.Exit(1)
+
+    # --version-source is deprecated (RFC 0001 D3): warn when passed explicitly
+    if version_source is not None:
+        err_console.print(
+            "[yellow]⚠ DeprecationWarning:[/yellow] --version-source is deprecated; "
+            "git tags are the canonical version source — RFC 0001 D3. "
+            "The flag will be removed in v0.5.0."
+        )
+    else:
+        version_source = "auto"
 
     # Validate --version-source (see version_control.get_version_for_push)
     allowed_version_sources = ("git-tag", "config", "auto")
@@ -839,12 +871,25 @@ def images(
         "--classifier", "-c",
         help="Classifier name (for multi-classifier configs)"
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON (machine-readable)"
+    ),
 ):
     """📋 List Docker images for the classifier project.
 
     For multi-classifier configs, use --classifier to filter images.
     """
     image_list = list_images(str(path), classifier_name=classifier)
+
+    if json_output:
+        print(json.dumps({
+            "images": image_list,
+            "count": len(image_list),
+            "classifier": classifier,
+        }, indent=2))
+        return
 
     if not image_list:
         console.print("[yellow]No images found for this classifier project[/yellow]")
@@ -898,12 +943,27 @@ def tag(
         "--allow-missing-mlserver",
         help="Allow tagging even if mlserver commit cannot be determined (dev/testing only)"
     ),
+    status_only: bool = typer.Option(
+        False,
+        "--status",
+        help="Show tag status for all classifiers (default when no bump type is given)"
+    ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output tag status as JSON (status mode only, machine-readable)"
+    ),
 ):
     """🏷️  Manage version tags for classifiers.
 
-    Without arguments: Show tag status for all classifiers.
+    Without arguments (or with --status): Show tag status for all classifiers.
     With arguments: Create a version tag for a specific classifier.
     """
+    if bump_type and (status_only or json_output):
+        raise typer.BadParameter(
+            "--status/--json show tag status and cannot be combined with a bump type"
+        )
+
     try:
         git_mgr = GitVersionManager(str(path))
 
@@ -916,8 +976,30 @@ def tag(
             classifiers_status = git_mgr.get_all_classifiers_tag_status(str(config_file))
 
             # Get current mlserver commit for comparison
-            from .version_control import get_mlserver_commit_hash, parse_hierarchical_tag
+            from .version_control import get_mlserver_commit_hash, parse_classifier_tag
             current_mlserver_commit = get_mlserver_commit_hash() or "unknown"
+
+            if json_output:
+                doc = {"classifiers": {}, "mlserver_commit": current_mlserver_commit}
+                for clf_name, status in classifiers_status.items():
+                    parsed = (
+                        parse_classifier_tag(status["latest_tag"])
+                        if status.get("latest_tag") else None
+                    )
+                    doc["classifiers"][clf_name] = {
+                        "current_version": status["current_version"],
+                        "latest_tag": status["latest_tag"],
+                        "tag_format": parsed["format"] if parsed else None,
+                        "tag_mlserver_commit": (
+                            parsed["mlserver_commit"] if parsed else None
+                        ),
+                        "commits_since_tag": status["commits_since_tag"],
+                        "on_tagged_commit": status["on_tagged_commit"],
+                        "status": status["status"],
+                        "recommendation": status["recommendation"],
+                    }
+                print(json.dumps(doc, indent=2))
+                return
 
             # Create table with MLServer commit column
             table = Table(title="🏷️  Classifier Version Status", title_style="bold cyan")
@@ -932,11 +1014,12 @@ def tag(
                 status_text = status['status']
                 recommendation = status['recommendation'] or "-"
 
-                # Extract mlserver commit from the latest tag
+                # Extract mlserver commit from the latest tag (only legacy
+                # tags encode it; canonical tags show n/a)
                 mlserver_commit = "-"
                 if status.get('latest_tag'):
-                    parsed = parse_hierarchical_tag(status['latest_tag'])
-                    if parsed['format'] == 'valid':
+                    parsed = parse_classifier_tag(status['latest_tag'])
+                    if parsed and parsed['mlserver_commit']:
                         tag_mlserver = parsed['mlserver_commit'][:7]
                         current_mlserver_short = current_mlserver_commit[:7]
                         if tag_mlserver == current_mlserver_short:
@@ -1369,17 +1452,39 @@ def list_classifiers(
         None,
         help="Path to multi-classifier config file"
     ),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON (machine-readable)"
+    ),
 ):
     """📋 List available classifiers in multi-classifier config."""
     try:
         config_file = detect_config_file(config)
 
         if not detect_multi_classifier_config(str(config_file)):
-            console.print("[yellow]Not a multi-classifier configuration[/yellow]")
+            if json_output:
+                print(json.dumps({
+                    "config_file": str(config_file),
+                    "multi_classifier": False,
+                    "classifiers": [],
+                    "default_classifier": None,
+                }, indent=2))
+            else:
+                console.print("[yellow]Not a multi-classifier configuration[/yellow]")
             return
 
         classifiers = list_available_classifiers(str(config_file))
         default = get_default_classifier(str(config_file))
+
+        if json_output:
+            print(json.dumps({
+                "config_file": str(config_file),
+                "multi_classifier": True,
+                "classifiers": classifiers,
+                "default_classifier": default,
+            }, indent=2))
+            return
 
         table = Table(title="📦 Available Classifiers", title_style="bold cyan")
         table.add_column("Classifier", style="cyan")
@@ -1394,45 +1499,70 @@ def list_classifiers(
         if default:
             console.print(f"\n[yellow]→[/yellow] Default classifier: [cyan]{default}[/cyan]")
 
+    except typer.Exit:
+        raise
     except Exception as e:
-        console.print(f"[red]✗[/red] Error: {e}", style="bold red")
+        if json_output:
+            print(json.dumps({"error": str(e)}))
+        else:
+            console.print(f"[red]✗[/red] Error: {e}", style="bold red")
         raise typer.Exit(1) from e
 
 
 @app.command()
-def status():
+def status(
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Output as JSON (machine-readable)"
+    ),
+):
     """📊 Show ML Server status and system info."""
+    from .github_actions import check_github_actions_setup
+
+    # Gather status information
+    docker_available = check_docker_availability()
+    mlserver_yaml = Path("mlserver.yaml")
+    config_file = "mlserver.yaml" if mlserver_yaml.exists() else None
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    venv = os.environ.get("VIRTUAL_ENV")
+    github_actions_setup = check_github_actions_setup(".")
+
+    if json_output:
+        print(json.dumps({
+            "docker_available": docker_available,
+            "config_file": config_file,
+            "python_version": python_version,
+            "virtual_env": Path(venv).name if venv else None,
+            "github_actions_configured": github_actions_setup,
+        }, indent=2))
+        return
+
     table = Table(title="📊 ML Server Status", title_style="bold cyan")
     table.add_column("Component", style="yellow")
     table.add_column("Status", style="cyan")
 
     # Check Docker
-    docker_available = check_docker_availability()
     docker_status = (
         "[green]✓ Available[/green]" if docker_available else "[red]✗ Not available[/red]"
     )
     table.add_row("Docker", docker_status)
 
     # Check for config files
-    mlserver_yaml = Path("mlserver.yaml")
-    if mlserver_yaml.exists():
-        config_status = "[green]mlserver.yaml[/green]"
+    if config_file:
+        config_status = f"[green]{config_file}[/green]"
     else:
         config_status = "[yellow]No config found[/yellow]"
     table.add_row("Config Files", config_status)
 
     # Python version
-    python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     table.add_row("Python Version", python_version)
 
     # Check for virtual env
-    venv = os.environ.get("VIRTUAL_ENV")
     venv_status = f"[green]{Path(venv).name}[/green]" if venv else "[yellow]None[/yellow]"
     table.add_row("Virtual Env", venv_status)
 
     # Check for GitHub Actions setup
-    from .github_actions import check_github_actions_setup
-    github_actions_setup = check_github_actions_setup(".")
     github_status = (
         "[green]✓ Configured[/green]" if github_actions_setup
         else "[yellow]Not configured[/yellow]"
@@ -1633,6 +1763,9 @@ def validate(
         True, "--check-imports/--no-check-imports", help="Check predictor imports"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed output"),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output as JSON (machine-readable)"
+    ),
 ):
     """Validate configuration without starting the server.
 
@@ -1647,6 +1780,7 @@ def validate(
         mlserver validate
         mlserver validate --strict
         mlserver validate mlserver.yaml --no-check-imports
+        mlserver validate --json
     """
     from .doctor import CheckStatus, run_validation_checks
 
@@ -1654,14 +1788,42 @@ def validate(
         config_file = detect_config_file(config)
         project_path = str(config_file.parent)
     except typer.BadParameter as e:
-        console.print(f"[red]✗[/red] {e}")
+        if json_output:
+            print(json.dumps({"error": str(e)}))
+        else:
+            console.print(f"[red]✗[/red] {e}")
         raise typer.Exit(1) from e
 
-    console.print(f"\n[bold]Validating[/bold] {config_file.name}...\n")
+    if not json_output:
+        console.print(f"\n[bold]Validating[/bold] {config_file.name}...\n")
 
     report = run_validation_checks(
         project_path, check_imports=check_imports, config_file=config_file
     )
+
+    if json_output:
+        has_errors = report.has_errors
+        has_warnings = report.has_warnings
+        valid = not has_errors and not (strict and has_warnings)
+        print(json.dumps({
+            "config_file": str(config_file),
+            "valid": valid,
+            "strict": strict,
+            "errors": sum(1 for c in report.checks if c.status == CheckStatus.FAILED),
+            "warnings": sum(1 for c in report.checks if c.status == CheckStatus.WARNING),
+            "checks": [
+                {
+                    "name": c.name,
+                    "status": c.status.value,
+                    "message": c.message,
+                    "suggestion": c.suggestion,
+                }
+                for c in report.checks
+            ],
+        }, indent=2))
+        if not valid:
+            raise typer.Exit(1)
+        return
 
     has_errors = False
     has_warnings = False

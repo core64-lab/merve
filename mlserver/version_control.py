@@ -72,44 +72,116 @@ def get_mlserver_commit_hash() -> Optional[str]:
         return None
 
 
-def parse_hierarchical_tag(tag: str) -> dict[str, Optional[str]]:
-    """Parse hierarchical tag into its components.
+# ============================================================================
+# Tag format parsing (RFC 0001, D1-D3)
+# ============================================================================
+#
+# Canonical (new) format:  <classifier>/vX.Y.Z
+# Legacy format:           <classifier>-vX.Y.Z-mlserver-<hash>
+# Bare legacy format:      <classifier>-vX.Y.Z
+#
+# Classifier names may contain lowercase letters, digits, underscores and
+# hyphens in ALL formats (e.g. "rfq-likelihood-v2" is a valid name).
+# Tag CREATION still emits the legacy format in this release; the write-side
+# switch to the canonical format is scheduled for Wave 2 (v0.5.0).
 
-    Parses tags in the format: <classifier-name>-v<X.X.X>-mlserver-<commit-hash>
+_CANONICAL_TAG_PATTERN = re.compile(r'^([a-z0-9][a-z0-9_-]*)/v(\d+\.\d+\.\d+)$')
+# 'dev' is the historical placeholder written by --allow-missing-mlserver
+_LEGACY_TAG_PATTERN = re.compile(
+    r'^([a-z0-9][a-z0-9_-]*)-v(\d+\.\d+\.\d+)-mlserver-([a-f0-9]{3,40}|dev)$'
+)
+_LEGACY_BARE_TAG_PATTERN = re.compile(r'^([a-z0-9][a-z0-9_-]*)-v(\d+\.\d+\.\d+)$')
+
+
+def parse_classifier_tag(tag: str) -> Optional[dict[str, Optional[str]]]:
+    """Parse a classifier version tag in any supported format.
+
+    Single entry point for classifier tag parsing (RFC 0001, D1-D3).
+    Supported formats:
+
+    - Canonical:   ``<classifier>/vX.Y.Z``                 -> format "canonical"
+    - Legacy:      ``<classifier>-vX.Y.Z-mlserver-<hash>`` -> format "legacy"
+    - Bare legacy: ``<classifier>-vX.Y.Z``                 -> format "legacy-bare"
 
     Args:
-        tag: Full tag string to parse
+        tag: Tag string to parse
 
     Returns:
         Dictionary with keys:
-        - classifier: Classifier name (e.g., "sentiment", "rfq-likelihood")
-        - version: Semantic version (e.g., "1.0.0")
-        - mlserver_commit: MLServer commit hash (e.g., "b5dff2a")
-        - format: "valid" if tag matches expected format, "invalid" otherwise
+        - classifier: Classifier name (may contain hyphens/underscores)
+        - version: Semantic version string (e.g., "1.0.0")
+        - mlserver_commit: MLServer commit hash (None for canonical and
+          bare-legacy tags, which do not encode it)
+        - format: "canonical" | "legacy" | "legacy-bare"
+
+        or None when the tag matches none of the supported formats.
 
     Examples:
-        >>> parse_hierarchical_tag("sentiment-v1.0.0-mlserver-b5dff2a")
-        {'classifier': 'sentiment', 'version': '1.0.0', 'mlserver_commit': 'b5dff2a',
-         'format': 'valid'}
+        >>> parse_classifier_tag("sentiment/v1.2.0")
+        {'classifier': 'sentiment', 'version': '1.2.0', 'mlserver_commit': None,
+         'format': 'canonical'}
 
-        >>> parse_hierarchical_tag("invalid-tag")
-        {'classifier': None, 'version': None, 'mlserver_commit': None, 'format': 'invalid'}
+        >>> parse_classifier_tag("rfq-likelihood-v2-v1.0.0-mlserver-b5dff2a")
+        {'classifier': 'rfq-likelihood-v2', 'version': '1.0.0',
+         'mlserver_commit': 'b5dff2a', 'format': 'legacy'}
+
+        >>> parse_classifier_tag("not-a-version-tag") is None
+        True
     """
-    # Regex for new format: <name>-v<X.X.X>-mlserver-<hash>
-    # Classifier names can contain letters, numbers, underscores, hyphens
-    # Commit hashes are 7+ hex characters
-    pattern = r'^([a-z0-9_-]+)-v(\d+\.\d+\.\d+)-mlserver-([a-f0-9]{3,})$'
-    match = re.match(pattern, tag)
+    if not tag:
+        return None
 
+    match = _CANONICAL_TAG_PATTERN.match(tag)
+    if match:
+        return {
+            "classifier": match.group(1),
+            "version": match.group(2),
+            "mlserver_commit": None,
+            "format": "canonical",
+        }
+
+    match = _LEGACY_TAG_PATTERN.match(tag)
     if match:
         return {
             "classifier": match.group(1),
             "version": match.group(2),
             "mlserver_commit": match.group(3),
+            "format": "legacy",
+        }
+
+    match = _LEGACY_BARE_TAG_PATTERN.match(tag)
+    if match:
+        return {
+            "classifier": match.group(1),
+            "version": match.group(2),
+            "mlserver_commit": None,
+            "format": "legacy-bare",
+        }
+
+    return None
+
+
+def parse_hierarchical_tag(tag: str) -> dict[str, Optional[str]]:
+    """Parse a legacy hierarchical tag into its components (compatibility shim).
+
+    DEPRECATED: prefer :func:`parse_classifier_tag`, which also understands
+    the canonical ``<classifier>/vX.Y.Z`` format. This shim keeps the old
+    contract: only the full legacy ``<name>-vX.Y.Z-mlserver-<hash>`` format
+    is reported as "valid".
+
+    Returns:
+        Dictionary with keys ``classifier``, ``version``, ``mlserver_commit``
+        and ``format`` ("valid" or "invalid").
+    """
+    parsed = parse_classifier_tag(tag)
+    if parsed and parsed["format"] == "legacy":
+        return {
+            "classifier": parsed["classifier"],
+            "version": parsed["version"],
+            "mlserver_commit": parsed["mlserver_commit"],
             "format": "valid"
         }
 
-    # Tag doesn't match expected format
     return {
         "classifier": None,
         "version": None,
@@ -119,20 +191,25 @@ def parse_hierarchical_tag(tag: str) -> dict[str, Optional[str]]:
 
 
 def extract_classifier_name(name_or_tag: str) -> Optional[str]:
-    """Extract classifier name from either a simple name or full hierarchical tag.
+    """Extract classifier name from either a simple name or a version tag.
 
-    This helper function allows CLI commands to accept both formats:
+    This helper function allows CLI commands to accept all formats:
     - Simple name: "sentiment"
-    - Full tag: "sentiment-v1.0.0-mlserver-b5dff2a"
+    - Canonical tag: "sentiment/v1.0.0"
+    - Legacy tag: "sentiment-v1.0.0-mlserver-b5dff2a"
+    - Bare legacy tag: "sentiment-v1.0.0"
 
     Args:
-        name_or_tag: Either a classifier name or full hierarchical tag
+        name_or_tag: Either a classifier name or a version tag
 
     Returns:
-        Classifier name, or None if tag format is invalid
+        Classifier name, or None if the format is invalid
 
     Examples:
         >>> extract_classifier_name("sentiment")
+        'sentiment'
+
+        >>> extract_classifier_name("sentiment/v1.0.0")
         'sentiment'
 
         >>> extract_classifier_name("sentiment-v1.0.0-mlserver-b5dff2a")
@@ -141,12 +218,12 @@ def extract_classifier_name(name_or_tag: str) -> Optional[str]:
         >>> extract_classifier_name("rfq_likelihood_model")
         'rfq_likelihood_model'
     """
-    # First, try to parse as a full tag
-    parsed = parse_hierarchical_tag(name_or_tag)
-    if parsed["format"] == "valid":
+    # First, try to parse as a version tag (any supported format)
+    parsed = parse_classifier_tag(name_or_tag)
+    if parsed:
         return parsed["classifier"]
 
-    # Not a full tag, assume it's just a classifier name
+    # Not a tag, assume it's just a classifier name
     # Validate it's a reasonable name (alphanumeric, underscore, hyphen)
     if re.match(r'^[a-z0-9_-]+$', name_or_tag):
         return name_or_tag
@@ -156,20 +233,22 @@ def extract_classifier_name(name_or_tag: str) -> Optional[str]:
 
 
 def get_tag_commits(tag: str, project_path: str = ".") -> dict[str, Optional[str]]:
-    """Get git commit hashes from a hierarchical tag.
+    """Get git commit hashes from a classifier version tag.
 
-    Given a hierarchical tag, returns:
+    Given a classifier tag (canonical or legacy format), returns:
     - The classifier repo commit that the tag points to
-    - The mlserver commit encoded in the tag
+    - The mlserver commit encoded in the tag (legacy format only;
+      None for canonical/bare tags, which do not encode it)
 
     Args:
-        tag: Full hierarchical tag (e.g., "sentiment-v1.0.0-mlserver-b5dff2a")
+        tag: Classifier tag (e.g., "sentiment/v1.0.0" or
+            "sentiment-v1.0.0-mlserver-b5dff2a")
         project_path: Path to classifier project
 
     Returns:
         Dictionary with keys:
         - classifier_commit: Git commit hash in classifier repo
-        - mlserver_commit: MLServer commit from tag
+        - mlserver_commit: MLServer commit from tag (may be None)
         - tag_valid: True if tag exists and can be parsed
 
     Examples:
@@ -182,9 +261,9 @@ def get_tag_commits(tag: str, project_path: str = ".") -> dict[str, Optional[str
         "tag_valid": False
     }
 
-    # Parse the tag to extract mlserver commit
-    parsed = parse_hierarchical_tag(tag)
-    if parsed["format"] != "valid":
+    # Parse the tag (accepts canonical and legacy formats)
+    parsed = parse_classifier_tag(tag)
+    if not parsed:
         return result
 
     result["mlserver_commit"] = parsed["mlserver_commit"]
@@ -224,38 +303,72 @@ class GitVersionManager:
     def __init__(self, project_path: str = "."):
         self.project_path = Path(project_path)
 
+    def _list_classifier_tags(self, classifier_name: str) -> list[dict[str, Optional[str]]]:
+        """List all version tags for a classifier across ALL supported formats.
+
+        Matches both the canonical ``<classifier>/vX.Y.Z`` and the legacy
+        ``<classifier>-vX.Y.Z[-mlserver-<hash>]`` formats, and filters out
+        tags whose parsed classifier name is not an exact match (important
+        for hyphenated names: the glob ``fraud-v*`` would otherwise also
+        match tags of a classifier named ``fraud-v2``).
+
+        Returns:
+            List of dicts: the parse_classifier_tag() result plus a "tag" key.
+        """
+        result = subprocess.run(
+            ["git", "tag", "-l", f"{classifier_name}/v*", f"{classifier_name}-v*"],
+            cwd=self.project_path,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+
+        parsed_tags = []
+        for tag in result.stdout.strip().split('\n'):
+            tag = tag.strip()
+            parsed = parse_classifier_tag(tag)
+            if parsed and parsed["classifier"] == classifier_name:
+                parsed_tags.append({"tag": tag, **parsed})
+        return parsed_tags
+
+    def _latest_classifier_tag(self, classifier_name: str) -> Optional[dict[str, Optional[str]]]:
+        """Return the newest version tag for a classifier across formats.
+
+        Versions are compared with semver (not string order), so e.g.
+        ``fraud/v1.10.0`` beats ``fraud-v1.2.0-mlserver-abc1234``. On a
+        version tie the canonical format wins (it is the newer scheme).
+        """
+        parsed_tags = self._list_classifier_tags(classifier_name)
+        if not parsed_tags:
+            return None
+
+        def sort_key(item: dict[str, Optional[str]]):
+            version = semver.VersionInfo.parse(item["version"])
+            format_rank = 1 if item["format"] == "canonical" else 0
+            return (version, format_rank)
+
+        return max(parsed_tags, key=sort_key)
+
     def get_current_version(self, classifier_name: Optional[str] = None) -> Optional[str]:
         """Get the current version from git tags.
 
-        Parses tags in the format: classifier-v1.0.0-mlserver-hash
+        Reads BOTH tag formats (RFC 0001, D1-D2):
+        - canonical: classifier/v1.0.0
+        - legacy:    classifier-v1.0.0[-mlserver-hash]
+
+        and returns the newest version across formats (semver comparison).
         Returns just the version part: 1.0.0
 
         Args:
             classifier_name: If provided, looks for classifier-specific tags
-                (e.g., 'sentiment-v1.0.0-mlserver-b5dff2a')
         """
         try:
             if classifier_name:
-                # Look for classifier-specific tags
-                pattern = f"{classifier_name}-v*"
-                result = subprocess.run(
-                    ["git", "tag", "-l", pattern, "--sort=-version:refname"],
-                    cwd=self.project_path,
-                    capture_output=True,
-                    text=True,
-                    check=False
-                )
-
-                if result.returncode == 0 and result.stdout.strip():
-                    tags = result.stdout.strip().split('\n')
-                    if tags:
-                        latest_tag = tags[0]
-                        # Parse new format: classifier-v1.0.0-mlserver-hash
-                        # Extract version using regex
-                        match = re.search(r'-v(\d+\.\d+\.\d+)', latest_tag)
-                        if match:
-                            return match.group(1)
-                return None
+                latest = self._latest_classifier_tag(classifier_name)
+                return latest["version"] if latest else None
             else:
                 # Legacy: get any tag
                 result = subprocess.run(
@@ -268,6 +381,10 @@ class GitVersionManager:
 
                 if result.returncode == 0:
                     tag = result.stdout.strip()
+                    # Classifier tag in any supported format
+                    parsed = parse_classifier_tag(tag)
+                    if parsed:
+                        return parsed["version"]
                     # Try to extract version using regex
                     match = re.search(r'-v(\d+\.\d+\.\d+)', tag)
                     if match:
@@ -282,26 +399,18 @@ class GitVersionManager:
     def get_latest_tag_info(self, classifier_name: Optional[str] = None) -> dict[str, Any]:
         """Get information about the latest tag.
 
+        Reads both canonical (``classifier/vX.Y.Z``) and legacy
+        (``classifier-vX.Y.Z[-mlserver-<hash>]``) tag formats and picks the
+        newest version across formats (semver comparison).
+
         Args:
             classifier_name: If provided, looks for classifier-specific tags
         """
         try:
             # Get the latest tag
             if classifier_name:
-                pattern = f"{classifier_name}-v*"
-                tag_result = subprocess.run(
-                    ["git", "tag", "-l", pattern, "--sort=-version:refname"],
-                    cwd=self.project_path,
-                    capture_output=True,
-                    text=True,
-                    check=False
-                )
-
-                if tag_result.returncode == 0 and tag_result.stdout.strip():
-                    tags = tag_result.stdout.strip().split('\n')
-                    latest_tag = tags[0] if tags else None
-                else:
-                    latest_tag = None
+                latest = self._latest_classifier_tag(classifier_name)
+                latest_tag = latest["tag"] if latest else None
             else:
                 tag_result = subprocess.run(
                     ["git", "describe", "--tags", "--abbrev=0"],
@@ -320,35 +429,42 @@ class GitVersionManager:
                     "classifier": classifier_name
                 }
 
-            # Check if HEAD is exactly on this tag
-            exact_result = subprocess.run(
-                ["git", "describe", "--tags", "--exact-match", "HEAD"],
+            # Check if HEAD is exactly on this tag. `git tag --points-at`
+            # lists every tag on HEAD, so the check stays correct when
+            # multiple tags (e.g. for several classifiers, or mixed
+            # legacy/canonical formats) point at the same commit.
+            points_at_result = subprocess.run(
+                ["git", "tag", "--points-at", "HEAD"],
                 cwd=self.project_path,
                 capture_output=True,
                 text=True,
                 check=False
             )
 
-            on_tagged_commit = (exact_result.returncode == 0 and
-                              exact_result.stdout.strip() == latest_tag)
+            head_tags: list[str] = []
+            if points_at_result.returncode == 0 and points_at_result.stdout.strip():
+                head_tags = [
+                    line.strip() for line in points_at_result.stdout.strip().split('\n')
+                ]
 
-            # Get commits since last tag
+            on_tagged_commit = latest_tag in head_tags
+
+            # Get commits since last tag (count relative to THIS tag, not
+            # whatever tag `git describe` would pick)
             if not on_tagged_commit:
-                describe_result = subprocess.run(
-                    ["git", "describe", "--tags", "--long"],
+                count_result = subprocess.run(
+                    ["git", "rev-list", "--count", f"{latest_tag}..HEAD"],
                     cwd=self.project_path,
                     capture_output=True,
                     text=True,
                     check=False
                 )
 
-                if describe_result.returncode == 0:
-                    # Format: v1.0.0-5-g1234567 (5 commits since tag)
-                    parts = describe_result.stdout.strip().split('-')
-                    if len(parts) >= 2:
-                        commits_since = int(parts[-2])
-                    else:
-                        commits_since = 0
+                if count_result.returncode == 0:
+                    try:
+                        commits_since = int(count_result.stdout.strip())
+                    except ValueError:
+                        commits_since = None
                 else:
                     commits_since = None
             else:
@@ -714,16 +830,12 @@ def get_version_for_push(
         tag_info = git_mgr.get_latest_tag_info(classifier_name)
         if tag_info["on_tagged_commit"] and tag_info["tag"]:
             tag = tag_info["tag"]
-            # Extract version from hierarchical tag using parser (Phase 2)
-            if classifier_name and '-mlserver-' in tag:
-                # Parse hierarchical tag format
-                parsed = parse_hierarchical_tag(tag)
-                if parsed["format"] == "valid":
-                    version = parsed["version"]
-                else:
-                    # Fallback for non-hierarchical tags
-                    version = tag.split('-v', 1)[1] if '-v' in tag else tag
+            # Extract version from classifier tag (canonical or legacy format)
+            parsed = parse_classifier_tag(tag)
+            if parsed:
+                version = parsed["version"]
             else:
+                # Fallback for plain version tags (v1.2.3)
                 version = tag[1:] if tag.startswith('v') else tag
             return version, f"git-tag ({tag})"
 
