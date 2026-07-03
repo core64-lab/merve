@@ -66,9 +66,11 @@ class PredictionLimiter:
                  rejection_message: str = (
                      "Server is currently processing another prediction. "
                      "Please retry later."
-                 )):
+                 ),
+                 retry_after_seconds: int = 5):
         self._semaphore = semaphore
         self._rejection_message = rejection_message
+        self._retry_after_seconds = retry_after_seconds
         self._acquired = False
 
     def __enter__(self):
@@ -78,7 +80,7 @@ class PredictionLimiter:
             raise HTTPException(
                 status_code=503,  # Service Unavailable
                 detail=self._rejection_message,
-                headers={"Retry-After": "5"}  # Suggest retry after 5 seconds
+                headers={"Retry-After": str(self._retry_after_seconds)}
             )
         return self
 
@@ -98,10 +100,12 @@ class AsyncPredictionLimiter:
                  rejection_message: str = (
                      "Server is currently processing another prediction. "
                      "Please retry later."
-                 )):
+                 ),
+                 retry_after_seconds: int = 5):
         self._semaphore = semaphore
         self._max_concurrent = max_concurrent
         self._rejection_message = rejection_message
+        self._retry_after_seconds = retry_after_seconds
         self._acquired = False
 
     async def __aenter__(self):
@@ -119,7 +123,7 @@ class AsyncPredictionLimiter:
             raise HTTPException(
                 status_code=503,
                 detail=self._rejection_message,
-                headers={"Retry-After": "5"}
+                headers={"Retry-After": str(self._retry_after_seconds)}
             )
         return self
 
@@ -131,20 +135,27 @@ class AsyncPredictionLimiter:
 
 
 def create_prediction_limiter(max_concurrent_predictions: int = 1,
-                             async_mode: bool = False) -> tuple:
+                             async_mode: bool = False,
+                             retry_after_seconds: int = 5) -> tuple:
     """
     Create appropriate prediction limiter based on mode.
 
     Args:
         max_concurrent_predictions: Max concurrent predictions (1 for single model protection)
         async_mode: Whether to use async limiter
+        retry_after_seconds: Retry-After header value for 503 rejections
 
     Returns:
         Tuple of (semaphore, limiter_class)
     """
     if async_mode:
         semaphore = asyncio.Semaphore(max_concurrent_predictions)
-        return semaphore, lambda: AsyncPredictionLimiter(semaphore, max_concurrent_predictions)
+        return semaphore, lambda: AsyncPredictionLimiter(
+            semaphore, max_concurrent_predictions,
+            retry_after_seconds=retry_after_seconds,
+        )
     else:
         semaphore = PredictionSemaphore(max_concurrent_predictions)
-        return semaphore, lambda: PredictionLimiter(semaphore)
+        return semaphore, lambda: PredictionLimiter(
+            semaphore, retry_after_seconds=retry_after_seconds
+        )

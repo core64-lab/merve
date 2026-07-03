@@ -1,3 +1,21 @@
+import logging
+
+import pytest
+
+# Shared sample records for the envelope matrix (match basic_config feature_order)
+_RECORD_1 = {"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0}
+_RECORD_2 = {"f1": 1.5, "f2": 2.5, "f3": 3.5, "f4": 4.5, "f5": 5.5}
+_ROW_1 = [1.0, 2.0, 3.0, 4.0, 5.0]
+_ROW_2 = [1.5, 2.5, 3.5, 4.5, 5.5]
+
+# All accepted input formats (RFC 0001 D10); values are the inner payloads
+_ENVELOPE_FORMATS = {
+    "records": {"records": [_RECORD_1, _RECORD_2]},
+    "instances": {"instances": [_RECORD_1, _RECORD_2]},
+    "ndarray": {"ndarray": [_ROW_1, _ROW_2]},
+    "inputs": {"inputs": [_ROW_1, _ROW_2]},
+    "features-single": {"features": _RECORD_1},
+}
 
 
 class TestHealthEndpoint:
@@ -94,6 +112,18 @@ class TestPredictProbaEndpoint:
         assert "time_ms" in data
         assert "metadata" in data  # Updated: response now has metadata instead of model
 
+    async def test_predict_proba_includes_predictor_class(
+        self, async_client_preprocessing, sample_records_payload
+    ):
+        """RFC 0001 D11: ProbaResponse carries predictor_class like PredictResponse."""
+        response = await async_client_preprocessing.post(
+            "/predict_proba", json=sample_records_payload
+        )
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["predictor_class"] == "MockPredictorWithPreprocessing"
+
     async def test_predict_proba_response_structure(self, async_client_preprocessing, sample_records_payload):
         response = await async_client_preprocessing.post("/predict_proba", json=sample_records_payload)
         data = response.json()
@@ -124,6 +154,130 @@ class TestPredictProbaEndpoint:
 # TestBatchPredictEndpoint class REMOVED - batch_predict endpoint was removed
 # The /predict endpoint now handles both single and batch predictions naturally
 # See: mlserver/server.py line 473 - "batch_predict endpoint removed"
+
+
+class TestRequestEnvelopeMatrix:
+    """RFC 0001 D10: top-level and legacy-wrapped request shapes behave identically.
+
+    Matrix: {top-level, wrapped} x {records, instances, ndarray, inputs,
+    features-single} x {predict, predict_proba}.
+    """
+
+    @pytest.mark.parametrize("fmt", list(_ENVELOPE_FORMATS))
+    @pytest.mark.parametrize(
+        "endpoint,result_key",
+        [("/predict", "predictions"), ("/predict_proba", "probabilities")],
+    )
+    async def test_top_level_and_wrapped_shapes_identical(
+        self, async_client, fmt, endpoint, result_key
+    ):
+        inner = _ENVELOPE_FORMATS[fmt]
+
+        top_level = await async_client.post(endpoint, json=inner)
+        wrapped = await async_client.post(endpoint, json={"payload": inner})
+
+        assert top_level.status_code == 200, top_level.text
+        assert wrapped.status_code == 200, wrapped.text
+
+        top_result = top_level.json()[result_key]
+        wrapped_result = wrapped.json()[result_key]
+        assert top_result == wrapped_result
+
+        expected_rows = 1 if fmt == "features-single" else 2
+        assert len(top_result) == expected_rows
+
+    @pytest.mark.parametrize("endpoint,result_key",
+                             [("/predict", "predictions"),
+                              ("/predict_proba", "probabilities")])
+    async def test_equivalent_formats_give_identical_results(
+        self, async_client, endpoint, result_key
+    ):
+        """records/instances/ndarray/inputs carry the same data -> same output."""
+        results = {}
+        for fmt in ("records", "instances", "ndarray", "inputs"):
+            response = await async_client.post(endpoint, json=_ENVELOPE_FORMATS[fmt])
+            assert response.status_code == 200, f"{fmt}: {response.text}"
+            results[fmt] = response.json()[result_key]
+
+        reference = results["records"]
+        for fmt, result in results.items():
+            assert result == reference, f"format '{fmt}' diverged from 'records'"
+
+
+class TestPayloadWrapperDeprecation:
+    """RFC 0001 D10: the legacy wrapper logs ONE deprecation warning per process."""
+
+    async def test_wrapper_warns_exactly_once_per_process(
+        self, async_client, caplog, monkeypatch
+    ):
+        import mlserver.server as server_mod
+        monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
+
+        body = {"payload": _ENVELOPE_FORMATS["records"]}
+        with caplog.at_level(logging.WARNING, logger="mlserver.server"):
+            first = await async_client.post("/predict", json=body)
+            second = await async_client.post("/predict", json=body)
+            third = await async_client.post("/predict_proba", json=body)
+
+        assert first.status_code == second.status_code == third.status_code == 200
+        deprecations = [
+            r for r in caplog.records
+            if "deprecated" in r.getMessage() and "payload" in r.getMessage()
+        ]
+        assert len(deprecations) == 1
+
+    async def test_top_level_shape_never_warns(self, async_client, caplog, monkeypatch):
+        import mlserver.server as server_mod
+        monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
+
+        with caplog.at_level(logging.WARNING, logger="mlserver.server"):
+            response = await async_client.post(
+                "/predict", json=_ENVELOPE_FORMATS["records"]
+            )
+
+        assert response.status_code == 200
+        assert not any(
+            "deprecated" in r.getMessage() and "payload" in r.getMessage()
+            for r in caplog.records
+        )
+        assert server_mod._payload_wrapper_warned is False
+
+
+class TestEnvelopeDegenerateBodies:
+    """RFC 0001 D10: degenerate request bodies return sane 400s."""
+
+    async def test_empty_body_object_returns_400(self, async_client):
+        response = await async_client.post("/predict", json={})
+        assert response.status_code == 400
+
+    async def test_empty_wrapper_returns_400(self, async_client):
+        response = await async_client.post("/predict", json={"payload": {}})
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize("bad_payload", [[1, 2, 3], "text", 42, True])
+    async def test_non_dict_payload_wrapper_returns_400(self, async_client, bad_payload):
+        response = await async_client.post("/predict", json={"payload": bad_payload})
+        assert response.status_code == 400
+        assert "payload" in response.json()["detail"]
+
+    async def test_wrapper_wins_over_top_level_keys(self, async_client):
+        """When both shapes are present the wrapper is used (top-level ignored)."""
+        body = {
+            "payload": {"records": [_RECORD_1]},
+            # decoy top-level key that would fail if (incorrectly) used
+            "records": "not-a-valid-records-value",
+        }
+        response = await async_client.post("/predict", json=body)
+        assert response.status_code == 200
+        assert len(response.json()["predictions"]) == 1
+
+    async def test_non_object_json_body_rejected(self, async_client):
+        response = await async_client.post(
+            "/predict",
+            content="[1, 2, 3]",
+            headers={"content-type": "application/json"},
+        )
+        assert response.status_code in (400, 422)
 
 
 class TestErrorHandling:

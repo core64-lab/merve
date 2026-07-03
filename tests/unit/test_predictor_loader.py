@@ -108,7 +108,11 @@ class TestResolveModulePath:
             assert result == "my_predictor"
 
     def test_local_module_resolution(self):
-        """Test resolution of local module in config directory."""
+        """Test resolution of local module in config directory.
+
+        RFC 0001 D13: resolution is pure - it must NOT mutate sys.path
+        (imports happen isolated under merve._user.* in load_predictor).
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a predictor file
             predictor_file = Path(tmpdir) / "test_local_predictor.py"
@@ -116,13 +120,10 @@ class TestResolveModulePath:
 
             result = resolve_module_path("test_local_predictor", tmpdir)
             assert result == "test_local_predictor"
-            # Config dir should be in sys.path
-            assert str(Path(tmpdir).resolve()) in sys.path
-
-            # Cleanup
-            sys.path.remove(str(Path(tmpdir).resolve()))
-            if "test_local_predictor" in sys.modules:
-                del sys.modules["test_local_predictor"]
+            # Config dir must NOT leak into sys.path
+            assert str(Path(tmpdir).resolve()) not in sys.path
+            # And nothing is imported by mere resolution
+            assert "test_local_predictor" not in sys.modules
 
     def test_module_not_found_fallback(self):
         """Test fallback when module file doesn't exist."""
@@ -184,11 +185,12 @@ class LocalPredictor:
             assert predictor.value == 100
             assert predictor.predict([1, 2, 3]) == [100, 100, 100]
 
-            # Cleanup
-            if str(Path(tmpdir).resolve()) in sys.path:
-                sys.path.remove(str(Path(tmpdir).resolve()))
-            if "local_predictor" in sys.modules:
-                del sys.modules["local_predictor"]
+            # RFC 0001 D13 isolation: no sys.path mutation, no top-level
+            # sys.modules entry - the module lives under merve._user.*
+            assert str(Path(tmpdir).resolve()) not in sys.path
+            assert "local_predictor" not in sys.modules
+            assert "merve._user.local_predictor" in sys.modules
+            assert type(predictor).__module__ == "merve._user.local_predictor"
 
     def test_load_with_model_file_validation(self):
         """Test that model file validation is called."""
@@ -221,26 +223,27 @@ class TestModulePathEdgeCases:
         assert "module" in result
 
     def test_reimport_cached_module(self):
-        """Test that cached modules are reimported."""
+        """A second load re-executes the file, picking up modifications.
+
+        The file-based loader creates a fresh module per load (no stale
+        sys.modules cache is consulted), so changed files take effect.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             predictor_file = Path(tmpdir) / "cached_predictor.py"
-            predictor_file.write_text("class Pred: val = 1")
+            predictor_file.write_text("class Pred:\n    val = 1\n")
 
-            # First load
-            resolve_module_path("cached_predictor", tmpdir)
+            first = load_predictor("cached_predictor", "Pred", {}, config_dir=tmpdir)
+            assert first.val == 1
 
-            # Modify the file
-            predictor_file.write_text("class Pred: val = 2")
+            # Modify the file (content of a different size, as any real edit
+            # would be - identical size+mtime would hit the bytecode cache)
+            predictor_file.write_text("# modified predictor\nclass Pred:\n    val = 2\n")
 
-            # Should reimport
-            result = resolve_module_path("cached_predictor", tmpdir)
-            assert result == "cached_predictor"
-
-            # Cleanup
-            if str(Path(tmpdir).resolve()) in sys.path:
-                sys.path.remove(str(Path(tmpdir).resolve()))
-            if "cached_predictor" in sys.modules:
-                del sys.modules["cached_predictor"]
+            # Should reimport with the new contents
+            second = load_predictor("cached_predictor", "Pred", {}, config_dir=tmpdir)
+            assert second.val == 2
+            # Instances from the first load keep working (module object retained)
+            assert first.val == 1
 
 
 class TestPredictorLoaderIntegration:
@@ -275,8 +278,6 @@ class TestPredictor:
             assert predictor.model_path == str(model_file)
             assert predictor.predict([1, 2]) == [1, 1]
 
-            # Cleanup
-            if str(Path(tmpdir).resolve()) in sys.path:
-                sys.path.remove(str(Path(tmpdir).resolve()))
-            if "predictor" in sys.modules:
-                del sys.modules["predictor"]
+            # RFC 0001 D13 isolation: no sys.path/sys.modules pollution
+            assert str(Path(tmpdir).resolve()) not in sys.path
+            assert "predictor" not in sys.modules

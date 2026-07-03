@@ -8,11 +8,36 @@ from typing import Any, Optional, Union, get_args
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from . import defaults
 from .errors import ConfigurationError
-from .settings import get_settings
 from .version import ClassifierMetadata, load_classifier_metadata
 
 logger = logging.getLogger(__name__)
+
+# Once-per-process guard for the legacy global_config.yaml warning (RFC 0001 D12)
+_GLOBAL_CONFIG_WARNING_EMITTED = False
+
+
+def _warn_if_legacy_global_config() -> None:
+    """Warn (once per process) if a legacy global_config.yaml sits in the CWD.
+
+    GlobalSettings and global_config.yaml were removed in RFC 0001 D12;
+    defaults now live in mlserver/defaults.py and are overridden per project
+    via mlserver.yaml or environment variables.
+    """
+    global _GLOBAL_CONFIG_WARNING_EMITTED
+    if _GLOBAL_CONFIG_WARNING_EMITTED:
+        return
+    try:
+        present = (Path.cwd() / "global_config.yaml").exists()
+    except OSError:
+        return
+    if present:
+        _GLOBAL_CONFIG_WARNING_EMITTED = True
+        logger.warning(
+            "global_config.yaml is no longer read; use mlserver.yaml or "
+            "environment variables instead (RFC 0001 D12)"
+        )
 
 
 # Free-form dict fields whose contents are user-defined and must NOT be
@@ -94,15 +119,10 @@ class LoggerConfig(BaseModel):
 
 class ServerConfig(BaseModel):
     title: str = "ML Server"
-    host: str = Field(default_factory=lambda: get_settings().server.default_host)
-    port: int = Field(default_factory=lambda: get_settings().server.default_port)
-    log_level: str = Field(default_factory=lambda: get_settings().server.default_log_level)
-    workers: int = Field(
-        default_factory=lambda: (
-            get_settings().server.default_workers
-            if hasattr(get_settings().server, 'default_workers') else 1
-        )
-    )
+    host: str = Field(default_factory=defaults.default_host)
+    port: int = Field(default_factory=defaults.default_port)
+    log_level: str = Field(default_factory=defaults.default_log_level)
+    workers: int = Field(default=defaults.DEFAULT_WORKERS)
     cors: Optional[CORSConfig] = None
     logger: Optional[LoggerConfig] = Field(default=None, description="Logger configuration")
 
@@ -169,6 +189,14 @@ class ApiConfig(BaseModel):
         ),
         ge=0
     )
+    retry_after_seconds: int = Field(
+        default=5,
+        description=(
+            "Value of the Retry-After header (seconds) sent with 503 responses "
+            "when the prediction concurrency limit is reached"
+        ),
+        ge=0
+    )
     # Response format configuration
     response_format: str = Field(
         default="standard",
@@ -193,6 +221,22 @@ class ApiConfig(BaseModel):
             "and reduce first-request latency"
         )
     )
+
+    @model_validator(mode="after")
+    def _warn_deprecated_response_options(self):
+        """Warn (once per config load) about deprecated response options (RFC 0001 D11)."""
+        if self.response_format == "custom":
+            logger.warning(
+                "DeprecationWarning: api.response_format 'custom' is deprecated and "
+                "will be removed in 1.0 (RFC 0001 D11); use 'standard' or 'passthrough'"
+            )
+        if self.extract_values:
+            logger.warning(
+                "DeprecationWarning: api.extract_values is deprecated and will be "
+                "removed in 1.0 (RFC 0001 D11); return the desired structure from "
+                "your predictor instead"
+            )
+        return self
 
     def get_resolved_feature_order(self, base_path: Optional[Path] = None) -> Optional[list[str]]:
         """Resolve feature_order, loading from file if it's a path.
@@ -291,7 +335,7 @@ class ApiConfig(BaseModel):
 class BuildConfig(BaseModel):
     """Container build configuration"""
     base_image: str = Field(
-        default_factory=lambda: get_settings().container.default_base_image,
+        default=defaults.DEFAULT_BASE_IMAGE,
         description="Base Docker image"
     )
     registry: Optional[str] = Field(default=None, description="Container registry URL")
@@ -431,9 +475,32 @@ class AppConfig(BaseModel):
         Catches typos like 'porrt: 9999' that pydantic would otherwise
         silently drop, replacing the intended value with a default.
         """
+        _warn_if_legacy_global_config()
         if isinstance(data, dict):
             _warn_unknown_config_keys(data, cls)
         return data
+
+    @field_validator("predictor", mode="before")
+    @classmethod
+    def _coerce_predictor_string_spec(cls, value: Any) -> Any:
+        """Accept the compact string spec ``predictor: "module:ClassName"``.
+
+        RFC 0001 D13: the string form is shorthand for the two-field mapping
+        (init_kwargs default to {}). The mapping form keeps working unchanged.
+        """
+        if isinstance(value, str):
+            module, sep, class_name = value.partition(":")
+            if not sep or not module.strip() or not class_name.strip():
+                raise ValueError(
+                    f"Invalid predictor spec '{value}': expected 'module:ClassName' "
+                    "(e.g. 'my_predictor:MyPredictor')"
+                )
+            return {
+                "module": module.strip(),
+                "class_name": class_name.strip(),
+                "init_kwargs": {},
+            }
+        return value
 
     def model_post_init(self, __context) -> None:
         """Post-initialization processing for modern config format."""

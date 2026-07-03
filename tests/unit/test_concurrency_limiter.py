@@ -149,6 +149,30 @@ class TestPredictionLimiter:
 
         assert exc_info.value.detail == custom_msg
 
+    def test_default_retry_after_header_is_five_seconds(self):
+        """Default Retry-After stays at 5 seconds (RFC 0001 D14)."""
+        sem = PredictionSemaphore(max_concurrent=1)
+        sem.acquire_nowait()  # Block it
+
+        with pytest.raises(HTTPException) as exc_info:
+            with PredictionLimiter(sem):
+                pass
+
+        assert exc_info.value.headers["Retry-After"] == "5"
+
+    @pytest.mark.parametrize("retry_after", [0, 1, 42, 600])
+    def test_configurable_retry_after_header(self, retry_after):
+        """Retry-After header honors the configured value (RFC 0001 D14)."""
+        sem = PredictionSemaphore(max_concurrent=1)
+        sem.acquire_nowait()  # Block it
+
+        with pytest.raises(HTTPException) as exc_info:
+            with PredictionLimiter(sem, retry_after_seconds=retry_after):
+                pass
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.headers["Retry-After"] == str(retry_after)
+
     def test_release_on_exception(self):
         """Test semaphore is released even on exception."""
         sem = PredictionSemaphore(max_concurrent=1)
@@ -187,6 +211,19 @@ class TestAsyncPredictionLimiter:
         assert exc_info.value.status_code == 503
 
         # Release
+        sem.release()
+
+    @pytest.mark.asyncio
+    async def test_async_configurable_retry_after_header(self):
+        """Async limiter honors configured Retry-After (RFC 0001 D14)."""
+        sem = asyncio.Semaphore(1)
+        await sem.acquire()
+
+        with pytest.raises(HTTPException) as exc_info:
+            async with AsyncPredictionLimiter(sem, retry_after_seconds=17):
+                pass
+
+        assert exc_info.value.headers["Retry-After"] == "17"
         sem.release()
 
     @pytest.mark.asyncio
@@ -236,6 +273,19 @@ class TestCreatePredictionLimiter:
         assert isinstance(sem, PredictionSemaphore)
         limiter = limiter_factory()
         assert isinstance(limiter, PredictionLimiter)
+
+    def test_factory_threads_retry_after_seconds(self):
+        """create_prediction_limiter passes retry_after_seconds to the limiter."""
+        sem, limiter_factory = create_prediction_limiter(
+            max_concurrent_predictions=1, async_mode=False, retry_after_seconds=9
+        )
+        sem.acquire_nowait()  # Block it
+
+        with pytest.raises(HTTPException) as exc_info:
+            with limiter_factory():
+                pass
+
+        assert exc_info.value.headers["Retry-After"] == "9"
 
     def test_create_async_limiter(self):
         """Test creating async prediction limiter."""

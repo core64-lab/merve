@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -20,6 +21,7 @@ from .auto_detect import (
 )
 from .concurrency_limiter import PredictionLimiter, PredictionSemaphore
 from .config import AppConfig
+from .errors import PredictorError
 from .logging_conf import log_prediction, log_request, log_response, set_correlation_id
 from .metrics import count_samples, get_metrics, init_metrics
 from .predictor_loader import load_predictor
@@ -27,9 +29,54 @@ from .schemas import (
     ClassifierMetadataResponse,
     CustomPredictResponse,
     HealthResponse,
-    PredictRequest,
     PredictResponse,
+    ProbaResponse,
 )
+
+logger = logging.getLogger(__name__)
+
+# Once-per-process guard for the legacy {"payload": {...}} wrapper warning (RFC 0001 D10)
+_payload_wrapper_warned = False
+
+
+def _resolve_request_payload(body: Any) -> dict:
+    """Resolve the prediction payload from either accepted request shape (RFC 0001 D10).
+
+    Canonical shape: input keys ('records', 'instances', 'ndarray', 'inputs',
+    'features') at the top level of the body. Legacy shape: the same data
+    wrapped as {"payload": {...}} — deprecated, logs one warning per process,
+    removal targeted for 1.0. When both are present the wrapper wins.
+    """
+    global _payload_wrapper_warned
+
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Request body must be a JSON object",
+        )
+
+    wrapper = body.get("payload")
+    if isinstance(wrapper, dict):
+        if not _payload_wrapper_warned:
+            _payload_wrapper_warned = True
+            logger.warning(
+                'The {"payload": {...}} request wrapper is deprecated; send '
+                "'records'/'instances'/'ndarray'/'inputs'/'features' as top-level "
+                "keys instead. Wrapper removal is targeted for 1.0 (RFC 0001 D10)."
+            )
+        return wrapper
+
+    if "payload" in body:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "'payload' must be a JSON object when using the legacy wrapper "
+                f"(got {type(wrapper).__name__}). Prefer top-level keys: "
+                "'records', 'instances', 'ndarray', 'inputs' or 'features'."
+            ),
+        )
+
+    return body
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
@@ -129,19 +176,17 @@ class PredictorWrapper:
                 pass
 
 
-def _prepare_input_data(req: PredictRequest, config: AppConfig):
+def _prepare_input_data(payload: dict, config: AppConfig):
     """Parse and prepare input data for prediction.
 
+    ``payload`` is the resolved input data (see _resolve_request_payload).
     Includes optional feature schema validation when feature_order is configured,
     providing clearer error messages for missing/extra features.
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     # Debug logging for request details
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(f"Incoming request payload type: {type(req.payload)}")
-        logger.debug(f"Incoming request payload: {req.payload}")
+        logger.debug(f"Incoming request payload type: {type(payload)}")
+        logger.debug(f"Incoming request payload: {payload}")
         logger.debug(f"Adapter configuration: {config.api.adapter}")
         logger.debug(f"Feature order: {config.api.feature_order}")
 
@@ -155,10 +200,10 @@ def _prepare_input_data(req: PredictRequest, config: AppConfig):
         # Optional: Validate features before parsing (provides better error messages)
         # Only applies to records adapter with configured feature_order
         if feature_order and config.api.adapter in ("records", "auto"):
-            _validate_input_features(req.payload, feature_order, logger)
+            _validate_input_features(payload, feature_order, logger)
 
         return to_ndarray(
-            req.payload,
+            payload,
             adapter=config.api.adapter,
             feature_order=feature_order,
         )
@@ -306,13 +351,16 @@ def _log_payload(endpoint_path: str, request_payload: Any, response: Any) -> Non
 def _create_predict_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
                            prediction_limiter: Optional[PredictionSemaphore] = None):
     """Create a predict endpoint handler with concurrency control."""
-    def predict(req: PredictRequest):
+    def predict(body: Optional[dict[str, Any]] = None):
+        payload = _resolve_request_payload(body if body is not None else {})
         # Use prediction limiter if configured
         if prediction_limiter:
-            with PredictionLimiter(prediction_limiter):
-                return _execute_prediction(app, config, endpoint_path, req)
+            with PredictionLimiter(
+                prediction_limiter, retry_after_seconds=config.api.retry_after_seconds
+            ):
+                return _execute_prediction(app, config, endpoint_path, payload)
         else:
-            return _execute_prediction(app, config, endpoint_path, req)
+            return _execute_prediction(app, config, endpoint_path, payload)
     return predict
 
 
@@ -448,11 +496,11 @@ def _format_response(
     )
 
 
-def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req: PredictRequest):
+def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, payload: dict):
     """Execute the actual prediction."""
     start_time = time.perf_counter()
 
-    X = _prepare_input_data(req, config)
+    X = _prepare_input_data(payload, config)
 
     # Count input samples before prediction
     input_sample_count = count_samples(X)
@@ -461,7 +509,6 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req
         predictions = app.state.predictor.predict(X)
     except Exception as e:
         # Log full error internally, return sanitized message to client
-        import logging
         logging.error(f"Prediction error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
@@ -502,7 +549,7 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req
 
     # Log request/response payloads if enabled (privacy-sensitive, opt-in)
     if config.observability.log_payloads:
-        _log_payload(endpoint_path, req.payload, response)
+        _log_payload(endpoint_path, payload, response)
 
     return response
 
@@ -510,23 +557,26 @@ def _execute_prediction(app: FastAPI, config: AppConfig, endpoint_path: str, req
 def _create_predict_proba_handler(app: FastAPI, config: AppConfig, endpoint_path: str,
                                  prediction_limiter: Optional[PredictionSemaphore] = None):
     """Create a predict_proba endpoint handler with concurrency control."""
-    def predict_proba(req: PredictRequest):
+    def predict_proba(body: Optional[dict[str, Any]] = None):
+        payload = _resolve_request_payload(body if body is not None else {})
         # Use prediction limiter if configured
         if prediction_limiter:
-            with PredictionLimiter(prediction_limiter):
-                return _execute_predict_proba(app, config, endpoint_path, req)
+            with PredictionLimiter(
+                prediction_limiter, retry_after_seconds=config.api.retry_after_seconds
+            ):
+                return _execute_predict_proba(app, config, endpoint_path, payload)
         else:
-            return _execute_predict_proba(app, config, endpoint_path, req)
+            return _execute_predict_proba(app, config, endpoint_path, payload)
     return predict_proba
 
 
 def _execute_predict_proba(
-    app: FastAPI, config: AppConfig, endpoint_path: str, req: PredictRequest
+    app: FastAPI, config: AppConfig, endpoint_path: str, payload: dict
 ):
     """Execute the actual probability prediction."""
     start_time = time.perf_counter()
 
-    X = _prepare_input_data(req, config)
+    X = _prepare_input_data(payload, config)
 
     # Count input samples before prediction
     input_sample_count = count_samples(X)
@@ -540,7 +590,6 @@ def _execute_predict_proba(
         ) from e
     except Exception as e:
         # Log full error internally, return sanitized message to client
-        import logging
         logging.error(f"Predict_proba error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
@@ -571,17 +620,17 @@ def _execute_predict_proba(
             metadata.deployed_at = deployed_at
 
     # Create ProbaResponse with metadata
-    from .schemas import ProbaResponse
     response = ProbaResponse(
         probabilities=_tolist2d(probabilities),
         time_ms=duration_ms,
         classes=None,  # Could be populated if predictor provides class names
+        predictor_class=app.state.predictor.name,
         metadata=metadata
     )
 
     # Log request/response payloads if enabled (privacy-sensitive, opt-in)
     if config.observability.log_payloads:
-        _log_payload(endpoint_path, req.payload, response)
+        _log_payload(endpoint_path, payload, response)
 
     return response
 
@@ -646,7 +695,6 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         nonlocal predictor_wrapper
-        import logging
         startup_logger = logging.getLogger(__name__)
 
         # Load predictor once at startup
@@ -658,6 +706,27 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
             config.predictor.init_kwargs,
             config_dir=config_dir
         )
+
+        # Optional load() hook (RFC 0001 D13): called exactly once after
+        # construction, before the predictor is marked ready. A failure here
+        # aborts startup so the pod never reports ready with a broken model.
+        load_hook = getattr(predictor, "load", None)
+        if callable(load_hook):
+            startup_logger.info(
+                f"Calling {type(predictor).__name__}.load() before serving..."
+            )
+            try:
+                load_hook()
+            except Exception as e:
+                raise PredictorError(
+                    message=f"Predictor load() failed for {type(predictor).__name__}: {e}",
+                    suggestion=(
+                        "load() runs once at startup after construction; check the "
+                        "artifact paths and dependencies it uses. The server did not "
+                        "start and the predictor was not marked ready."
+                    ),
+                ) from e
+
         predictor_wrapper = PredictorWrapper(
             predictor, thread_safe=config.api.thread_safe_predict
         )
@@ -705,6 +774,15 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
 
     app = FastAPI(title=config.get_api_title(), lifespan=lifespan)
 
+    # Per-process Prometheus registries do not aggregate across workers (RFC 0001 D14)
+    if config.server.workers > 1 and config.observability.metrics:
+        logger.warning(
+            f"workers={config.server.workers} with Prometheus metrics enabled: each "
+            "worker process keeps its own metrics registry, so /metrics scrapes "
+            "sample only one worker. Recommended: workers: 1 per container and "
+            "scale horizontally (RFC 0001 D14)."
+        )
+
     # Add observability middleware
     app.add_middleware(ObservabilityMiddleware, config=config)
 
@@ -726,6 +804,8 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
             max_concurrent=config.api.max_concurrent_predictions,
             timeout=0  # Immediate rejection for Kubernetes pod scaling
         )
+    # Exposed for introspection/tests (e.g. asserting Retry-After behavior)
+    app.state.prediction_limiter = prediction_limiter
 
     @app.get("/healthz", response_model=HealthResponse)
     def health():

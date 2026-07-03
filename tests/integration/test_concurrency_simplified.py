@@ -209,6 +209,60 @@ class TestConcurrencyControlIntegration:
         assert len(metrics_text) > 0  # At minimum should have some output
 
 
+class TestRetryAfterConfiguration:
+    """RFC 0001 D14: Retry-After header on 503 honors api.retry_after_seconds."""
+
+    @staticmethod
+    def _make_app(retry_after_seconds=None):
+        api_config = {
+            "version": "v1",
+            "adapter": "records",
+            "max_concurrent_predictions": 1,
+            "endpoints": {"predict": True, "predict_proba": False},
+        }
+        if retry_after_seconds is not None:
+            api_config["retry_after_seconds"] = retry_after_seconds
+
+        config = AppConfig.model_validate({
+            "server": {"title": "Retry-After Test", "host": "0.0.0.0", "port": 8000},
+            "predictor": {
+                "module": "tests.fixtures.mock_predictor",
+                "class_name": "MockPredictor",
+                "init_kwargs": {},
+            },
+            "observability": {"metrics": False, "structured_logging": False},
+            "classifier": {"name": "retry-after-test", "version": "1.0.0"},
+            "api": api_config,
+        })
+        return create_app(config)
+
+    def _assert_retry_after(self, app, expected: str):
+        payload = {"records": [{"feature1": 1.0, "feature2": 2.0, "feature3": 3.0}]}
+        with TestClient(app) as client:
+            # Occupy the single prediction slot so the next request is rejected
+            limiter = app.state.prediction_limiter
+            assert limiter is not None
+            assert limiter.acquire_nowait() is True
+            try:
+                response = client.post("/predict", json=payload)
+                assert response.status_code == 503
+                assert response.headers["Retry-After"] == expected
+            finally:
+                limiter.release()
+
+            # After releasing, requests succeed again
+            ok = client.post("/predict", json=payload)
+            assert ok.status_code == 200
+
+    def test_configured_retry_after_value_in_header(self):
+        app = self._make_app(retry_after_seconds=42)
+        self._assert_retry_after(app, "42")
+
+    def test_default_retry_after_is_five_seconds(self):
+        app = self._make_app()  # retry_after_seconds omitted -> default 5
+        self._assert_retry_after(app, "5")
+
+
 class TestConcurrencyControlUnit:
     """Unit tests for concurrency control components."""
 

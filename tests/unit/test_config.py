@@ -1,9 +1,13 @@
+import logging
+
 import pytest
 from pydantic import ValidationError
 
+from mlserver import defaults
 from mlserver.config import (
     ApiConfig,
     AppConfig,
+    BuildConfig,
     CORSConfig,
     ObservabilityConfig,
     PredictorConfig,
@@ -357,3 +361,128 @@ class TestConfigFromDict:
         config = AppConfig.model_validate(config_dict)
         assert config.server.cors.allow_origins == ["http://localhost:3000"]
         assert config.server.cors.allow_credentials is True
+
+
+class TestResponseFormatDeprecations:
+    """RFC 0001 D11: deprecated response options warn at config load time."""
+
+    def _deprecation_records(self, caplog):
+        return [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "DeprecationWarning" in r.getMessage()
+        ]
+
+    def test_custom_response_format_warns(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            config = ApiConfig(response_format="custom")
+        assert config.response_format == "custom"  # still accepted, only deprecated
+        records = self._deprecation_records(caplog)
+        assert len(records) == 1
+        assert "response_format" in records[0].getMessage()
+        assert "custom" in records[0].getMessage()
+
+    def test_extract_values_warns(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            config = ApiConfig(extract_values=True)
+        assert config.extract_values is True  # still accepted, only deprecated
+        records = self._deprecation_records(caplog)
+        assert len(records) == 1
+        assert "extract_values" in records[0].getMessage()
+
+    def test_both_deprecated_options_warn_once_each_per_load(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            ApiConfig(response_format="custom", extract_values=True)
+        records = self._deprecation_records(caplog)
+        assert len(records) == 2
+
+    def test_defaults_do_not_warn(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            ApiConfig()
+            ApiConfig(response_format="standard")
+            ApiConfig(response_format="passthrough")
+        assert self._deprecation_records(caplog) == []
+
+    def test_warning_via_full_app_config_load(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            AppConfig.model_validate({
+                "predictor": {"module": "m", "class_name": "C"},
+                "api": {"response_format": "custom"},
+            })
+        assert len(self._deprecation_records(caplog)) == 1
+
+
+class TestDefaultsModule:
+    """RFC 0001 D12: config defaults come from mlserver/defaults.py (env-overridable)."""
+
+    def test_server_config_uses_defaults_module(self):
+        config = ServerConfig()
+        assert config.host == defaults.DEFAULT_HOST
+        assert config.port == defaults.DEFAULT_PORT
+        assert config.log_level == defaults.DEFAULT_LOG_LEVEL
+        assert config.workers == defaults.DEFAULT_WORKERS
+
+    def test_server_defaults_honor_env_overrides(self, monkeypatch):
+        monkeypatch.setenv("MLSERVER_DEFAULT_HOST", "127.0.0.9")
+        monkeypatch.setenv("MLSERVER_DEFAULT_PORT", "9123")
+        monkeypatch.setenv("MLSERVER_LOG_LEVEL", "DEBUG")
+
+        config = ServerConfig()
+        assert config.host == "127.0.0.9"
+        assert config.port == 9123
+        assert config.log_level == "DEBUG"
+
+    def test_invalid_port_env_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("MLSERVER_DEFAULT_PORT", "not-a-port")
+        assert ServerConfig().port == defaults.DEFAULT_PORT
+
+    def test_build_config_uses_defaults_module(self):
+        assert BuildConfig().base_image == defaults.DEFAULT_BASE_IMAGE
+
+    def test_no_settings_module_dependency(self):
+        """config.py must not import the removed GlobalSettings singleton."""
+        import inspect
+
+        import mlserver.config as config_module
+        source = inspect.getsource(config_module)
+        assert "get_settings" not in source
+        assert "from .settings" not in source
+
+
+class TestGlobalConfigYamlWarning:
+    """RFC 0001 D12: presence of a legacy global_config.yaml warns once per process."""
+
+    MINIMAL = {"predictor": {"module": "m", "class_name": "C"}}
+
+    def _records(self, caplog):
+        return [
+            r for r in caplog.records
+            if "global_config.yaml is no longer read" in r.getMessage()
+        ]
+
+    def test_warns_once_when_global_config_present(self, tmp_path, monkeypatch, caplog):
+        import mlserver.config as config_module
+
+        (tmp_path / "global_config.yaml").write_text("server: {}\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(config_module, "_GLOBAL_CONFIG_WARNING_EMITTED", False)
+
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            AppConfig.model_validate(self.MINIMAL)
+            AppConfig.model_validate(self.MINIMAL)  # second load: no repeat warning
+
+        records = self._records(caplog)
+        assert len(records) == 1
+        assert "RFC 0001 D12" in records[0].getMessage()
+
+    def test_no_warning_without_global_config(self, tmp_path, monkeypatch, caplog):
+        import mlserver.config as config_module
+
+        monkeypatch.chdir(tmp_path)  # clean CWD without global_config.yaml
+        monkeypatch.setattr(config_module, "_GLOBAL_CONFIG_WARNING_EMITTED", False)
+
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            AppConfig.model_validate(self.MINIMAL)
+
+        assert self._records(caplog) == []
+        # flag stays unset so a later appearance of the file would still warn
+        assert config_module._GLOBAL_CONFIG_WARNING_EMITTED is False

@@ -1,17 +1,18 @@
 """Unit tests for server module components."""
+import logging
 from unittest.mock import Mock, patch
 
 import pytest
 from fastapi import HTTPException, Request, Response
 
 from mlserver.config import AppConfig, PredictorConfig, ServerConfig
-from mlserver.schemas import PredictRequest
 from mlserver.server import (
     ObservabilityMiddleware,
     PredictorWrapper,
     _create_predict_handler,
     _create_predict_proba_handler,
     _prepare_input_data,
+    _resolve_request_payload,
     _to_jsonable,
     _tolist2d,
     _track_prediction_metrics,
@@ -412,8 +413,8 @@ class TestHelperFunctions:
         with patch('mlserver.server.to_ndarray') as mock_to_ndarray:
             mock_to_ndarray.return_value = [[1, 2], [3, 4]]
 
-            request = PredictRequest(inputs={"data": [[1, 2], [3, 4]]})
-            result = _prepare_input_data(request, mock_config)
+            payload = {"ndarray": [[1, 2], [3, 4]]}
+            result = _prepare_input_data(payload, mock_config)
 
             assert result == [[1, 2], [3, 4]]
             mock_to_ndarray.assert_called_once()
@@ -423,10 +424,10 @@ class TestHelperFunctions:
         with patch('mlserver.server.to_ndarray') as mock_to_ndarray:
             mock_to_ndarray.side_effect = Exception("Parsing error")
 
-            request = PredictRequest(inputs={"data": "invalid"})
+            payload = {"ndarray": "invalid"}
 
             with pytest.raises(HTTPException) as exc_info:
-                _prepare_input_data(request, mock_config)
+                _prepare_input_data(payload, mock_config)
 
             assert exc_info.value.status_code == 400
             assert "Input parsing failed" in str(exc_info.value.detail)
@@ -838,3 +839,97 @@ class TestPredictProbaWithLock:
 
         assert result == [[0.8, 0.2]]
         mock_predictor.predict_proba.assert_called_once()
+
+
+class TestResolveRequestPayload:
+    """Unit tests for _resolve_request_payload (RFC 0001 D10 dual shapes)."""
+
+    def test_top_level_body_passes_through(self, monkeypatch):
+        import mlserver.server as server_mod
+        monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
+
+        body = {"records": [{"a": 1}]}
+        assert _resolve_request_payload(body) is body
+        # top-level shape must not trigger the deprecation path
+        assert server_mod._payload_wrapper_warned is False
+
+    def test_wrapped_body_unwrapped(self):
+        inner = {"records": [{"a": 1}]}
+        assert _resolve_request_payload({"payload": inner}) is inner
+
+    def test_wrapper_wins_when_both_present(self):
+        inner = {"records": [{"a": 1}]}
+        body = {"payload": inner, "records": [{"a": 999}]}
+        assert _resolve_request_payload(body) is inner
+
+    @pytest.mark.parametrize("bad_payload", [[1, 2, 3], "text", 42, None, True])
+    def test_non_dict_payload_wrapper_is_400(self, bad_payload):
+        with pytest.raises(HTTPException) as exc_info:
+            _resolve_request_payload({"payload": bad_payload})
+        assert exc_info.value.status_code == 400
+        assert "payload" in str(exc_info.value.detail)
+
+    def test_non_dict_body_is_400(self):
+        with pytest.raises(HTTPException) as exc_info:
+            _resolve_request_payload([{"a": 1}])
+        assert exc_info.value.status_code == 400
+
+    def test_empty_body_resolves_to_empty_payload(self):
+        # adapter layer turns {} into a 400 later; resolution itself succeeds
+        assert _resolve_request_payload({}) == {}
+
+    def test_wrapper_deprecation_warns_exactly_once_per_process(self, monkeypatch, caplog):
+        import mlserver.server as server_mod
+        monkeypatch.setattr(server_mod, "_payload_wrapper_warned", False)
+
+        inner = {"records": [{"a": 1}]}
+        with caplog.at_level(logging.WARNING, logger="mlserver.server"):
+            _resolve_request_payload({"payload": inner})
+            _resolve_request_payload({"payload": inner})
+            _resolve_request_payload({"payload": inner})
+
+        deprecations = [
+            r for r in caplog.records
+            if "deprecated" in r.getMessage() and "payload" in r.getMessage()
+        ]
+        assert len(deprecations) == 1
+        assert "1.0" in deprecations[0].getMessage()
+
+
+class TestWorkerMetricsWarning:
+    """RFC 0001 D14: warn when workers > 1 while Prometheus metrics are on."""
+
+    @staticmethod
+    def _config(workers: int, metrics: bool) -> AppConfig:
+        return AppConfig.model_validate({
+            "server": {"host": "127.0.0.1", "port": 8000, "workers": workers},
+            "predictor": {"module": "tests.fixtures.mock_predictor",
+                          "class_name": "MockPredictor"},
+            "observability": {"metrics": metrics, "structured_logging": False},
+            "classifier": {"name": "test-model", "version": "1.0.0"},
+        })
+
+    def _warning_records(self, caplog):
+        return [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "metrics registry" in r.getMessage()
+        ]
+
+    def test_warning_emitted_for_multiple_workers_with_metrics(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.server"):
+            create_app(self._config(workers=2, metrics=True))
+        records = self._warning_records(caplog)
+        assert len(records) == 1
+        message = records[0].getMessage()
+        assert "workers=2" in message
+        assert "workers: 1" in message  # recommends single worker + horizontal scaling
+
+    def test_no_warning_for_single_worker_with_metrics(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.server"):
+            create_app(self._config(workers=1, metrics=True))
+        assert self._warning_records(caplog) == []
+
+    def test_no_warning_for_multiple_workers_without_metrics(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="mlserver.server"):
+            create_app(self._config(workers=4, metrics=False))
+        assert self._warning_records(caplog) == []
