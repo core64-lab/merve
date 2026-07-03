@@ -324,7 +324,7 @@ COPY . .
 ENV MLSERVER_CLASSIFIER={classifier_name}
 
 # Run the server with specific classifier
-CMD ["mlserver", "serve", "--classifier", "{classifier_name}"]
+CMD ["merve", "serve", "--classifier", "{classifier_name}"]
 """
 
     # Write Dockerfile

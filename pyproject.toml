@@ -4,7 +4,7 @@ requires = ["setuptools>=45", "wheel", "setuptools-scm[toml]>=6.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mlserver-fastapi-wrapper"
+name = "merve"
 dynamic = ["version"]
 description = "Wrap any Python predictor class into a FastAPI inference API via a simple YAML config."
 readme = "README.md"
@@ -78,6 +78,9 @@ dev = [
 ]
 
 [project.scripts]
+merve = "mlserver.cli:main"
+# Deprecated alias, kept for one transition release (RFC 0001 D9). The package
+# collides with Seldon's `mlserver`; prefer the `merve` command.
 mlserver = "mlserver.cli:main"
 
 [tool.setuptools.packages.find]

@@ -157,8 +157,11 @@ def get_mlserver_package_version() -> str:
         Package version or 'unknown' if not found
     """
     # Try explicit distribution names only (no fuzzy matching, which could
-    # pick up unrelated packages like Seldon's 'mlserver')
+    # pick up unrelated packages like Seldon's 'mlserver'). 'merve' is the
+    # current distribution name (RFC 0001 D9); the older names are kept for
+    # installs that predate the rename.
     possible_names = [
+        'merve',
         'mlserver-fastapi-wrapper',
         'mlserver_fastapi_wrapper',
         'mlserver',

@@ -256,10 +256,15 @@ def _get_mlserver_git_url() -> Optional[str]:
             # Python < 3.8
             from importlib_metadata import distribution
 
-        # Get the package distribution
-        try:
-            dist = distribution('mlserver-fastapi-wrapper')
-        except Exception:
+        # Get the package distribution (renamed merve; old name kept as fallback)
+        dist = None
+        for _dist_name in ('merve', 'mlserver-fastapi-wrapper'):
+            try:
+                dist = distribution(_dist_name)
+                break
+            except Exception:
+                continue
+        if dist is None:
             return None
 
         # Try multiple strategies to find the source directory
@@ -292,9 +297,11 @@ def _get_mlserver_git_url() -> Optional[str]:
                 # Editable install - find the git directory
                 parts = location.split('/src/')
                 if len(parts) > 1:
-                    base_path = parts[0] + '/src/mlserver-fastapi-wrapper'
-                    if Path(base_path).exists():
-                        source_dir = base_path
+                    for _src_name in ('merve', 'mlserver-fastapi-wrapper'):
+                        base_path = parts[0] + '/src/' + _src_name
+                        if Path(base_path).exists():
+                            source_dir = base_path
+                            break
         except Exception:
             pass
 
@@ -367,7 +374,9 @@ def _find_mlserver_source() -> Optional[str]:
             try:
                 with open(pyproject_path, "rb") as f:
                     pyproject = tomllib.load(f)
-                    if pyproject.get("project", {}).get("name") == "mlserver-fastapi-wrapper":
+                    if pyproject.get("project", {}).get("name") in (
+                        "merve", "mlserver-fastapi-wrapper"
+                    ):
                         return str(current_path)
             except Exception:
                 pass
@@ -400,7 +409,7 @@ def _build_mlserver_wheel(mlserver_source_path: str, project_path: str) -> Optio
 
         # Find the built wheel
         dist_dir = Path(mlserver_source_path) / "dist"
-        wheel_files = list(dist_dir.glob("mlserver_fastapi_wrapper-*.whl"))
+        wheel_files = list(dist_dir.glob("merve-*.whl"))
 
         if not wheel_files:
             print("Warning: No wheel file found after build")
@@ -683,21 +692,27 @@ Dockerfile
 
 
 def _get_installed_mlserver_version() -> Optional[str]:
-    """Return the version of the currently-installed mlserver-fastapi-wrapper.
+    """Return the version of the currently-installed merve distribution.
 
     Reads ``importlib.metadata`` first (authoritative for installed
     distributions), falling back to ``mlserver.__version__``. Returns None
-    when the version cannot be determined (RFC 0001, D16 / W2.6).
+    when the version cannot be determined (RFC 0001, D16 / W2.6). The
+    distribution was renamed merve (D9); the old name is tried for
+    installs that predate the rename.
     """
-    try:
-        from importlib.metadata import version
-        return version("mlserver-fastapi-wrapper")
-    except Exception:
+    from importlib.metadata import PackageNotFoundError, version
+    for dist_name in ("merve", "mlserver-fastapi-wrapper"):
         try:
-            import mlserver
-            return getattr(mlserver, "__version__", None)
+            return version(dist_name)
+        except PackageNotFoundError:
+            continue
         except Exception:
-            return None
+            break
+    try:
+        import mlserver
+        return getattr(mlserver, "__version__", None)
+    except Exception:
+        return None
 
 
 def _is_release_version(version: Optional[str]) -> bool:
@@ -860,21 +875,21 @@ def generate_dockerfile(project_path: str, config: AppConfig,
         wheel_install_section = (
             f"# Release build: pin the exact framework version (RFC 0001, D16)\n"
             f'RUN pip install --no-cache-dir '
-            f'"mlserver-fastapi-wrapper=={installed_mlserver_version}"'
+            f'"merve=={installed_mlserver_version}"'
         )
     else:
         # Dev build: non-reproducible - warn loudly at build time (RFC 0001 D16).
         print(
-            f"⚠️  WARNING: baking a development build of mlserver-fastapi-wrapper "
+            f"⚠️  WARNING: baking a development build of merve "
             f"({installed_mlserver_version or 'unknown'}) into the image. The "
             f"resulting image is NOT reproducible (RFC 0001, D16). Tag and install "
             f"a release version to pin an exact, reproducible framework version."
         )
         if has_wheel:
             temp_dir = CONTAINER_TEMP_DIR
-            temp_wheel = f"{temp_dir}/mlserver_fastapi_wrapper*.whl"
+            temp_wheel = f"{temp_dir}/merve*.whl"
             wheel_install_section = f"""# Dev build: install the locally built wheel
-COPY mlserver_fastapi_wrapper*.whl {temp_dir}/
+COPY merve*.whl {temp_dir}/
 RUN pip install --no-cache-dir {temp_wheel} && rm {temp_wheel}"""
         else:
             # Try to detect if installed from git
@@ -885,14 +900,14 @@ RUN pip install --no-cache-dir {temp_wheel} && rm {temp_wheel}"""
             if git_url and needs_git:
                 wheel_install_section = f"""{git_install_comment}
 # Git is installed in system dependencies to support pip git clone
-RUN pip install --no-cache-dir "{git_url}"#egg=mlserver-fastapi-wrapper"""
+RUN pip install --no-cache-dir "{git_url}"#egg=merve"""
             elif git_url:
                 wheel_install_section = f"""{git_install_comment}
 # Note: This should not happen - wheel should have been built
-RUN pip install --no-cache-dir "{git_url}"#egg=mlserver-fastapi-wrapper"""
+RUN pip install --no-cache-dir "{git_url}"#egg=merve"""
             else:
                 wheel_install_section = """# No local wheel found, installing from PyPI
-RUN pip install --no-cache-dir mlserver-fastapi-wrapper"""
+RUN pip install --no-cache-dir merve"""
 
     # Get classifier info for labels (the classifier_name parameter takes
     # precedence; fall back to config metadata, then "unknown")
@@ -1017,7 +1032,7 @@ EXPOSE {server_port}
 {_generate_label_directives(project_path, label_classifier_name, config)}
 
 # Command to run the server
-CMD ["mlserver", "serve", "{config_file}"]
+CMD ["merve", "serve", "{config_file}"]
 '''
 
     return dockerfile_content
@@ -1110,16 +1125,25 @@ def _find_git_source_directory() -> Optional[str]:
         except ImportError:
             from importlib_metadata import distribution
 
-        dist = distribution('mlserver-fastapi-wrapper')
+        dist = None
+        for _dist_name in ('merve', 'mlserver-fastapi-wrapper'):
+            try:
+                dist = distribution(_dist_name)
+                break
+            except Exception:
+                continue
+        if dist is None:
+            return None
 
         # Check for editable install location
         location = str(dist._path.parent.parent)
         if '/src/' in location:
             parts = location.split('/src/')
             if len(parts) > 1:
-                base_path = parts[0] + '/src/mlserver-fastapi-wrapper'
-                if Path(base_path).exists() and (Path(base_path) / '.git').exists():
-                    return base_path
+                for _src_name in ('merve', 'mlserver-fastapi-wrapper'):
+                    base_path = parts[0] + '/src/' + _src_name
+                    if Path(base_path).exists() and (Path(base_path) / '.git').exists():
+                        return base_path
 
         # Check if current package is from git repo
         source_path = Path(__file__).parent.parent
@@ -1147,7 +1171,7 @@ def _handle_wheel_preparation(project_path: str, mlserver_source_path: Optional[
         - wheel_filename: Name of wheel file if created, None otherwise
         - needs_git_in_dockerfile: True if git needs to be installed in Dockerfile
     """
-    existing_wheels = list(Path(project_path).glob("mlserver_fastapi_wrapper-*.whl"))
+    existing_wheels = list(Path(project_path).glob("merve-*.whl"))
 
     if existing_wheels:
         print("✓ Found existing mlserver wheel, will use it")
@@ -1582,7 +1606,7 @@ def _build_commit_container(
         wheel_file, needs_git = _handle_wheel_preparation(
             project_path, mlserver_source_path, git_url
         )
-        existing_wheels = list(Path(project_path).glob("mlserver_fastapi_wrapper-*.whl"))
+        existing_wheels = list(Path(project_path).glob("merve-*.whl"))
         has_wheel = bool(existing_wheels) or wheel_file is not None
 
         base_image = DEFAULT_BASE_IMAGE
@@ -1737,7 +1761,7 @@ def build_container(
         wheel_file, needs_git = _handle_wheel_preparation(
             project_path, mlserver_source_path, git_url
         )
-        existing_wheels = list(Path(project_path).glob("mlserver_fastapi_wrapper-*.whl"))
+        existing_wheels = list(Path(project_path).glob("merve-*.whl"))
         has_wheel = bool(existing_wheels) or wheel_file is not None
 
         # Detect required files using intelligent analysis

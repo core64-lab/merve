@@ -7,6 +7,7 @@ modules and the package ``__init__``.
 """
 
 import os
+import sys
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -125,5 +126,14 @@ def _display_check_result(check, verbose: bool = False):
 
 @app.callback()
 def main_callback():
-    """🚀 ML Server - Modern CLI for ML model serving."""
-    pass
+    """🚀 Merve - Modern CLI for ML model serving."""
+    # Deprecation notice when invoked via the legacy `mlserver` alias (RFC 0001
+    # D9). The command was renamed `merve` to avoid colliding with Seldon's
+    # `mlserver`; the alias is kept for one transition release.
+    invoked_as = os.path.basename(sys.argv[0]) if sys.argv else ""
+    if invoked_as == "mlserver":
+        err_console.print(
+            "[yellow]⚠ The 'mlserver' command is deprecated; use 'merve' instead "
+            "(the package was renamed to avoid a collision with Seldon's mlserver). "
+            "This alias will be removed in a future release.[/yellow]"
+        )

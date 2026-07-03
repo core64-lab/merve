@@ -214,7 +214,7 @@ class TestBuildMLServerWheel:
         source_dir = tmp_path / "source"
         project_dir = tmp_path / "project"
         project_dir.mkdir()
-        wheel_name = "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        wheel_name = "merve-1.0.0-py3-none-any.whl"
         dist_dir = source_dir / "dist"
         dist_dir.mkdir(parents=True)
         (dist_dir / wheel_name).write_bytes(b"dummy wheel")
@@ -241,8 +241,8 @@ class TestBuildMLServerWheel:
         dist_dir = source_dir / "dist"
         dist_dir.mkdir(parents=True)
 
-        old_wheel = dist_dir / "mlserver_fastapi_wrapper-0.9.0-py3-none-any.whl"
-        new_wheel = dist_dir / "mlserver_fastapi_wrapper-1.1.0-py3-none-any.whl"
+        old_wheel = dist_dir / "merve-0.9.0-py3-none-any.whl"
+        new_wheel = dist_dir / "merve-1.1.0-py3-none-any.whl"
         old_wheel.write_bytes(b"old")
         new_wheel.write_bytes(b"new")
         os.utime(old_wheel, (1000000, 1000000))
@@ -465,7 +465,7 @@ class TestDockerfileGeneration:
         # requirements.txt exists in the fixture project -> dependency install
         assert "COPY requirements.txt ." in result
         assert "RUN pip install --no-cache-dir -r requirements.txt" in result
-        assert 'CMD ["mlserver", "serve", "mlserver.yaml"]' in result
+        assert 'CMD ["merve", "serve", "mlserver.yaml"]' in result
 
     def test_generate_dockerfile_expose_and_healthcheck_use_config_port(self, temp_project_dir):
         """EXPOSE and HEALTHCHECK follow server.port from config (not hardcoded 8000)."""
@@ -517,16 +517,16 @@ class TestDockerfileGeneration:
             has_wheel=True
         )
 
-        assert f"COPY mlserver_fastapi_wrapper*.whl {temp_dir}/" in result
+        assert f"COPY merve*.whl {temp_dir}/" in result
         assert (
-            f"RUN pip install --no-cache-dir {temp_dir}/mlserver_fastapi_wrapper*.whl "
-            f"&& rm {temp_dir}/mlserver_fastapi_wrapper*.whl"
+            f"RUN pip install --no-cache-dir {temp_dir}/merve*.whl "
+            f"&& rm {temp_dir}/merve*.whl"
         ) in result
 
         # The wheel is installed in the BUILDER stage (into /opt/venv), not
         # in the runtime stage
         builder_stage = result.split("# ============================ Stage 2")[0]
-        assert f"COPY mlserver_fastapi_wrapper*.whl {temp_dir}/" in builder_stage
+        assert f"COPY merve*.whl {temp_dir}/" in builder_stage
 
     def test_generate_dockerfile_two_stage_structure(self, temp_project_dir, mock_config):
         """Generated Dockerfile is a two-stage build (RFC 0001, D15).
@@ -564,7 +564,7 @@ class TestDockerfileGeneration:
         assert "curl" in runtime_stage
         assert "WORKDIR /app" in runtime_stage
         assert "HEALTHCHECK" in runtime_stage
-        assert 'CMD ["mlserver", "serve", "mlserver.yaml"]' in runtime_stage
+        assert 'CMD ["merve", "serve", "mlserver.yaml"]' in runtime_stage
 
         # Project files are copied in the runtime stage, not the builder
         assert "COPY predictor.py" in runtime_stage
@@ -1049,7 +1049,8 @@ class TestGenerateDockerfileUpdated:
             has_wheel=True
         )
 
-        assert "mlserver_fastapi_wrapper" in result
+        # The generated Dockerfile installs the framework wheel (renamed merve).
+        assert "merve*.whl" in result
 
     def test_generate_dockerfile_with_git(self, temp_project_dir, mock_config):
         """Test Dockerfile with git requirement."""
@@ -2000,7 +2001,7 @@ class TestHandleWheelPreparation:
         from mlserver.container import _handle_wheel_preparation
 
         # Create a fake wheel file
-        (temp_project_dir / "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl").write_bytes(b"wheel")
+        (temp_project_dir / "merve-1.0.0-py3-none-any.whl").write_bytes(b"wheel")
 
         wheel_file, needs_git = _handle_wheel_preparation(str(temp_project_dir))
 
@@ -2035,14 +2036,14 @@ class TestHandleWheelPreparation:
         with patch('mlserver.container._find_git_source_directory',
                    return_value="/fake/git/source"), \
              patch('mlserver.container._build_mlserver_wheel',
-                   return_value="mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl") as mock_build:
+                   return_value="merve-1.0.0-py3-none-any.whl") as mock_build:
 
             wheel_file, needs_git = _handle_wheel_preparation(
                 str(tmp_path),
                 git_url="git+https://github.com/test/repo.git@main"
             )
 
-        assert wheel_file == "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        assert wheel_file == "merve-1.0.0-py3-none-any.whl"
         assert needs_git is False
         mock_build.assert_called_once_with("/fake/git/source", str(tmp_path))
 
@@ -2067,12 +2068,12 @@ class TestHandleWheelPreparation:
         from mlserver.container import _handle_wheel_preparation
 
         with patch('mlserver.container._build_mlserver_wheel',
-                   return_value="mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl") as mock_build:
+                   return_value="merve-1.0.0-py3-none-any.whl") as mock_build:
             wheel_file, needs_git = _handle_wheel_preparation(
                 str(tmp_path), mlserver_source_path="/explicit/source"
             )
 
-        assert wheel_file == "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        assert wheel_file == "merve-1.0.0-py3-none-any.whl"
         assert needs_git is False
         mock_build.assert_called_once_with("/explicit/source", str(tmp_path))
 
@@ -2083,11 +2084,11 @@ class TestHandleWheelPreparation:
         with patch('mlserver.container._find_mlserver_source',
                    return_value="/discovered/source"), \
              patch('mlserver.container._build_mlserver_wheel',
-                   return_value="mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl") as mock_build:
+                   return_value="merve-1.0.0-py3-none-any.whl") as mock_build:
 
             wheel_file, needs_git = _handle_wheel_preparation(str(tmp_path))
 
-        assert wheel_file == "mlserver_fastapi_wrapper-1.0.0-py3-none-any.whl"
+        assert wheel_file == "merve-1.0.0-py3-none-any.whl"
         assert needs_git is False
         mock_build.assert_called_once_with("/discovered/source", str(tmp_path))
 
@@ -2226,7 +2227,7 @@ class TestBuildContainerWheelHandling:
 
     def test_build_created_wheel_cleaned_up_after_build(self, temp_project_dir):
         """A wheel built by the build process is deleted after the build."""
-        wheel_name = "mlserver_fastapi_wrapper-0.1.0-py3-none-any.whl"
+        wheel_name = "merve-0.1.0-py3-none-any.whl"
 
         def fake_build_wheel(source, project):
             (Path(project) / wheel_name).write_bytes(b"wheel")
@@ -2247,11 +2248,11 @@ class TestBuildContainerWheelHandling:
         # The build-created wheel was cleaned up afterwards
         assert not (temp_project_dir / wheel_name).exists()
         # But the Dockerfile was generated for a wheel-based install
-        assert "mlserver_fastapi_wrapper*.whl" in Path(result["dockerfile"]).read_text()
+        assert "merve*.whl" in Path(result["dockerfile"]).read_text()
 
     def test_preexisting_user_wheel_preserved(self, temp_project_dir):
         """A wheel the user placed in the project survives the build."""
-        wheel_name = "mlserver_fastapi_wrapper-9.9.9-py3-none-any.whl"
+        wheel_name = "merve-9.9.9-py3-none-any.whl"
         user_wheel = temp_project_dir / wheel_name
         user_wheel.write_bytes(b"user wheel")
 
@@ -2463,7 +2464,7 @@ class TestBuildCommitImage:
     """Build-once commit image for multi-classifier repos (RFC 0001 D4 / W2.5).
 
     The DEFAULT `mlserver build` for a multi-classifier repo builds ONE commit
-    image per git commit: no baked classifier, plain `mlserver serve` CMD, full
+    image per git commit: no baked classifier, plain `merve serve` CMD, full
     multi-classifier config shipped, tagged <repo>:<sha> + <repo>:latest.
     """
 
@@ -2495,7 +2496,7 @@ class TestBuildCommitImage:
         # Dockerfile: NO baked classifier, plain serve CMD, repo-level header
         dockerfile = Path(result["dockerfile"]).read_text()
         assert "ENV MLSERVER_CLASSIFIER" not in dockerfile
-        assert 'CMD ["mlserver", "serve", "mlserver.yaml"]' in dockerfile
+        assert 'CMD ["merve", "serve", "mlserver.yaml"]' in dockerfile
         assert "commit image, all classifiers" in dockerfile
 
         # Exactly one docker build call, carrying both commit-image tags
@@ -2597,9 +2598,9 @@ class TestReleasePinnedInstall:
         with patch('mlserver.container._get_installed_mlserver_version', return_value="0.5.0"):
             result = generate_dockerfile(str(temp_project_dir), mock_config, ["predictor.py"])
 
-        assert 'RUN pip install --no-cache-dir "mlserver-fastapi-wrapper==0.5.0"' in result
+        assert 'RUN pip install --no-cache-dir "merve==0.5.0"' in result
         # No wheel copy path for a clean release
-        assert "COPY mlserver_fastapi_wrapper*.whl" not in result
+        assert "COPY merve*.whl" not in result
 
     def test_dev_version_uses_wheel_path_and_warns(self, temp_project_dir, mock_config, capsys):
         with patch('mlserver.container._get_installed_mlserver_version',
@@ -2609,8 +2610,8 @@ class TestReleasePinnedInstall:
             )
 
         # Dev build falls back to the wheel-copy path, not the pinned install
-        assert "COPY mlserver_fastapi_wrapper*.whl" in result
-        assert 'pip install --no-cache-dir "mlserver-fastapi-wrapper==' not in result
+        assert "COPY merve*.whl" in result
+        assert 'pip install --no-cache-dir "merve==' not in result
 
         out = capsys.readouterr().out
         assert "WARNING" in out
