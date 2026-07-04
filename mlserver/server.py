@@ -11,6 +11,7 @@ from typing import Any, Optional
 import numpy as np
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .adapters import to_ndarray
@@ -30,6 +31,7 @@ from .schemas import (
     HealthResponse,
     PredictResponse,
     ProbaResponse,
+    predict_request_openapi_examples,
 )
 
 logger = logging.getLogger(__name__)
@@ -629,24 +631,42 @@ def _execute_predict_proba(app: FastAPI, config: AppConfig, endpoint_path: str, 
     return response
 
 
+def _prediction_openapi_extra() -> dict[str, Any]:
+    """OpenAPI operation overrides for the prediction endpoints (RFC 0001 D10).
+
+    The handlers accept a raw ``dict`` body (top-level and legacy wrapped
+    shapes), so the request schema and examples are injected explicitly —
+    top-level form first, the deprecated wrapper last.
+    """
+    return {
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {
+                    "schema": {"type": "object", "title": "PredictionInput"},
+                    "examples": predict_request_openapi_examples(),
+                }
+            },
+        }
+    }
+
+
 def _register_endpoint(
-    app: FastAPI, endpoint_name: str, handler, base_path: str, response_model=None
+    app: FastAPI,
+    endpoint_name: str,
+    handler,
+    base_path: str,
+    response_model=None,
+    openapi_extra: Optional[dict] = None,
 ) -> None:
     """Register a versioned endpoint."""
     # Only register versioned endpoint
     if base_path:
-        versioned_path = f"{base_path}/{endpoint_name}"
-        if response_model:
-            app.post(versioned_path, response_model=response_model)(handler)
-        else:
-            app.post(versioned_path)(handler)
+        path = f"{base_path}/{endpoint_name}"
     else:
         # Fallback to root level if no base path (should not happen in modern config)
-        fallback_path = f"/{endpoint_name}"
-        if response_model:
-            app.post(fallback_path, response_model=response_model)(handler)
-        else:
-            app.post(fallback_path)(handler)
+        path = f"/{endpoint_name}"
+    app.post(path, response_model=response_model, openapi_extra=openapi_extra)(handler)
 
 
 def _register_prediction_endpoints(
@@ -664,11 +684,15 @@ def _register_prediction_endpoints(
     else:
         response_model = PredictResponse  # Default standard format
 
+    openapi_extra = _prediction_openapi_extra()
+
     # Register predict endpoint
     if config.is_endpoint_enabled("predict"):
         endpoint_path = f"{base_path}/predict" if base_path else "/predict"
         predict_handler = _create_predict_handler(app, config, endpoint_path, prediction_limiter)
-        _register_endpoint(app, "predict", predict_handler, base_path, response_model)
+        _register_endpoint(
+            app, "predict", predict_handler, base_path, response_model, openapi_extra
+        )
 
     # Note: batch_predict endpoint removed - /predict already handles batches naturally
 
@@ -678,7 +702,12 @@ def _register_prediction_endpoints(
         predict_proba_handler = _create_predict_proba_handler(
             app, config, endpoint_path, prediction_limiter
         )
-        _register_endpoint(app, "predict_proba", predict_proba_handler, base_path)
+        # _execute_predict_proba always returns a ProbaResponse (the response
+        # format setting shapes /predict only), so the schema is unconditional
+        proba_model = None if response_format == "passthrough" else ProbaResponse
+        _register_endpoint(
+            app, "predict_proba", predict_proba_handler, base_path, proba_model, openapi_extra
+        )
 
 
 def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
@@ -798,7 +827,16 @@ def create_app(config: AppConfig, config_file_name: str = None) -> FastAPI:
     @app.get("/healthz", response_model=HealthResponse)
     def health():
         predictor = getattr(app.state, "predictor", None)
-        return HealthResponse(status="ok", model=predictor.name if predictor else None)
+        if predictor is None:
+            # Not ready: the predictor has not finished loading (RFC 0001 D13).
+            # Under uvicorn this state is only observable while startup is in
+            # flight, but probes and harnesses mounting the app without its
+            # lifespan must not read "ok" for a model that cannot serve.
+            return JSONResponse(
+                status_code=503,
+                content=HealthResponse(status="loading", model=None).model_dump(),
+            )
+        return HealthResponse(status="ok", model=predictor.name)
 
     @app.get("/info")
     def info():
@@ -1145,13 +1183,22 @@ def app() -> FastAPI:
         if not mc.classifiers:
             raise RuntimeError(f"No classifiers defined in multi-classifier config: {config_file}")
 
-        # Resolve classifier name: env var, then default_classifier, then first
+        # Resolve classifier name: MLSERVER_CLASSIFIER env var (deploy-time
+        # selection on commit images, RFC 0001 D4), then default_classifier,
+        # then first. An invalid env value is a hard error — a typo must not
+        # silently serve a different model.
         classifier_name = os.environ.get("MLSERVER_CLASSIFIER")
-        if not classifier_name or classifier_name not in mc.classifiers:
-            if mc.default_classifier and mc.default_classifier in mc.classifiers:
-                classifier_name = mc.default_classifier
-            else:
-                classifier_name = next(iter(mc.classifiers))
+        if classifier_name:
+            if classifier_name not in mc.classifiers:
+                raise RuntimeError(
+                    f"MLSERVER_CLASSIFIER={classifier_name!r} does not match any "
+                    f"classifier in {config_file}. "
+                    f"Available: {', '.join(sorted(mc.classifiers))}"
+                )
+        elif mc.default_classifier and mc.default_classifier in mc.classifiers:
+            classifier_name = mc.default_classifier
+        else:
+            classifier_name = next(iter(mc.classifiers))
 
         cfg = extract_single_classifier_config(mc, classifier_name)
     else:

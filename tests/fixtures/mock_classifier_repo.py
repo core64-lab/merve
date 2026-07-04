@@ -140,6 +140,15 @@ class IntentPredictor(TestPredictor):
         with open(models_dir / "feature_order.json", "w") as f:
             json.dump(["f1", "f2", "f3", "f4", "f5"], f)
 
+        # requirements.txt: the pickled model needs sklearn INSIDE the built
+        # container too (daemon-gated build tests). Pin the host's version so
+        # the pickle round-trips across the host/container boundary.
+        import sklearn
+
+        (self.repo_path / "requirements.txt").write_text(
+            f"scikit-learn=={sklearn.__version__}\nnumpy\n"
+        )
+
     def _create_single_classifier_config(self):
         """Create single classifier configuration."""
         config = {

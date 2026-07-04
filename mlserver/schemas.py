@@ -70,6 +70,28 @@ class PredictRequest(BaseModel):
     )
 
 
+def predict_request_openapi_examples() -> dict[str, dict[str, Any]]:
+    """OpenAPI ``requestBody`` examples for the prediction endpoints (RFC 0001 D10).
+
+    The prediction handlers parse the raw body dict (both top-level and legacy
+    wrapped shapes), so FastAPI cannot derive examples from a Pydantic body
+    model; routes inject these via ``openapi_extra`` instead. Derived from
+    :class:`PredictRequest`'s examples so there is a single source of truth,
+    with the top-level form listed first.
+    """
+    names = [
+        "records-top-level",
+        "ndarray-top-level",
+        "single-record-features",
+        "legacy-payload-wrapper",
+    ]
+    model_examples = PredictRequest.model_config["json_schema_extra"]["examples"]
+    return {
+        name: {"summary": example["description"], "value": example["value"]}
+        for name, example in zip(names, model_examples)
+    }
+
+
 # BatchPredictRequest removed - /predict already handles both single and batch predictions
 # Just use PredictRequest with multiple records in the payload
 

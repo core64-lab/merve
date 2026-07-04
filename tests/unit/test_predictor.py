@@ -313,3 +313,40 @@ class TestLoadLifecycle:
 
         async with app.router.lifespan_context(app):
             assert app.state.predictor.name == "PlainPredictor"
+
+
+class TestHealthzReadiness:
+    """W1.7 (RFC 0001 D13): /healthz distinguishes loaded from not-loaded."""
+
+    def test_healthz_503_before_load_200_after(self, tmp_path):
+        from starlette.testclient import TestClient
+
+        from mlserver.server import create_app
+
+        (tmp_path / "lifecycle_predictor.py").write_text(
+            "class PlainPredictor:\n    def predict(self, X):\n        return [7] * len(X)\n"
+        )
+        config = AppConfig.model_validate(
+            {
+                "predictor": {"module": "lifecycle_predictor", "class_name": "PlainPredictor"},
+                "classifier": {"name": "lifecycle-test", "version": "1.0.0"},
+                "api": {"warmup_on_start": False},
+                "observability": {"metrics": False, "structured_logging": False},
+            }
+        )
+        config.set_project_path(str(tmp_path))
+        app = create_app(config)
+
+        # Without entering the lifespan the predictor is not loaded: the
+        # health probe must NOT report ok for a model that cannot serve.
+        not_ready = TestClient(app).get("/healthz")
+        assert not_ready.status_code == 503
+        assert not_ready.json() == {"status": "loading", "model": None}
+
+        # With the lifespan (normal serving) the same app reports ok.
+        with TestClient(app) as running:
+            ready = running.get("/healthz")
+        assert ready.status_code == 200
+        body = ready.json()
+        assert body["status"] == "ok"
+        assert body["model"] == "PlainPredictor"

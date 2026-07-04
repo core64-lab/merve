@@ -926,3 +926,80 @@ class TestWorkerMetricsWarning:
         with caplog.at_level(logging.WARNING, logger="mlserver.server"):
             create_app(self._config(workers=4, metrics=False))
         assert self._warning_records(caplog) == []
+
+
+class TestFactoryClassifierSelection:
+    """The uvicorn factory honors MLSERVER_CLASSIFIER (RFC 0001 D4).
+
+    An invalid value must raise — a typo must never silently serve a
+    different model (audit gap: the old code fell back to the default).
+    """
+
+    @staticmethod
+    def _write_multi(tmp_path):
+        (tmp_path / "mypred.py").write_text(
+            "class P:\n"
+            "    def predict(self, X):\n        return [0] * len(X)\n"
+            "class Q:\n"
+            "    def predict(self, X):\n        return [1] * len(X)\n"
+        )
+        import yaml as _yaml
+
+        (tmp_path / "mlserver.yaml").write_text(
+            _yaml.safe_dump(
+                {
+                    "server": {"host": "127.0.0.1", "port": 9123},
+                    "default_classifier": "alpha",
+                    "classifiers": {
+                        "alpha": {
+                            "predictor": {"module": "mypred", "class_name": "P"},
+                            "classifier": {"name": "alpha", "version": "1.0.0"},
+                            "observability": {"metrics": False, "structured_logging": False},
+                        },
+                        "beta": {
+                            "predictor": {"module": "mypred", "class_name": "Q"},
+                            "classifier": {"name": "beta", "version": "1.0.0"},
+                            "observability": {"metrics": False, "structured_logging": False},
+                        },
+                    },
+                }
+            )
+        )
+
+    def test_env_var_selects_classifier(self, tmp_path, monkeypatch):
+        from starlette.testclient import TestClient
+
+        from mlserver.server import app as factory
+
+        self._write_multi(tmp_path)
+        monkeypatch.setenv("MLSERVER_CONFIG_PATH", str(tmp_path / "mlserver.yaml"))
+        monkeypatch.setenv("MLSERVER_CLASSIFIER", "beta")
+
+        fastapi_app = factory()
+        with TestClient(fastapi_app) as client:
+            health = client.get("/healthz").json()
+        assert health["model"] == "Q"  # beta's predictor, not the default's
+
+    def test_unset_env_uses_default_classifier(self, tmp_path, monkeypatch):
+        from starlette.testclient import TestClient
+
+        from mlserver.server import app as factory
+
+        self._write_multi(tmp_path)
+        monkeypatch.setenv("MLSERVER_CONFIG_PATH", str(tmp_path / "mlserver.yaml"))
+        monkeypatch.delenv("MLSERVER_CLASSIFIER", raising=False)
+
+        fastapi_app = factory()
+        with TestClient(fastapi_app) as client:
+            health = client.get("/healthz").json()
+        assert health["model"] == "P"  # default classifier alpha
+
+    def test_invalid_env_var_raises(self, tmp_path, monkeypatch):
+        from mlserver.server import app as factory
+
+        self._write_multi(tmp_path)
+        monkeypatch.setenv("MLSERVER_CONFIG_PATH", str(tmp_path / "mlserver.yaml"))
+        monkeypatch.setenv("MLSERVER_CLASSIFIER", "no-such-model")
+
+        with pytest.raises(RuntimeError, match="MLSERVER_CLASSIFIER"):
+            factory()

@@ -155,7 +155,9 @@ class TestCLIv2WorkflowIntegration:
     def test_build_command(self, single_classifier_repo):
         """Test building Docker container."""
         if not _docker_daemon_available():
-            pytest.skip("Docker daemon not available")
+            pytest.skip(
+                "Docker daemon not available (environment-gated, policy-exempt; 2026-07-04)"
+            )
 
         # Make a change and tag
         single_classifier_repo.make_change()
@@ -206,7 +208,9 @@ class TestCLIv2WorkflowIntegration:
         the selected classifier. Skips cleanly when no Docker daemon is present.
         """
         if not _docker_daemon_available():
-            pytest.skip("Docker daemon not available")
+            pytest.skip(
+                "Docker daemon not available (environment-gated, policy-exempt; 2026-07-04)"
+            )
 
         import time
 

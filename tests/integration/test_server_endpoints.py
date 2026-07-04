@@ -454,3 +454,32 @@ class TestResponseValidation:
     async def test_content_type_headers(self, async_client, sample_records_payload):
         response = await async_client.post("/predict", json=sample_records_payload)
         assert "application/json" in response.headers["content-type"]
+
+
+class TestOpenApiSpec:
+    """RFC 0001 D10/D11: the SERVED OpenAPI spec carries the request examples
+    (top-level form first, deprecated wrapper last) and the ProbaResponse
+    schema — not just dead code in schemas.py."""
+
+    async def test_prediction_examples_top_level_first(self, async_client):
+        spec = (await async_client.get("/openapi.json")).json()
+        for endpoint in ("/predict", "/predict_proba"):
+            body = spec["paths"][endpoint]["post"]["requestBody"]
+            examples = body["content"]["application/json"]["examples"]
+            names = list(examples)
+            assert names[0] == "records-top-level"
+            assert names[-1] == "legacy-payload-wrapper"
+            # Top-level example bodies have no wrapper; the legacy one does
+            assert "records" in examples["records-top-level"]["value"]
+            assert "payload" in examples["legacy-payload-wrapper"]["value"]
+            assert "deprecated" in examples["legacy-payload-wrapper"]["summary"].lower()
+
+    async def test_proba_response_model_in_components(self, async_client):
+        spec = (await async_client.get("/openapi.json")).json()
+        assert "ProbaResponse" in spec["components"]["schemas"]
+        proba_schema = spec["components"]["schemas"]["ProbaResponse"]
+        assert "predictor_class" in proba_schema["properties"]
+
+        responses = spec["paths"]["/predict_proba"]["post"]["responses"]
+        ref = responses["200"]["content"]["application/json"]["schema"]["$ref"]
+        assert ref.endswith("/ProbaResponse")
