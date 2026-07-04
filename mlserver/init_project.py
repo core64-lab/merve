@@ -378,7 +378,26 @@ def init_mlserver_project(
     else:
         files_skipped.append(".gitignore (already exists)")
 
-    # 4. Create GitHub Actions workflow if requested
+    # 4. Create AGENTS.md (agent/operator guide) - init always scaffolds the
+    # single-classifier variant. Same skip/force semantics as mlserver.yaml.
+    agents_md_path = project_path / "AGENTS.md"
+    if agents_md_path.exists() and not force:
+        files_skipped.append("AGENTS.md (already exists)")
+    else:
+        from .agents_md import generate_agents_md
+        from .container import _get_installed_mlserver_version
+
+        agents_md_content = generate_agents_md(
+            classifier_names=[classifier_name_clean],
+            default_classifier=None,
+            multi=False,
+            mlserver_version=_get_installed_mlserver_version() or "unknown",
+        )
+        with open(agents_md_path, "w") as f:
+            f.write(agents_md_content)
+        files_created["agents_md"] = "AGENTS.md"
+
+    # 5. Create GitHub Actions workflow if requested
     if include_github_actions:
         from .github_actions import init_github_actions
 

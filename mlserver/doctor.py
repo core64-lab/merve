@@ -676,6 +676,53 @@ def check_gitignore(project_path: str = ".", verbose: bool = False) -> CheckResu
         )
 
 
+def check_agents_md(project_path: str = ".", verbose: bool = False) -> CheckResult:
+    """Check the generated AGENTS.md agent/operator guide (RFC 0002 A2).
+
+    Advisory only — this check never returns FAILED. A missing file is SKIPPED
+    (the aggregator adds a recommendation); a file without a template-version
+    stamp or with a stale one is a WARNING; a current stamp PASSES.
+    """
+    from .agents_md import AGENTS_MD_TEMPLATE_VERSION, parse_agents_md_version
+
+    agents_md_path = Path(project_path) / "AGENTS.md"
+
+    if not agents_md_path.exists():
+        return CheckResult(
+            name="AGENTS.md",
+            status=CheckStatus.SKIPPED,
+            message="AGENTS.md not found (agent/operator guide)",
+            suggestion="Generate it: merve init-agents",
+        )
+
+    file_version = parse_agents_md_version(agents_md_path)
+
+    if file_version is None:
+        return CheckResult(
+            name="AGENTS.md",
+            status=CheckStatus.WARNING,
+            message="AGENTS.md has no template version stamp",
+            suggestion="Regenerate: merve init-agents --force",
+        )
+
+    if file_version != AGENTS_MD_TEMPLATE_VERSION:
+        return CheckResult(
+            name="AGENTS.md",
+            status=CheckStatus.WARNING,
+            message=(
+                f"AGENTS.md template version {file_version} is stale "
+                f"(current: {AGENTS_MD_TEMPLATE_VERSION})"
+            ),
+            suggestion="Regenerate: merve init-agents --force",
+        )
+
+    return CheckResult(
+        name="AGENTS.md",
+        status=CheckStatus.PASSED,
+        message=f"AGENTS.md up to date (template version {AGENTS_MD_TEMPLATE_VERSION})",
+    )
+
+
 def check_dependencies(project_path: str = ".", verbose: bool = False) -> CheckResult:
     """Check if key dependencies are installed."""
     required_deps = {
@@ -785,6 +832,12 @@ def run_project_checks(project_path: str = ".", verbose: bool = False) -> Diagno
     report.add(check_git_repository(project_path, verbose))
     report.add(check_gitignore(project_path, verbose))
 
+    # Agent/operator guide (RFC 0002 A2) - advisory, never FAILED.
+    agents_md_result = check_agents_md(project_path, verbose)
+    report.add(agents_md_result)
+    if agents_md_result.status == CheckStatus.SKIPPED:
+        report.add_recommendation("Generate agent/operator guidance: merve init-agents")
+
     return report
 
 
@@ -806,6 +859,14 @@ def run_all_checks(project_path: str = ".", verbose: bool = False) -> Diagnostic
     report.add(check_git_repository(project_path, verbose))
     report.add(check_gitignore(project_path, verbose))
     report.add(check_dependencies(project_path, verbose))
+
+    # Agent/operator guide (RFC 0002 A2) - advisory, never FAILED. `merve
+    # doctor` runs this aggregator, so the check must be listed here too (not
+    # only in run_project_checks, which the CLI does not call).
+    agents_md_result = check_agents_md(project_path, verbose)
+    report.add(agents_md_result)
+    if agents_md_result.status == CheckStatus.SKIPPED:
+        report.add_recommendation("Generate agent/operator guidance: merve init-agents")
 
     # Generate recommendations
     for check in report.checks:

@@ -46,6 +46,7 @@ EXPECTED_COMMANDS = {
     "status",
     "init",
     "init-github",
+    "init-agents",
     "validate",
     "doctor",
     "test",
@@ -76,7 +77,7 @@ class TestCommandRegistration:
     """W2.1: every command survives the split into command modules."""
 
     def test_all_commands_present(self):
-        """`--help` lists all 16 commands (guards the registration side effects)."""
+        """`--help` lists all 17 commands (guards the registration side effects)."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
         for name in sorted(EXPECTED_COMMANDS):

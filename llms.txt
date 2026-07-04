@@ -1,0 +1,23 @@
+# Merve
+
+> Merve wraps Python predictor classes into FastAPI inference APIs, configured by a single `mlserver.yaml`. The CLI is `merve`; agents and scripts get one JSON document on stdout for `--json` commands and stable exit codes (0/1/2), so classifier repositories can be operated non-interactively.
+
+Naming: the tool and its distribution are called `merve`. The importable Python module is still `mlserver`, the config file is `mlserver.yaml`, and environment variables are `MLSERVER_*` — only the tool was renamed; do not rename the rest.
+
+## Docs
+
+- [Documentation index](https://github.com/core64-lab/merve/blob/main/docs/INDEX.md): start here; links to every guide.
+- [Agent guide](https://github.com/core64-lab/merve/blob/main/docs/agent-guide.md): driving merve from an agent — JSON surfaces, exit codes, stdout/stderr split, error recovery.
+- [CLI reference](https://github.com/core64-lab/merve/blob/main/docs/cli-reference.md): every `merve` command, its flags, the `--json` surfaces, exit codes, and removed flags.
+- [Configuration guide](https://github.com/core64-lab/merve/blob/main/docs/configuration.md): the `mlserver.yaml` schema and every option.
+- [API reference](https://github.com/core64-lab/merve/blob/main/docs/api-reference.md): REST endpoints, request shapes, `/healthz`, `/status`, `/openapi.json`.
+- [Multi-classifier](https://github.com/core64-lab/merve/blob/main/docs/multi-classifier.md): many models in one repo, one served per process, selected at startup.
+- [Deployment](https://github.com/core64-lab/merve/blob/main/docs/deployment.md): containers, git-tag versioning, and Kubernetes patterns.
+- [Observability](https://github.com/core64-lab/merve/blob/main/docs/observability.md): Prometheus metrics, structured logs, correlation IDs.
+- [Migration to 0.5](https://github.com/core64-lab/merve/blob/main/docs/migration-0.5.md): the `merve` rename plus flag and tag changes.
+
+## Optional
+
+- [Examples](https://github.com/core64-lab/merve/tree/main/examples): runnable single- and multi-classifier projects.
+- [Changelog](https://github.com/core64-lab/merve/blob/main/CHANGELOG.md): release history.
+- [Design decisions (RFCs)](https://github.com/core64-lab/merve/tree/main/docs/rfcs): the accepted records behind these surfaces.

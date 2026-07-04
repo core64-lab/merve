@@ -187,6 +187,7 @@ def init(
     - <predictor>.py (skeleton predictor class)
     - .github/workflows/ml-classifier-container-build.yml (CI/CD workflow)
     - .gitignore (Python/ML project gitignore)
+    - AGENTS.md (operating guide for coding agents and humans)
 
     This command will NOT overwrite existing files unless --force is used.
 
@@ -313,6 +314,56 @@ def init_github(
         raise typer.Exit(1)
 
 
+@app.command(name="init-agents")
+def init_agents(
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing AGENTS.md"),
+    legacy_path_short: Optional[str] = typer.Option(
+        None, "-p", hidden=True, callback=_LEGACY_P_AS_PATH
+    ),
+):
+    """🤝 Generate or refresh AGENTS.md — the agent/operator guide for this classifier repo.
+
+    AGENTS.md is generated from a template shipped with the installed merve
+    version and stamped with a template version, so it never drifts by hand.
+    It auto-detects single vs multi-classifier config and lists the classifiers.
+
+    Note: 'merve init' already creates AGENTS.md for new projects; run this to
+    refresh an existing repo (use --force after upgrading merve to pick up
+    template changes).
+    """
+    from ..agents_md import init_agents_md
+
+    console.print("[cyan]🤝 Generating AGENTS.md...[/cyan]")
+    console.print()
+
+    success, message, files = init_agents_md(project_path=path, force=force)
+
+    if success:
+        if files:
+            console.print("[green]✓[/green] " + message)
+            console.print()
+
+            # Show created files
+            console.print("[bold]Created files:[/bold]")
+            for file_path in files.values():
+                console.print(f"  [yellow]→[/yellow] {file_path}")
+            console.print()
+
+            # Show next steps
+            console.print("[bold cyan]Next steps:[/bold cyan]")
+            console.print("  1. Review AGENTS.md")
+            console.print(
+                "  2. Commit it: [cyan]git add AGENTS.md && git commit -m 'Add AGENTS.md'[/cyan]"
+            )
+        else:
+            # Skipped (file already exists, no --force)
+            console.print(f"[yellow]{message}[/yellow]")
+    else:
+        console.print(f"[red]✗[/red] {message}", style="bold red")
+        raise typer.Exit(1)
+
+
 @app.command()
 def validate(
     config: Optional[Path] = typer.Argument(
@@ -429,6 +480,7 @@ def validate(
 def doctor(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed diagnostics"),
     project_path: Path = typer.Option(".", "--path", "-C", help="Project path to diagnose"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON (machine-readable)"),
     legacy_path_short: Optional[str] = typer.Option(
         None, "-p", hidden=True, callback=_LEGACY_P_AS_PATH
     ),
@@ -442,8 +494,42 @@ def doctor(
         merve doctor
         merve doctor --verbose
         merve doctor --path ./my-project
+        merve doctor --json
     """
-    from ..doctor import run_all_checks
+    from ..doctor import CheckStatus, run_all_checks
+
+    if json_output:
+        report = run_all_checks(str(project_path), verbose=verbose)
+        summary = {
+            "passed": sum(1 for c in report.checks if c.status == CheckStatus.PASSED),
+            "warnings": sum(1 for c in report.checks if c.status == CheckStatus.WARNING),
+            "failed": sum(1 for c in report.checks if c.status == CheckStatus.FAILED),
+            "skipped": sum(1 for c in report.checks if c.status == CheckStatus.SKIPPED),
+        }
+        print(
+            json.dumps(
+                {
+                    "success": not report.has_errors,
+                    "checks": [
+                        {
+                            "name": check.name,
+                            "status": check.status.value,
+                            "message": check.message,
+                            "suggestion": check.suggestion,
+                            "details": check.details,
+                        }
+                        for check in report.checks
+                    ],
+                    "recommendations": report.recommendations,
+                    "summary": summary,
+                },
+                indent=2,
+                default=str,
+            )
+        )
+        if report.has_errors:
+            raise typer.Exit(1)
+        return
 
     console.print("\n[bold]Merve Doctor[/bold] - Diagnosing your environment...\n")
 
