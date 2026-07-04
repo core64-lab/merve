@@ -75,6 +75,7 @@ dev = [
   "catboost>=1.2",
   "build>=1.0",
   "ruff>=0.6",
+  "mypy>=1.10",
 ]
 
 [project.scripts]
@@ -177,8 +178,11 @@ known-first-party = ["mlserver"]
 keep-runtime-typing = true
 
 [tool.mypy]
-# Config only for now — adoption is a later wave (RFC 0001 W0.2).
-python_version = "3.9"
+# Light mypy on mlserver/ (RFC 0001 D19): lenient flags, run via `make typecheck`.
+# No python_version pin: numpy's stubs need a >=3.12 target; checking against
+# the running interpreter keeps the signal without fighting the stubs.
+packages = ["mlserver"]
+explicit_package_bases = true
 ignore_missing_imports = true
 warn_unused_ignores = true
 exclude = '(^|/)(\.venv|build|dist|htmlcov|docs|examples)(/|$)'

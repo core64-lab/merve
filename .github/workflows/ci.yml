@@ -1,6 +1,6 @@
-# CI for mlserver-fastapi-wrapper (RFC 0001, D17).
-# Jobs are independent by design: test matrix, lint (ruff check only until the
-# Wave 2 formatting finale), wheel build, and the docs-drift gate.
+# CI for merve (RFC 0001, D17).
+# Jobs are independent by design: test matrix, lint (ruff check + format check),
+# wheel build, and the docs-drift gate.
 name: CI
 
 on:

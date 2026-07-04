@@ -3,7 +3,7 @@
 # This Makefile provides convenient commands for running tests, linting,
 # and demonstrations of the ML server functionality including multi-classifier support.
 
-.PHONY: help install install-dev test test-unit test-integration test-load test-all lint format clean demo-setup demo-load demo-monitoring server-train server-start
+.PHONY: help install install-dev test test-unit test-integration test-load test-all lint format typecheck clean demo-setup demo-load demo-monitoring server-train server-start
 
 # Default target
 help: ## Show this help message
@@ -92,6 +92,13 @@ format: ## Format code (if available)
 		black mlserver/ tests/ examples/; \
 	else \
 		echo "No formatter found. Install ruff or black."; \
+	fi
+
+typecheck: ## Run mypy on mlserver/ (RFC 0001 D19; advisory - not a CI gate yet)
+	@if command -v mypy > /dev/null; then \
+		mypy || true; \
+	else \
+		echo "mypy not found. Install with: pip install -e '.[dev]'"; \
 	fi
 
 # Server Operations

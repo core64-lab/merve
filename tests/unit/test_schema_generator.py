@@ -8,23 +8,14 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
-# Import will fail until we implement the module
-try:
-    from mlserver.schema_generator import (
-        generate_config_schema,
-        generate_multi_classifier_schema,
-        get_schema_for_config_type,
-        save_schema,
-    )
-
-    SCHEMA_MODULE_EXISTS = True
-except ImportError:
-    SCHEMA_MODULE_EXISTS = False
+from mlserver.schema_generator import (
+    generate_config_schema,
+    generate_multi_classifier_schema,
+    get_schema_for_config_type,
+    save_schema,
+)
 
 
-@pytest.mark.skipif(not SCHEMA_MODULE_EXISTS, reason="Schema module not yet implemented")
 class TestSchemaGeneration:
     """Test JSON schema generation from Pydantic models."""
 
@@ -102,7 +93,6 @@ class TestSchemaGeneration:
         assert "predictor" in schema_str or "classifiers" in schema_str
 
 
-@pytest.mark.skipif(not SCHEMA_MODULE_EXISTS, reason="Schema module not yet implemented")
 class TestSchemaSaving:
     """Test saving schema to files."""
 
@@ -144,7 +134,6 @@ class TestSchemaSaving:
             assert "  " in content  # Indentation
 
 
-@pytest.mark.skipif(not SCHEMA_MODULE_EXISTS, reason="Schema module not yet implemented")
 class TestSchemaContent:
     """Test specific schema content for configuration options."""
 
@@ -209,7 +198,6 @@ class TestCLISchemaCommand:
 class TestVSCodeIntegration:
     """Test VSCode yaml-language-server integration."""
 
-    @pytest.mark.skipif(not SCHEMA_MODULE_EXISTS, reason="Schema module not yet implemented")
     def test_schema_includes_yaml_language_server_comment(self):
         """Test that schema output includes VSCode setup hint."""
         schema = generate_config_schema()
