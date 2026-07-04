@@ -33,7 +33,7 @@ jobs:
       - name: Install package with test dependencies
         run: pip install -e ".[test]"
       - name: Run test suite with coverage floor
-        run: python -m pytest tests/ --cov-fail-under=60
+        run: python -m pytest tests/ --cov-fail-under=75
 
   lint:
     runs-on: ubuntu-latest

@@ -323,7 +323,7 @@ test-endurance: ## Run long endurance test
 
 # CI/CD helpers
 ci-test: ## Run tests suitable for CI environment (enforces coverage gate)
-	pytest tests/unit/ tests/integration/ -v --tb=short --maxfail=5 --cov=mlserver --cov-fail-under=60
+	pytest tests/unit/ tests/integration/ -v --tb=short --maxfail=5 --cov=mlserver --cov-fail-under=75
 
 ci-lint: ## Run linting for CI
 	@if command -v ruff > /dev/null; then \

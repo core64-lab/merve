@@ -2,8 +2,8 @@
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-897%20passing-brightgreen.svg)](#testing)
-[![Coverage](https://img.shields.io/badge/coverage-64%25-yellow.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1134%20passing-brightgreen.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-76%25-yellowgreen.svg)](#testing)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
 
 > **M**odel s**erve**r - Wrap any Python predictor class into a production-ready FastAPI inference API using a simple YAML configuration file.
@@ -335,7 +335,7 @@ pytest tests/unit/           # Unit tests
 pytest tests/integration/    # Integration tests
 ```
 
-Current status: **897 tests passing, 0 failing**, **64% coverage**
+Current status: **1134 tests passing, 0 failing**, **76% coverage**
 
 ## Troubleshooting
 
