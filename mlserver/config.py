@@ -16,19 +16,27 @@ logger = logging.getLogger(__name__)
 # Once-per-process guard for the legacy global_config.yaml warning (RFC 0001 D12)
 _GLOBAL_CONFIG_WARNING_EMITTED = False
 
+# Once-per-process guard for the classifier.version deprecation warning (RFC 0001 D3)
+_CLASSIFIER_VERSION_WARNING_EMITTED = False
 
-def _warn_if_legacy_global_config() -> None:
-    """Warn (once per process) if a legacy global_config.yaml sits in the CWD.
 
-    GlobalSettings and global_config.yaml were removed in RFC 0001 D12;
-    defaults now live in mlserver/defaults.py and are overridden per project
-    via mlserver.yaml or environment variables.
+def _warn_if_legacy_global_config(directory: Optional[Path] = None) -> None:
+    """Warn (once per process) if a legacy global_config.yaml is present.
+
+    Checks the CWD and, when given, ``directory`` (the project dir — configs
+    served via ``-C``/``--path`` from elsewhere would otherwise miss the
+    leftover). GlobalSettings and global_config.yaml were removed in RFC 0001
+    D12; defaults now live in mlserver/defaults.py and are overridden per
+    project via mlserver.yaml or environment variables.
     """
     global _GLOBAL_CONFIG_WARNING_EMITTED
     if _GLOBAL_CONFIG_WARNING_EMITTED:
         return
     try:
-        present = (Path.cwd() / "global_config.yaml").exists()
+        candidates = [Path.cwd()]
+        if directory is not None:
+            candidates.append(Path(directory))
+        present = any((base / "global_config.yaml").exists() for base in candidates)
     except OSError:
         return
     if present:
@@ -36,6 +44,27 @@ def _warn_if_legacy_global_config() -> None:
         logger.warning(
             "global_config.yaml is no longer read; use mlserver.yaml or "
             "environment variables instead (RFC 0001 D12)"
+        )
+
+
+def _warn_if_classifier_version_set(data: Any) -> None:
+    """Warn (once per process) when the raw config sets classifier.version.
+
+    RFC 0001 D3: git tags (``merve tag``) are the canonical version source;
+    ``classifier.version`` is display-only metadata and never feeds builds,
+    tags, or pushes. The check runs on the RAW config mapping so the
+    auto-generated default (added in model_post_init) never triggers it.
+    """
+    global _CLASSIFIER_VERSION_WARNING_EMITTED
+    if _CLASSIFIER_VERSION_WARNING_EMITTED:
+        return
+    classifier = data.get("classifier") if isinstance(data, dict) else None
+    if isinstance(classifier, dict) and "version" in classifier:
+        _CLASSIFIER_VERSION_WARNING_EMITTED = True
+        logger.warning(
+            "DeprecationWarning: classifier.version in mlserver.yaml is "
+            "display-only metadata; versions come from git tags "
+            "(merve tag <major|minor|patch>) — RFC 0001 D3"
         )
 
 
@@ -459,6 +488,7 @@ class AppConfig(BaseModel):
         silently drop, replacing the intended value with a default.
         """
         _warn_if_legacy_global_config()
+        _warn_if_classifier_version_set(data)
         if isinstance(data, dict):
             _warn_unknown_config_keys(data, cls)
         return data
@@ -473,10 +503,10 @@ class AppConfig(BaseModel):
         """
         if isinstance(value, str):
             module, sep, class_name = value.partition(":")
-            if not sep or not module.strip() or not class_name.strip():
+            if not sep or not module.strip() or not class_name.strip() or ":" in class_name:
                 raise ValueError(
                     f"Invalid predictor spec '{value}': expected 'module:ClassName' "
-                    "(e.g. 'my_predictor:MyPredictor')"
+                    "with exactly one colon (e.g. 'my_predictor:MyPredictor')"
                 )
             return {
                 "module": module.strip(),
@@ -527,6 +557,9 @@ class AppConfig(BaseModel):
     def set_project_path(self, project_path: str):
         """Set project path and load classifier metadata if available."""
         self.project_path_internal = project_path
+        # A leftover global_config.yaml in the project dir is as dead as one
+        # in the CWD (RFC 0001 D12)
+        _warn_if_legacy_global_config(Path(project_path))
         # Check for mlserver.yaml
         mlserver_file = Path(project_path) / "mlserver.yaml"
 

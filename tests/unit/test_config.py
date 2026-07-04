@@ -421,3 +421,61 @@ class TestGlobalConfigYamlWarning:
         assert self._records(caplog) == []
         # flag stays unset so a later appearance of the file would still warn
         assert config_module._GLOBAL_CONFIG_WARNING_EMITTED is False
+
+
+class TestClassifierVersionDeprecation:
+    """RFC 0001 D3: classifier.version is display-only and warns at load."""
+
+    def test_warns_once_per_process_when_version_set(self, caplog, monkeypatch):
+        import logging
+
+        import mlserver.config as config_module
+
+        monkeypatch.setattr(config_module, "_CLASSIFIER_VERSION_WARNING_EMITTED", False)
+        raw = {
+            "predictor": {"module": "m", "class_name": "C"},
+            "classifier": {"name": "x", "version": "1.0.0"},
+        }
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            AppConfig.model_validate(raw)
+            AppConfig.model_validate(raw)  # second load must NOT warn again
+
+        hits = [r for r in caplog.records if "display-only" in r.getMessage()]
+        assert len(hits) == 1
+        msg = hits[0].getMessage()
+        assert "git tags" in msg
+        assert "RFC 0001 D3" in msg
+
+    def test_no_warning_without_explicit_version(self, caplog, monkeypatch):
+        import logging
+
+        import mlserver.config as config_module
+
+        monkeypatch.setattr(config_module, "_CLASSIFIER_VERSION_WARNING_EMITTED", False)
+        with caplog.at_level(logging.WARNING, logger="mlserver.config"):
+            # No classifier section at all: the auto-generated default version
+            # (added in model_post_init) must not trigger the warning.
+            AppConfig.model_validate({"predictor": {"module": "m", "class_name": "C"}})
+            # Classifier section without a version key: also silent.
+            AppConfig.model_validate(
+                {
+                    "predictor": {"module": "m", "class_name": "C"},
+                    "classifier": {"name": "x"},
+                }
+            )
+
+        assert not [r for r in caplog.records if "display-only" in r.getMessage()]
+
+
+class TestConcurrencyDefaults:
+    """RFC 0001 D14: the documented concurrency defaults, asserted directly."""
+
+    def test_max_concurrent_predictions_defaults_to_one(self):
+        from mlserver.config import ApiConfig
+
+        assert ApiConfig().max_concurrent_predictions == 1
+
+    def test_retry_after_defaults_to_five_seconds(self):
+        from mlserver.config import ApiConfig
+
+        assert ApiConfig().retry_after_seconds == 5

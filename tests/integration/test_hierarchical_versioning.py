@@ -305,7 +305,7 @@ class TestHierarchicalVersioningWorkflow:
         assert intent_tag_found, f"Expected intent/v0.1.0 in {tags}"
 
     def test_get_version_for_push(self, single_classifier_config):
-        """Test get_version_for_push with hierarchical tags."""
+        """get_version_for_push resolves from git tags ONLY (RFC 0001 D3)."""
         repo_path, config_path = single_classifier_config
 
         from mlserver.version_control import (
@@ -318,33 +318,29 @@ class TestHierarchicalVersioningWorkflow:
 
         # Should fail with no tags
         with pytest.raises(VersionControlError):
-            get_version_for_push(repo_path, "sentiment", "git-tag")
+            get_version_for_push(repo_path, "sentiment")
 
-        # Tag the classifier with hierarchical format
+        # Tag the classifier (canonical format)
         result = git_mgr.tag_version("minor", "sentiment", allow_missing_mlserver=False)
         assert result["version"] == "0.1.0"
 
-        # Should get version from git tag (just the version number, not mlserver suffix)
-        version, source = get_version_for_push(repo_path, "sentiment", "git-tag")
+        # On the tagged commit: version comes from the tag at HEAD
+        version, source = get_version_for_push(repo_path, "sentiment")
         assert version == "0.1.0"
         assert "git-tag" in source
 
-        # Auto mode should prefer git tag when on tagged commit
-        version, source = get_version_for_push(repo_path, "sentiment", "auto")
-        assert version == "0.1.0"
-        assert "git-tag" in source
-
-        # Make a commit to move off tagged commit
+        # Make a commit to move off the tagged commit
         dummy_file = Path(repo_path) / "update.txt"
         dummy_file.write_text("update")
         subprocess.run(["git", "add", "."], cwd=repo_path, check=True)
         subprocess.run(["git", "commit", "-m", "Update"], cwd=repo_path, check=True)
 
-        # Auto mode should fall back to config
-        version, source = get_version_for_push(repo_path, "sentiment", "auto")
-        assert version == "1.0.0"  # From config
-        assert "config" in source
-        assert "not on tagged commit" in source
+        # Off the tagged commit (--force path): the LATEST RELEASE TAG wins.
+        # The config's classifier.version (1.0.0) must never feed the push.
+        version, source = get_version_for_push(repo_path, "sentiment")
+        assert version == "0.1.0"
+        assert "git-tag latest" in source
+        assert "config" not in source
 
 
 class TestValidatePushReadiness:

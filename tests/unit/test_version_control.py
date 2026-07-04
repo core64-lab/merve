@@ -235,67 +235,83 @@ class TestGitVersionManager:
 
 
 class TestVersionForPush:
-    """Test get_version_for_push functionality."""
+    """get_version_for_push: git tags are the ONLY version source (RFC 0001 D3)."""
 
     @patch("mlserver.version_control.GitVersionManager")
-    def test_get_version_git_tag_source(self, mock_git_class):
-        """Test getting version from git tag source."""
+    def test_version_from_tag_at_head(self, mock_git_class):
+        """On a tagged commit the tag's version is used."""
         mock_mgr = Mock()
-        mock_mgr.get_current_version.return_value = "1.2.3"
         mock_mgr.get_latest_tag_info.return_value = {
-            "tag": "test-v1.2.3",
+            "tag": "test-classifier/v1.2.3",
             "on_tagged_commit": True,
             "commits_since_tag": 0,
         }
         mock_git_class.return_value = mock_mgr
 
-        version, source = get_version_for_push(".", "test-classifier", "git-tag")
+        version, source = get_version_for_push(".", "test-classifier")
+
+        assert version == "1.2.3"
+        assert "git-tag" in source
+        assert "test-classifier/v1.2.3" in source
+
+    @patch("mlserver.version_control.GitVersionManager")
+    def test_legacy_tag_at_head_still_parses(self, mock_git_class):
+        """Legacy-format tags remain readable forever (D1/D2 shim)."""
+        mock_mgr = Mock()
+        mock_mgr.get_latest_tag_info.return_value = {
+            "tag": "test-classifier-v1.2.3-mlserver-abc123f",
+            "on_tagged_commit": True,
+            "commits_since_tag": 0,
+        }
+        mock_git_class.return_value = mock_mgr
+
+        version, source = get_version_for_push(".", "test-classifier")
 
         assert version == "1.2.3"
         assert "git-tag" in source
 
     @patch("mlserver.version_control.GitVersionManager")
-    def test_get_version_git_tag_no_tags(self, mock_git_class):
-        """Test error when requesting git-tag but no tags exist."""
+    def test_off_tag_uses_latest_release_tag_not_config(self, mock_git_class):
+        """Off a tagged commit (--force path): latest release tag wins.
+
+        The config's classifier.version must never feed the push (D3).
+        """
         mock_mgr = Mock()
-        mock_mgr.get_current_version.return_value = None
+        mock_mgr.get_latest_tag_info.return_value = {
+            "tag": "test-classifier/v1.5.0",
+            "on_tagged_commit": False,
+            "commits_since_tag": 3,
+        }
+        mock_mgr.get_current_version.return_value = "1.5.0"
+        mock_git_class.return_value = mock_mgr
+
+        version, source = get_version_for_push(".", "test-classifier")
+
+        assert version == "1.5.0"
+        assert "git-tag latest" in source
+        assert "config" not in source
+
+    @patch("mlserver.version_control.GitVersionManager")
+    def test_no_tags_at_all_errors(self, mock_git_class):
+        """Without any release tag the push version cannot be resolved."""
+        mock_mgr = Mock()
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": None,
             "on_tagged_commit": False,
             "commits_since_tag": None,
         }
+        mock_mgr.get_current_version.return_value = None
         mock_git_class.return_value = mock_mgr
 
         with pytest.raises(VersionControlError) as exc_info:
-            get_version_for_push(".", "test-classifier", "git-tag")
+            get_version_for_push(".", "test-classifier")
 
-        assert "no git tags found" in str(exc_info.value).lower()
+        assert "no release tags found" in str(exc_info.value).lower()
+        assert "merve tag" in str(exc_info.value)
 
-    @patch("mlserver.version.load_classifier_metadata")
     @patch("mlserver.version_control.GitVersionManager")
-    def test_get_version_config_source(self, mock_git_class, mock_load):
-        """Test getting version from config source."""
-        mock_mgr = Mock()
-        mock_mgr.get_latest_tag_info.return_value = {
-            "tag": None,
-            "on_tagged_commit": False,
-            "commits_since_tag": None,
-        }
-        mock_git_class.return_value = mock_mgr
-
-        mock_metadata = Mock()
-        mock_metadata.classifier.version = "2.0.0"
-        mock_load.return_value = mock_metadata
-
-        version, source = get_version_for_push(".", None, "config")
-
-        assert version == "2.0.0"
-        assert source == "config"
-
-    @patch("mlserver.version.load_classifier_metadata")
-    @patch("mlserver.version_control.GitVersionManager")
-    def test_get_version_auto_prefers_tag_when_on_tag(self, mock_git_class, mock_load):
-        """Test auto mode prefers git tag when on tagged commit."""
+    def test_plain_version_tag_fallback(self, mock_git_class):
+        """Plain vX.Y.Z tags (no classifier prefix) still resolve at HEAD."""
         mock_mgr = Mock()
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "v1.5.0",
@@ -304,32 +320,10 @@ class TestVersionForPush:
         }
         mock_git_class.return_value = mock_mgr
 
-        version, source = get_version_for_push(".", "auto")
+        version, source = get_version_for_push(".", None)
 
         assert version == "1.5.0"  # 'v' prefix removed
         assert "git-tag" in source
-
-    @patch("mlserver.version.load_classifier_metadata")
-    @patch("mlserver.version_control.GitVersionManager")
-    def test_get_version_auto_falls_back_to_config(self, mock_git_class, mock_load):
-        """Test auto mode falls back to config when not on tag."""
-        mock_mgr = Mock()
-        mock_mgr.get_latest_tag_info.return_value = {
-            "tag": "v1.5.0",
-            "on_tagged_commit": False,
-            "commits_since_tag": 3,
-        }
-        mock_git_class.return_value = mock_mgr
-
-        mock_metadata = Mock()
-        mock_metadata.classifier.version = "2.0.0"
-        mock_load.return_value = mock_metadata
-
-        version, source = get_version_for_push(".", "auto")
-
-        assert version == "2.0.0"
-        assert "config" in source
-        assert "not on tagged commit" in source
 
 
 class TestSafePushContainer:
@@ -961,8 +955,8 @@ class TestMixedFormatTagReading:
         assert result["tag_info"]["tag"] == "sentiment/v1.0.0"
 
     @patch("mlserver.version_control.GitVersionManager")
-    def test_get_version_for_push_auto_with_canonical_tag(self, mock_git_class):
-        """auto mode extracts the version from a canonical tag on HEAD."""
+    def test_get_version_for_push_with_canonical_tag(self, mock_git_class):
+        """The version is extracted from a canonical tag on HEAD."""
         mock_mgr = Mock()
         mock_mgr.get_latest_tag_info.return_value = {
             "tag": "sentiment/v2.5.0",
@@ -971,7 +965,7 @@ class TestMixedFormatTagReading:
         }
         mock_git_class.return_value = mock_mgr
 
-        version, source = get_version_for_push(".", "sentiment", "auto")
+        version, source = get_version_for_push(".", "sentiment")
 
         assert version == "2.5.0"
         assert "git-tag" in source

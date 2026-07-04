@@ -85,8 +85,8 @@ def get_mlserver_commit_hash() -> Optional[str]:
 #
 # Classifier names may contain lowercase letters, digits, underscores and
 # hyphens in ALL formats (e.g. "rfq-likelihood-v2" is a valid name).
-# Tag CREATION still emits the legacy format in this release; the write-side
-# switch to the canonical format is scheduled for Wave 2 (v0.5.0).
+# Tag CREATION emits the canonical format (since v0.5.0); the legacy formats
+# remain readable forever via this parser (RFC 0001 D1/D2).
 
 _CANONICAL_TAG_PATTERN = re.compile(r"^([a-z0-9][a-z0-9_-]*)/v(\d+\.\d+\.\d+)$")
 # 'dev' is the historical placeholder written by --allow-missing-mlserver
@@ -759,73 +759,56 @@ class GitVersionManager:
 def get_version_for_push(
     project_path: str = ".",
     classifier_name: Optional[str] = None,
-    version_source: Literal["git-tag", "config", "auto"] = "auto",
-    metadata: Optional[Any] = None,
 ) -> tuple[str, str]:
-    """
-    Get the version to use for container push.
+    """Get the version to use for a container push.
+
+    Git tags are the only version source (RFC 0001 D3): the version comes
+    from the tag at HEAD when on a tagged commit, otherwise (reachable only
+    with ``--force``) from the classifier's latest release tag. The config's
+    ``classifier.version`` is display-only metadata and never feeds pushes.
 
     Args:
         project_path: Path to project
-        classifier_name: Optional classifier name for hierarchical tags
-        version_source: Source of version ("git-tag", "config", "auto")
-        metadata: Optional pre-resolved ClassifierMetadata (used for the
-                  "config" source; avoids re-loading, which would fail for
-                  multi-classifier configs)
+        classifier_name: Optional classifier name for classifier-scoped tags
 
     Returns:
         Tuple of (version, source_description)
+
+    Raises:
+        VersionControlError: If no release tag exists for the classifier
     """
     git_mgr = GitVersionManager(project_path)
 
-    def _config_version() -> str:
-        if metadata is not None:
-            return metadata.classifier.version
-        from .version import load_classifier_metadata
+    # Prefer the tag at HEAD
+    tag_info = git_mgr.get_latest_tag_info(classifier_name)
+    if tag_info["on_tagged_commit"] and tag_info["tag"]:
+        tag = tag_info["tag"]
+        # Extract version from classifier tag (canonical or legacy format)
+        parsed = parse_classifier_tag(tag)
+        if parsed:
+            version = parsed["version"]
+        else:
+            # Fallback for plain version tags (v1.2.3)
+            version = tag[1:] if tag.startswith("v") else tag
+        return version, f"git-tag ({tag})"
 
-        return load_classifier_metadata(project_path).classifier.version
-
-    if version_source == "git-tag":
-        version = git_mgr.get_current_version(classifier_name)
-        if not version:
-            if classifier_name:
-                raise VersionControlError(
-                    message=f"No git tags found for classifier '{classifier_name}'",
-                    suggestion=(
-                        f"Create a release tag first: mlserver tag --classifier {classifier_name}"
-                    ),
-                )
-            else:
-                raise VersionControlError(
-                    message="No git tags found",
-                    suggestion="Create a release tag first: mlserver tag",
-                )
-        return version, f"git-tag ({classifier_name})" if classifier_name else "git-tag"
-
-    elif version_source == "config":
-        # Load from config file
-        return _config_version(), "config"
-
-    else:  # auto
-        # Prefer git tag if on tagged commit
-        tag_info = git_mgr.get_latest_tag_info(classifier_name)
-        if tag_info["on_tagged_commit"] and tag_info["tag"]:
-            tag = tag_info["tag"]
-            # Extract version from classifier tag (canonical or legacy format)
-            parsed = parse_classifier_tag(tag)
-            if parsed:
-                version = parsed["version"]
-            else:
-                # Fallback for plain version tags (v1.2.3)
-                version = tag[1:] if tag.startswith("v") else tag
-            return version, f"git-tag ({tag})"
-
-        # Fall back to config
-        return _config_version(), (
-            f"config (not on tagged commit for {classifier_name})"
-            if classifier_name
-            else "config (not on tagged commit)"
+    # Not on a tagged commit (only reachable with --force): use the latest
+    # release tag for the classifier - versions never come from the config.
+    version = git_mgr.get_current_version(classifier_name)
+    if version:
+        return version, (
+            f"git-tag latest ({classifier_name})" if classifier_name else "git-tag latest"
         )
+
+    hint = f" --classifier {classifier_name}" if classifier_name else ""
+    raise VersionControlError(
+        message=(
+            f"No release tags found for classifier '{classifier_name}'"
+            if classifier_name
+            else "No release tags found"
+        ),
+        suggestion=f"Create a release tag first: merve tag <major|minor|patch>{hint}",
+    )
 
 
 def resolve_push_metadata(project_path: str, classifier_name: Optional[str] = None):
@@ -883,10 +866,12 @@ def safe_push_container(
     classifier_name: Optional[str] = None,
     tag_prefix: Optional[str] = None,
     force: bool = False,
-    version_source: Literal["git-tag", "config", "auto"] = "auto",
 ) -> dict[str, Any]:
     """
     Safely push container to registry with version validation.
+
+    The pushed version always comes from git tags (RFC 0001 D3); see
+    :func:`get_version_for_push`.
 
     Args:
         project_path: Path to project
@@ -894,7 +879,6 @@ def safe_push_container(
         classifier_name: Optional classifier name for hierarchical tags
         tag_prefix: Optional tag prefix
         force: Force push even with warnings
-        version_source: Source of version
 
     Returns:
         Push result dictionary
@@ -925,19 +909,19 @@ def safe_push_container(
             "validation_errors": validation["errors"],
         }
 
-    # Resolve metadata for single-classifier configs (after git validation so
-    # repository-state problems are reported first)
+    # Validate config/classifier for single-classifier configs (after git
+    # validation so repository-state problems are reported first). Since
+    # RFC 0001 D3 the metadata itself is display-only and never feeds the
+    # pushed version - the call is a config sanity check.
     if metadata is None:
         try:
-            metadata = resolve_push_metadata(project_path, classifier_name)
+            resolve_push_metadata(project_path, classifier_name)
         except (ConfigurationError, ValueError) as e:
             return {"success": False, "error": str(e)}
 
-    # Get version for push
+    # Get version for push (git tags only, RFC 0001 D3)
     try:
-        version, version_source_desc = get_version_for_push(
-            project_path, classifier_name, version_source, metadata=metadata
-        )
+        version, version_source_desc = get_version_for_push(project_path, classifier_name)
     except VersionControlError as e:
         return {"success": False, "error": str(e)}
 
