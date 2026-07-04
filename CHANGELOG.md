@@ -9,20 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Agent-facing surface (RFC 0002): make merve-built classifier repositories
-legible and operable for coding agents and scripts.
-
-### Added
-- **AGENTS.md scaffolding** (RFC 0002 A1/A2): `merve init` now also generates a version-stamped `AGENTS.md` operating guide (single/multi-classifier aware) into new projects; the new `merve init-agents [--force]` command (re)generates it for existing repos; `merve doctor` reports a missing or stale AGENTS.md (advisory — never a failure).
-- **`merve doctor --json`** (RFC 0002 A3): machine-readable diagnosis — per-check `status`/`message`/`suggestion`/`details`, recommendations, and a pass/warn/fail/skip summary; JSON on stdout, exit codes identical to human mode.
-- **Agent discovery docs** (RFC 0002 A4): `llms.txt` at the repo root and `docs/agent-guide.md` ("Driving Merve from an Agent") documenting the CLI-as-tool-interface contract: one JSON document on stdout, diagnostics on stderr, stable exit codes (0/1/2), and errors that carry the fix.
-
 ---
 
 ## [0.5.0] - 2026-07-04
 
 RFC 0001 Wave 2: the breaking batch — rename, tag format, image strategy, and
-flag cleanup — plus the post-audit fixes that make the documented behavior real.
+flag cleanup — plus the post-audit fixes that make the documented behavior real,
+and the agent-facing surface from RFC 0002.
 **Upgrade steps: [docs/migration-0.5.md](docs/migration-0.5.md).**
 
 ### Breaking
@@ -34,6 +27,9 @@ flag cleanup — plus the post-audit fixes that make the documented behavior rea
 - Removed the `GlobalSettings` singleton and `global_config.yaml`.
 
 ### Added
+- **AGENTS.md scaffolding** (RFC 0002 A1/A2): `merve init` now also generates a version-stamped `AGENTS.md` operating guide (single/multi-classifier aware) into new projects; the new `merve init-agents [--force]` command (re)generates it for existing repos; `merve doctor` reports a missing or stale AGENTS.md (advisory — never a failure).
+- **`merve doctor --json`** (RFC 0002 A3): machine-readable diagnosis — per-check `status`/`message`/`suggestion`/`details`, recommendations, and a pass/warn/fail/skip summary; JSON on stdout, exit codes identical to human mode.
+- **Agent discovery docs** (RFC 0002 A4): `llms.txt` at the repo root and `docs/agent-guide.md` ("Driving Merve from an Agent") documenting the CLI-as-tool-interface contract: one JSON document on stdout, diagnostics on stderr, stable exit codes (0/1/2), and errors that carry the fix.
 - `MLSERVER_CLASSIFIER` is now honored by `merve serve` and the uvicorn app factory (deploy-time classifier selection on commit images). Precedence: `--classifier` flag > `MLSERVER_CLASSIFIER` env > config `default_classifier`. An invalid env value fails loudly, listing the available classifiers.
 - `/healthz` returns HTTP 503 `{"status": "loading", "model": null}` until the predictor is loaded, then 200 `{"status": "ok", "model": ...}` — readiness probes no longer read "ok" for a model that cannot serve.
 - The served OpenAPI spec now carries request-body examples on the prediction endpoints (top-level shape first, deprecated wrapper last) and the `ProbaResponse` schema for `/predict_proba`.
