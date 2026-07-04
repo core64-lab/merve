@@ -7,7 +7,7 @@ the ML server with requests while displaying real-time metrics.
 
 Usage:
     1. Start the ML server:
-       mlserver serve examples/example_titanic_manual_setup/mlserver.yaml
+       merve serve examples/example_titanic_manual_setup/mlserver.yaml
 
     2. Run this script:
        python examples/load_test_demo.py
@@ -60,23 +60,21 @@ class LoadTester:
     def generate_sample_data(self) -> dict[str, Any]:
         """Generate random sample data for predictions"""
         return {
-            "payload": {
-                "records": [
-                    {
-                        "pclass": random.choice([1, 2, 3]),
-                        "sex": random.choice(["male", "female"]),
-                        "age": random.uniform(1, 80),
-                        "sibsp": random.randint(0, 3),
-                        "parch": random.randint(0, 2),
-                        "fare": random.uniform(5, 500),
-                        "embarked": random.choice(["S", "C", "Q"]),
-                        "who": random.choice(["man", "woman", "child"]),
-                        "adult_male": random.choice([True, False]),
-                        "alone": random.choice([True, False]),
-                    }
-                    for _ in range(random.randint(1, 5))
-                ]
-            }
+            "records": [
+                {
+                    "pclass": random.choice([1, 2, 3]),
+                    "sex": random.choice(["male", "female"]),
+                    "age": random.uniform(1, 80),
+                    "sibsp": random.randint(0, 3),
+                    "parch": random.randint(0, 2),
+                    "fare": random.uniform(5, 500),
+                    "embarked": random.choice(["S", "C", "Q"]),
+                    "who": random.choice(["man", "woman", "child"]),
+                    "adult_male": random.choice([True, False]),
+                    "alone": random.choice([True, False]),
+                }
+                for _ in range(random.randint(1, 5))
+            ]
         }
 
     async def make_prediction_request(self, endpoint: str = "/predict") -> dict[str, Any]:

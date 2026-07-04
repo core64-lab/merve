@@ -45,10 +45,10 @@ api:
   adapter: "records"                    # records|ndarray|auto
   feature_order: null                   # Enforce feature order
 
-  # Response Format (NEW)
-  response_format: "standard"           # standard|custom|passthrough
+  # Response Format
+  response_format: "standard"           # standard|passthrough ('custom' is DEPRECATED, removal in 1.0: use 'standard' or 'passthrough')
   response_validation: true
-  extract_values: false
+  extract_values: false                 # DEPRECATED (removal in 1.0): return the desired structure from your predictor instead
 
   # Concurrency
   thread_safe_predict: false
@@ -93,7 +93,7 @@ build:
 # deployment:
 #   strategy: "single"                  # single|multi (separate services per classifier)
 #   container_naming: "{repository}-{classifier}:{version}"
-#   git_tag_format: "{classifier}-v{version}"
+#   git_tag_format: "{classifier}-v{version}"  # DEPRECATED: `merve tag` uses canonical <classifier>/vX.Y.Z tags; legacy tags remain readable
 #   parallel_builds: true               # Parallel container builds for multi-classifier repos
 #   registry:
 #     type: "ghcr"                      # ghcr (GitHub Container Registry) | ecr (AWS)

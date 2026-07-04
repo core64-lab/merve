@@ -26,8 +26,8 @@ This index provides a comprehensive overview of all documentation available for 
 - **Multi-Classifier**: Managing multiple models in one repository
 
 ### [CLI Reference](./cli-reference.md)
-- **The `mlserver` CLI**: Typer-based interface with rich output
-- **Version Management**: Hierarchical tagging for complete reproducibility
+- **The `merve` CLI**: Typer-based interface with rich output (`mlserver` remains as a deprecated alias)
+- **Version Management**: Canonical `<classifier>/vX.Y.Z` tagging for complete reproducibility
 - **Tag Command**: Create semantic version tags with MLServer commit tracking
 - **Build Command**: Container builds with validation warnings
 - **Project Setup**: `init` and `init-github` scaffolding
@@ -35,6 +35,11 @@ This index provides a comprehensive overview of all documentation available for 
 - **Command Options**: Complete parameter documentation
 - **Environment Variables**: The variables MLServer actually reads
 - **Examples**: Common usage patterns and workflows
+
+### [Agent Guide](./agent-guide.md)
+- **Machine-readable CLI contract**: one JSON document on stdout, human output and deprecations on stderr, stable exit codes (0/1/2)
+- **Error-recovery patterns**: removed-flag and invalid-classifier errors carry the fix on stderr
+- **AGENTS.md scaffolding**: repo-specific agent guidance generated into classifier repos by `merve init` / `init-agents`
 
 ### [Architecture Overview](./architecture.md)
 - **System Design**: Core components and their interactions
@@ -52,15 +57,15 @@ This index provides a comprehensive overview of all documentation available for 
 - **GitHub Actions Workflows**: CI/CD integration with automatic tag parsing
 - **Kubernetes Strategy**: Pod-based scaling patterns with version-specific deployments
 - **Container Workflow**: Building and pushing images with OCI-compliant labels
-- **Multi-Classifier Deployment**: Independent versioning and deployment per classifier
-- **Migration Path**: Upgrading from simple tags to hierarchical format
+- **Multi-Classifier Deployment**: Build-once commit images with independent versioning per classifier
+- **Migration Path**: Upgrading from simple/legacy tags to the canonical format
 - **Environment Configuration**: Production settings
 - **Monitoring Setup**: Prometheus and Grafana integration
 
 ### [Development Guide](./development.md)
 - **Local Setup**: Development environment configuration
 - **Testing Strategy**: Unit, integration, and load testing
-- **Version Management**: Creating hierarchical tags during development
+- **Version Management**: Creating version tags during development
 - **Reproducibility Testing**: Validating container builds from tags
 - **Code Structure**: Package organization and conventions
 - **Contributing**: Pull request guidelines with version tagging workflow
@@ -148,6 +153,7 @@ merve init --classifier my-model
 - **"I want to version my classifier"** → [CLI Reference > Tag Command](./cli-reference.md#tag---version-tagging--reproducibility)
 - **"I want reproducible builds"** → [Deployment Guide > CI/CD Workflow Adaptations](./deployment.md#cicd-workflow-adaptations)
 - **"I want to set up CI/CD"** → [Deployment Guide > GitHub Actions](./deployment.md#3-github-actions-workflows)
+- **"I want my agent or scripts to operate this"** → [Agent Guide](./agent-guide.md)
 
 ### By Component
 - **Server** → [Architecture Overview](./architecture.md)
@@ -179,6 +185,3 @@ This documentation is continuously updated as the codebase evolves. When making 
 3. Keep examples current with code changes
 4. Verify links remain valid
 5. Update CLAUDE.md references
-
-**Last Updated**: 2026-07-03
-**Version**: 0.3.x

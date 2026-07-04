@@ -167,7 +167,9 @@ build:
 deployment:
   strategy: "single"                    # "single" or "multi" for separate services
   container_naming: "{repository}-{classifier}:{version}"  # Container tag template
-  git_tag_format: "{classifier}-v{version}"                # Git tag format for releases
+  git_tag_format: "{classifier}-v{version}"                # DEPRECATED: canonical
+                                        # <classifier>/vX.Y.Z tagging is built into
+                                        # `merve tag` (see tag-format note below)
   parallel_builds: true                 # Parallel container builds for multiple classifiers
   registry:
     type: "ghcr"                        # "ghcr" (GitHub Container Registry) or "ecr" (AWS)
@@ -309,7 +311,8 @@ classifiers:
     classifier:
       name: "randomforest-model"
     api:
-      response_format: "custom"
+      response_format: "passthrough"  # per-classifier api settings are allowed
+                                      # ("custom" is DEPRECATED, removal in 1.0)
 
 default_classifier: "catboost-model"
 
@@ -551,7 +554,7 @@ classifier:
 
 Everything else (version, repository, commit, deployment time) is auto-detected from git and the environment and surfaced in `/info` and response metadata.
 
-> **`classifier.version` is deprecated.** Git tags are the canonical version source. A `classifier.version` in the config is display-only and logs a deprecation warning; set the version by creating a git tag with `merve tag --classifier <name> <patch|minor|major>` instead.
+> **`classifier.version` is deprecated.** Git tags are the canonical version source. A `classifier.version` in the config is display-only (it never feeds builds, tags, or pushes) and logs a deprecation warning at config load (once per process); set the version by creating a git tag with `merve tag --classifier <name> <patch|minor|major>` instead.
 
 ### Build Configuration
 
@@ -576,7 +579,7 @@ Used by the build/CI tooling (`merve build`, `merve init-github`) for multi-clas
 deployment:
   strategy: "single"                  # single|multi
   container_naming: "{repository}-{classifier}:{version}"
-  git_tag_format: "{classifier}-v{version}"   # tag template (see tag-format note below)
+  git_tag_format: "{classifier}-v{version}"   # DEPRECATED (see tag-format note below)
   parallel_builds: true
   registry:
     type: "ghcr"                      # ghcr|ecr
@@ -608,9 +611,13 @@ export MLSERVER_DEFAULT_HOST="0.0.0.0"   # Default bind host when config omits i
 export MLSERVER_DEFAULT_PORT="8000"      # Default port when config omits it
 export MLSERVER_LOG_LEVEL="DEBUG"        # Default log level
 
-# Server factory / containers (usually set for you)
+# Server factory / containers
 export MLSERVER_CONFIG_PATH="/app/mlserver.yaml"  # Config path for worker processes
-export MLSERVER_CLASSIFIER="sentiment"            # Classifier selection in multi-classifier configs
+export MLSERVER_CLASSIFIER="sentiment"            # Deploy-time classifier selection in
+                                                  # multi-classifier configs (honored by
+                                                  # `merve serve`; --classifier wins over it,
+                                                  # it wins over default_classifier; invalid
+                                                  # values fail startup loudly)
 ```
 
 See the [CLI Reference](./cli-reference.md#environment-variables) for the complete list (including the git-metadata variables baked into containers at build time).

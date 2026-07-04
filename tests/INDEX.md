@@ -16,18 +16,19 @@ Coverage numbers and pass/fail counts are **not** tracked in this document - the
 
 ### Unit Tests (`tests/unit/`)
 
-**24 test files** (as of 2026-07-03 - run `ls tests/unit/` for the current list) covering:
+Run `ls tests/unit/` for the current list. Coverage areas:
 
 - Adapters and input handling: `test_adapters.py`, `test_auto_detect.py`, `test_response_handling.py`
-- Configuration: `test_config.py`, `test_config_extended.py`, `test_config_simplification.py`, `test_settings.py`, `test_path_resolution.py`, `test_validation.py`
-- CLI and project tooling: `test_cli_basic.py`, `test_init_project.py`, `test_doctor.py`, `test_schema_generator.py`
-- Server and runtime: `test_server_unit.py`, `test_concurrency_limiter.py`, `test_predictor_loader.py`, `test_errors.py`, `test_logging_conf.py`, `test_metrics.py`
+- Configuration: `test_config.py`, `test_config_extended.py`, `test_config_simplification.py`, `test_path_resolution.py`, `test_validation.py`
+- CLI and project tooling: `test_cli_basic.py`, `test_cli_commands.py`, `test_cli_flags.py`, `test_cli_json_output.py`, `test_init_project.py`, `test_doctor.py`, `test_schema_generator.py`, `test_agents_md.py` (AGENTS.md generation, init-agents, doctor check)
+- Server and runtime: `test_server_unit.py`, `test_concurrency_limiter.py`, `test_predictor.py`, `test_predictor_loader.py`, `test_errors.py`, `test_logging_conf.py`, `test_metrics.py`
 - Multi-classifier support: `test_multi_classifier.py`
 - Containers and versioning: `test_container.py`, `test_github_actions.py`, `test_version.py`, `test_version_control.py`
+- Documentation guardrails: `test_docs_drift.py` (the docs-drift gate, RFC 0001 D17)
 
 ### Integration Tests (`tests/integration/`)
 
-**7 test files** (as of 2026-07-03 - run `ls tests/integration/` for the current list) covering: API endpoints (`test_server_endpoints.py`), observability (`test_observability.py`), concurrency control (`test_concurrency_simplified.py`), complex response formats (`test_complex_response_formats.py`), container labels and hierarchical versioning (`test_container_labels_versioning.py`, `test_hierarchical_versioning.py`), and the end-to-end CLI workflow.
+Run `ls tests/integration/` for the current list. Covers: API endpoints (`test_server_endpoints.py`), observability (`test_observability.py`), concurrency control (`test_concurrency_simplified.py`), complex response formats (`test_complex_response_formats.py`), container labels and tag-format versioning (`test_container_labels_versioning.py`, `test_hierarchical_versioning.py` — the latter keeps its historical name but exercises the canonical `<classifier>/vX.Y.Z` format), and the end-to-end CLI workflow (`test_cli_workflow.py`, formerly `test_cli_v2_workflow.py`).
 
 ### Load Tests (`tests/load/`)
 
@@ -52,8 +53,8 @@ Coverage numbers and pass/fail counts are **not** tracked in this document - the
 
 ### Endpoint Fixes
 - ✅ Updated URLs from the old versioned classifier-prefixed paths to flat `/predict`
-- ✅ Fixed payload format to use `{"payload": {"records": [...]}}` wrapper
-- ✅ Fixed health endpoint assertions (returns "ok" not "healthy")
+- ✅ Request bodies use the canonical top-level shape (`{"records": [...]}`); the `{"payload": {...}}` wrapper is deprecated and only exercised by dedicated backward-compatibility tests
+- ✅ Fixed health endpoint assertions (returns "ok" not "healthy"; 503 "loading" before the predictor is ready)
 
 ### Test Infrastructure
 - ✅ Renamed TestPredictor to MockPredictor to avoid pytest collection issues
@@ -61,7 +62,7 @@ Coverage numbers and pass/fail counts are **not** tracked in this document - the
 - ✅ Added proper lifespan handling in test apps
 
 ### Version Control Features
-- ✅ Added `mlserver tag <major|minor|patch>` command for semantic versioning
+- ✅ Added `merve tag <major|minor|patch>` command for semantic versioning
 - ✅ Implemented safe_push_container with registry tag validation
 - ✅ Enhanced /info endpoint to show git-based version information
 - ✅ Added comprehensive tests for version control functionality
@@ -69,7 +70,7 @@ Coverage numbers and pass/fail counts are **not** tracked in this document - the
 ## Test Evolution Plan
 
 ### Phase 1: Core Server Tests ✅ COMPLETED
-**File**: `mlserver/server.py` (Current: 72% coverage)
+**File**: `mlserver/server.py`
 - [x] Fix endpoint tests for unified URLs
 - [x] Fix payload format issues
 - [ ] Test new /info endpoint with full metadata
@@ -80,7 +81,7 @@ Coverage numbers and pass/fail counts are **not** tracked in this document - the
 - [ ] Test concurrency limiter integration
 
 ### Phase 2: Adapters Tests ✅ MOSTLY COMPLETE
-**File**: `mlserver/adapters.py` (Current: 93% coverage)
+**File**: `mlserver/adapters.py`
 - [x] Test RecordsAdapter with various input formats
 - [x] Test NdarrayAdapter with nested arrays
 - [x] Test AutoAdapter detection logic
@@ -88,14 +89,14 @@ Coverage numbers and pass/fail counts are **not** tracked in this document - the
 - [x] Test feature ordering cache
 
 ### Phase 3: Configuration Tests ✅ GOOD
-**File**: `mlserver/config.py` (Current: 94% coverage)
+**File**: `mlserver/config.py`
 - [x] Test configuration validation
 - [ ] Test multi-classifier config loading
 - [ ] Test global config inheritance
 - [ ] Test environment variable overrides
 
 ### Phase 4: CLI Tests (Priority: HIGH)
-**File**: `mlserver/cli.py` (the Typer-based CLI - the only CLI)
+**Files**: `mlserver/cli/` (the Typer-based CLI package — command modules over library functions; the only CLI)
 - [ ] Test CLI commands
 - [ ] Test config file auto-detection
 - [ ] Test multi-classifier selection
@@ -158,7 +159,7 @@ cd tests/load && locust -f locustfile.py --host http://localhost:8000
 
 - Every `@pytest.mark.skip` / `skipif` must carry a **reason and a date** (e.g. `reason="... (2026-07-03)"`).
 - Any skip older than **one sprint** is rewritten against the current API or deleted - permanently-skipped tests are not allowed to accumulate.
-- The only acceptable long-lived skips are environment-gated ones (e.g. tests requiring a live docker daemon), which must state the gating condition in the reason.
+- The only acceptable long-lived skips are environment-gated ones (e.g. tests requiring a live docker daemon), which must state the gating condition in the reason — and these now carry a date too (the docker-gated skips in `tests/integration/test_cli_workflow.py` are dated and marked policy-exempt).
 - Applied 2026-07-03: the 16 stale skips in `tests/unit/test_container.py` were rewritten or deleted (W0.4).
 
 ### When Adding New Functionality
@@ -187,8 +188,10 @@ cd tests/load && locust -f locustfile.py --host http://localhost:8000
 #### Testing API Endpoints
 ```python
 async def test_predict_endpoint(async_client):
-    payload = {"payload": {"records": [{"f1": 1.0}]}}
-    response = await async_client.post("/predict", json=payload)
+    # Canonical shape: input keys at the top level (the legacy
+    # {"payload": {...}} wrapper is deprecated, removal targeted for 1.0)
+    body = {"records": [{"f1": 1.0}]}
+    response = await async_client.post("/predict", json=body)
     assert response.status_code == 200
     assert "predictions" in response.json()
 ```

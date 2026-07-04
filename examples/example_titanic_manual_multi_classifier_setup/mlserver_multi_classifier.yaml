@@ -71,7 +71,7 @@ classifiers:
         COPY requirements.txt .
         RUN pip install --no-cache-dir -r requirements.txt
         COPY . .
-        CMD ["mlserver", "serve", "--classifier", "catboost-survival"]
+        CMD ["merve", "serve", "--classifier", "catboost-survival"]
 
   # Classifier 2: RandomForest model
   randomforest-survival:
@@ -117,7 +117,7 @@ classifiers:
         COPY requirements.txt .
         RUN pip install --no-cache-dir -r requirements.txt
         COPY . .
-        CMD ["mlserver", "serve", "--classifier", "randomforest-survival"]
+        CMD ["merve", "serve", "--classifier", "randomforest-survival"]
 
 # Default classifier (when no --classifier flag is provided)
 default_classifier: "catboost-survival"
@@ -126,9 +126,6 @@ default_classifier: "catboost-survival"
 deployment:
   # Each classifier gets its own container tag
   container_naming: "{repository}-{classifier}:{version}"
-
-  # Git tagging strategy for multi-classifier
-  git_tag_format: "{classifier}-v{version}"
 
   # Enable parallel builds
   parallel_builds: true

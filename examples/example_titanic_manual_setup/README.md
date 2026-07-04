@@ -46,23 +46,23 @@ python examples/example_titanic_manual_setup/train_titanic.py
 ### 2. **Local Development Server**
 ```bash
 # Serve with unified configuration
-mlserver serve examples/example_titanic_manual_setup/mlserver.yaml
+merve serve examples/example_titanic_manual_setup/mlserver.yaml
 
 # Or use the default behavior (auto-detects mlserver.yaml)
-cd examples/example_titanic_manual_setup && mlserver serve
+cd examples/example_titanic_manual_setup && merve serve
 ```
 
 **🌐 Test the API:**
 ```bash
 curl -X POST "http://localhost:8000/predict" \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"records": [{"pclass": 3, "sex": "male", "age": 22, "sibsp": 1, "parch": 0, "fare": 7.25, "embarked": "S", "who": "man", "adult_male": true, "alone": false}]}}'
+  -d '{"records": [{"pclass": 3, "sex": "male", "age": 22, "sibsp": 1, "parch": 0, "fare": 7.25, "embarked": "S", "who": "man", "adult_male": true, "alone": false}]}'
 ```
 
 ### 3. **Production Containerization**
 ```bash
 # Build container with automatic wheel building
-mlserver build
+merve build
 
 # Run containerized version
 docker run --rm -p 8000:8000 fastapi-mlserver-wrapper-catboostpredictor:latest
@@ -143,11 +143,11 @@ build:
 
 ```bash
 # Build with automatic dependency detection
-mlserver build
+merve build
 
 # Explicit wheel source (for development, via environment variable)
 export MLSERVER_SOURCE_PATH=/path/to/mlserver
-mlserver build
+merve build
 ```
 
 **Generated container tags:**
@@ -167,7 +167,7 @@ The build process automatically detects and includes:
 
 ```bash
 # Push to registry
-mlserver push --registry my-registry.com:5000
+merve push --registry my-registry.com:5000
 
 # Deploy with docker-compose, Kubernetes, etc.
 docker run -d -p 80:8000 my-registry.com:5000/titanic-classifier:1.0.0
@@ -200,19 +200,26 @@ Endpoints are **flat** - one classifier per deployment, with no version or class
 **Records (Recommended):**
 ```json
 {
-  "payload": {
-    "records": [
-      {"pclass": 3, "sex": "male", "age": 22, "sibsp": 1, "parch": 0, "fare": 7.25, "embarked": "S", "who": "man", "adult_male": true, "alone": false}
-    ]
-  }
+  "records": [
+    {"pclass": 3, "sex": "male", "age": 22, "sibsp": 1, "parch": 0, "fare": 7.25, "embarked": "S", "who": "man", "adult_male": true, "alone": false}
+  ]
 }
 ```
 
 **Array Format (requires `api.adapter: ndarray` or `auto`):**
 ```json
 {
+  "ndarray": [[3, "male", 22, 1, 0, 7.25, "S", "man", true, false]]
+}
+```
+
+**Deprecated legacy shape** (still accepted, removal targeted for 1.0 — the server logs a deprecation warning once per process):
+```json
+{
   "payload": {
-    "ndarray": [[3, "male", 22, 1, 0, 7.25, "S", "man", true, false]]
+    "records": [
+      {"pclass": 3, "sex": "male", "age": 22, "sibsp": 1, "parch": 0, "fare": 7.25, "embarked": "S", "who": "man", "adult_male": true, "alone": false}
+    ]
   }
 }
 ```
@@ -287,10 +294,10 @@ api:
 ### **Batch Processing**
 ```bash
 # Single prediction
-curl -X POST .../predict -d '{"payload": {"records": [{"pclass": 3, ...}]}}'
+curl -X POST .../predict -d '{"records": [{"pclass": 3, ...}]}'
 
 # Batch prediction (using same /predict endpoint - just send more records)
-curl -X POST .../predict -d '{"payload": {"records": [{"pclass": 3, ...}, {"pclass": 1, ...}]}}'
+curl -X POST .../predict -d '{"records": [{"pclass": 3, ...}, {"pclass": 1, ...}]}'
 ```
 
 ---
@@ -303,7 +310,7 @@ curl -X POST .../predict -d '{"payload": {"records": [{"pclass": 3, ...}, {"pcla
 python examples/example_titanic_manual_setup/train_titanic.py
 
 # Test locally
-mlserver serve examples/example_titanic_manual_setup/mlserver.yaml
+merve serve examples/example_titanic_manual_setup/mlserver.yaml
 ```
 
 ### **2. Version Control Integration**
@@ -313,7 +320,7 @@ git tag v1.0.0
 git push origin v1.0.0
 
 # Container tags automatically include git info
-mlserver build
+merve build
 # -> Creates: repo-classifier:1.0.0-abc1234
 ```
 
@@ -321,8 +328,8 @@ mlserver build
 ```bash
 # In your CI pipeline
 export MLSERVER_SOURCE_PATH=/ci/mlserver-source
-mlserver build
-mlserver push --registry $REGISTRY_URL
+merve build
+merve push --registry $REGISTRY_URL
 ```
 
 ---
@@ -355,7 +362,7 @@ mlserver.yaml  # Everything unified
 ```bash
 # Solution: Provide explicit source path via environment variable
 export MLSERVER_SOURCE_PATH=/path/to/mlserver
-mlserver build
+merve build
 ```
 
 **"ModuleNotFoundError: No module named 'examples'":**
@@ -371,7 +378,7 @@ export PYTHONPATH="$PWD:$PYTHONPATH"
 # Endpoints are flat - use /predict directly
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"records": [...]}}'
+  -d '{"records": [...]}'
 # There are no version- or classifier-name-prefixed endpoints
 ```
 
@@ -386,13 +393,13 @@ curl -X POST http://localhost:8000/predict \
 
 ```bash
 # Check version info
-mlserver version
+merve version
 
 # Validate configuration
-mlserver validate mlserver.yaml
+merve validate mlserver.yaml
 
 # Diagnose environment issues
-mlserver doctor
+merve doctor
 
 # Test container locally
 docker run --rm -it fastapi-mlserver-wrapper-catboostpredictor:latest /bin/bash
@@ -432,13 +439,13 @@ model:
 ### **Multi-Environment Configuration**
 ```bash
 # Development
-mlserver serve mlserver.dev.yaml
+merve serve mlserver.dev.yaml
 
 # Staging
-mlserver serve mlserver.staging.yaml
+merve serve mlserver.staging.yaml
 
 # Production
-mlserver serve mlserver.prod.yaml
+merve serve mlserver.prod.yaml
 ```
 
 ---

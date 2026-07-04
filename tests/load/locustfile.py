@@ -3,7 +3,7 @@ Locust load testing file for ML Server
 
 Usage:
     # Start server first
-    ml_server examples/config.yaml
+    merve serve examples/example_titanic_manual_setup/mlserver.yaml
 
     # Run load test
     locust -f tests/load/locustfile.py --host=http://localhost:8000
@@ -44,46 +44,42 @@ class MLServerUser(HttpUser):
         # Small batch
         payloads.append(
             {
-                "payload": {
-                    "records": [
-                        {
-                            "pclass": random.choice([1, 2, 3]),
-                            "sex": random.choice(["male", "female"]),
-                            "age": random.uniform(1, 80),
-                            "sibsp": random.randint(0, 3),
-                            "parch": random.randint(0, 2),
-                            "fare": random.uniform(5, 500),
-                            "embarked": random.choice(["S", "C", "Q"]),
-                            "who": random.choice(["man", "woman", "child"]),
-                            "adult_male": random.choice([True, False]),
-                            "alone": random.choice([True, False]),
-                        }
-                        for _ in range(random.randint(1, 3))
-                    ]
-                }
+                "records": [
+                    {
+                        "pclass": random.choice([1, 2, 3]),
+                        "sex": random.choice(["male", "female"]),
+                        "age": random.uniform(1, 80),
+                        "sibsp": random.randint(0, 3),
+                        "parch": random.randint(0, 2),
+                        "fare": random.uniform(5, 500),
+                        "embarked": random.choice(["S", "C", "Q"]),
+                        "who": random.choice(["man", "woman", "child"]),
+                        "adult_male": random.choice([True, False]),
+                        "alone": random.choice([True, False]),
+                    }
+                    for _ in range(random.randint(1, 3))
+                ]
             }
         )
 
         # Medium batch
         payloads.append(
             {
-                "payload": {
-                    "records": [
-                        {
-                            "pclass": random.choice([1, 2, 3]),
-                            "sex": random.choice(["male", "female"]),
-                            "age": random.uniform(1, 80),
-                            "sibsp": random.randint(0, 3),
-                            "parch": random.randint(0, 2),
-                            "fare": random.uniform(5, 500),
-                            "embarked": random.choice(["S", "C", "Q"]),
-                            "who": random.choice(["man", "woman", "child"]),
-                            "adult_male": random.choice([True, False]),
-                            "alone": random.choice([True, False]),
-                        }
-                        for _ in range(random.randint(5, 15))
-                    ]
-                }
+                "records": [
+                    {
+                        "pclass": random.choice([1, 2, 3]),
+                        "sex": random.choice(["male", "female"]),
+                        "age": random.uniform(1, 80),
+                        "sibsp": random.randint(0, 3),
+                        "parch": random.randint(0, 2),
+                        "fare": random.uniform(5, 500),
+                        "embarked": random.choice(["S", "C", "Q"]),
+                        "who": random.choice(["man", "woman", "child"]),
+                        "adult_male": random.choice([True, False]),
+                        "alone": random.choice([True, False]),
+                    }
+                    for _ in range(random.randint(5, 15))
+                ]
             }
         )
 
@@ -96,23 +92,21 @@ class MLServerUser(HttpUser):
         # Small array
         payloads.append(
             {
-                "payload": {
-                    "ndarray": [
-                        [
-                            random.choice([1, 2, 3]),  # pclass
-                            random.choice(["male", "female"]),  # sex
-                            random.uniform(1, 80),  # age
-                            random.randint(0, 3),  # sibsp
-                            random.randint(0, 2),  # parch
-                            random.uniform(5, 500),  # fare
-                            random.choice(["S", "C", "Q"]),  # embarked
-                            random.choice(["man", "woman", "child"]),  # who
-                            random.choice([True, False]),  # adult_male
-                            random.choice([True, False]),  # alone
-                        ]
-                        for _ in range(random.randint(1, 5))
+                "ndarray": [
+                    [
+                        random.choice([1, 2, 3]),  # pclass
+                        random.choice(["male", "female"]),  # sex
+                        random.uniform(1, 80),  # age
+                        random.randint(0, 3),  # sibsp
+                        random.randint(0, 2),  # parch
+                        random.uniform(5, 500),  # fare
+                        random.choice(["S", "C", "Q"]),  # embarked
+                        random.choice(["man", "woman", "child"]),  # who
+                        random.choice([True, False]),  # adult_male
+                        random.choice([True, False]),  # alone
                     ]
-                }
+                    for _ in range(random.randint(1, 5))
+                ]
             }
         )
 
@@ -124,19 +118,17 @@ class MLServerUser(HttpUser):
 
         payloads.append(
             {
-                "payload": {
-                    "features": {
-                        "pclass": random.choice([1, 2, 3]),
-                        "sex": random.choice(["male", "female"]),
-                        "age": random.uniform(1, 80),
-                        "sibsp": random.randint(0, 3),
-                        "parch": random.randint(0, 2),
-                        "fare": random.uniform(5, 500),
-                        "embarked": random.choice(["S", "C", "Q"]),
-                        "who": random.choice(["man", "woman", "child"]),
-                        "adult_male": random.choice([True, False]),
-                        "alone": random.choice([True, False]),
-                    }
+                "features": {
+                    "pclass": random.choice([1, 2, 3]),
+                    "sex": random.choice(["male", "female"]),
+                    "age": random.uniform(1, 80),
+                    "sibsp": random.randint(0, 3),
+                    "parch": random.randint(0, 2),
+                    "fare": random.uniform(5, 500),
+                    "embarked": random.choice(["S", "C", "Q"]),
+                    "who": random.choice(["man", "woman", "child"]),
+                    "adult_male": random.choice([True, False]),
+                    "alone": random.choice([True, False]),
                 }
             }
         )
@@ -214,23 +206,21 @@ class MLServerUser(HttpUser):
         # Generate larger batch; /predict handles batches natively
         # (the dedicated /batch_predict endpoint no longer exists)
         batch_payload = {
-            "payload": {
-                "records": [
-                    {
-                        "pclass": random.choice([1, 2, 3]),
-                        "sex": random.choice(["male", "female"]),
-                        "age": random.uniform(1, 80),
-                        "sibsp": random.randint(0, 3),
-                        "parch": random.randint(0, 2),
-                        "fare": random.uniform(5, 500),
-                        "embarked": random.choice(["S", "C", "Q"]),
-                        "who": random.choice(["man", "woman", "child"]),
-                        "adult_male": random.choice([True, False]),
-                        "alone": random.choice([True, False]),
-                    }
-                    for _ in range(random.randint(10, 50))
-                ]
-            }
+            "records": [
+                {
+                    "pclass": random.choice([1, 2, 3]),
+                    "sex": random.choice(["male", "female"]),
+                    "age": random.uniform(1, 80),
+                    "sibsp": random.randint(0, 3),
+                    "parch": random.randint(0, 2),
+                    "fare": random.uniform(5, 500),
+                    "embarked": random.choice(["S", "C", "Q"]),
+                    "who": random.choice(["man", "woman", "child"]),
+                    "adult_male": random.choice([True, False]),
+                    "alone": random.choice([True, False]),
+                }
+                for _ in range(random.randint(10, 50))
+            ]
         }
 
         with self.client.post("/predict", json=batch_payload, catch_response=True) as response:
@@ -281,10 +271,9 @@ class MLServerUser(HttpUser):
         """Test error conditions (called less frequently)"""
         # Test invalid payload
         invalid_payloads = [
-            {},  # Empty payload
-            {"payload": {}},  # Empty nested payload
-            {"payload": {"invalid": "format"}},  # Invalid format
-            {"payload": {"records": []}},  # Empty records
+            {},  # Empty body
+            {"invalid": "format"},  # Invalid format
+            {"records": []},  # Empty records
         ]
 
         payload = random.choice(invalid_payloads)
@@ -312,22 +301,20 @@ class HighLoadUser(HttpUser):
     def on_start(self):
         # Simple fast payload
         self.payload = {
-            "payload": {
-                "records": [
-                    {
-                        "pclass": 1,
-                        "sex": "male",
-                        "age": 30,
-                        "sibsp": 0,
-                        "parch": 0,
-                        "fare": 100,
-                        "embarked": "S",
-                        "who": "man",
-                        "adult_male": True,
-                        "alone": True,
-                    }
-                ]
-            }
+            "records": [
+                {
+                    "pclass": 1,
+                    "sex": "male",
+                    "age": 30,
+                    "sibsp": 0,
+                    "parch": 0,
+                    "fare": 100,
+                    "embarked": "S",
+                    "who": "man",
+                    "adult_male": True,
+                    "alone": True,
+                }
+            ]
         }
 
     @task

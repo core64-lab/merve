@@ -41,11 +41,12 @@ def engineer_features(df):
     df = df.copy()
 
     # Derive additional features
-    df["alone"] = (df["sibsp"].fillna(0) + df["parch"].fillna(0) == 0)
+    df["alone"] = df["sibsp"].fillna(0) + df["parch"].fillna(0) == 0
     df["adult_male"] = (df["sex"].astype(str).str.lower().eq("male")) & (df["age"].fillna(99) >= 16)
     df["who"] = np.where(
-        df["age"].fillna(99) < 16, "child",
-        np.where(df["sex"].astype(str).str.lower().eq("male"), "man", "woman")
+        df["age"].fillna(99) < 16,
+        "child",
+        np.where(df["sex"].astype(str).str.lower().eq("male"), "man", "woman"),
     )
 
     # Reorder columns to match training feature order
@@ -70,7 +71,7 @@ def predict_survival(passenger_data):
 
 
 # Example passengers for testing
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("Testing inference with example passengers:")
 
 passengers = [
@@ -81,26 +82,10 @@ passengers = [
         "sibsp": 0,
         "parch": 0,
         "fare": 80.0,
-        "embarked": "S"
+        "embarked": "S",
     },
-    {
-        "pclass": 3,
-        "sex": "male",
-        "age": 30,
-        "sibsp": 1,
-        "parch": 2,
-        "fare": 15.0,
-        "embarked": "Q"
-    },
-    {
-        "pclass": 2,
-        "sex": "female",
-        "age": 5,
-        "sibsp": 1,
-        "parch": 1,
-        "fare": 25.0,
-        "embarked": "C"
-    }
+    {"pclass": 3, "sex": "male", "age": 30, "sibsp": 1, "parch": 2, "fare": 15.0, "embarked": "Q"},
+    {"pclass": 2, "sex": "female", "age": 5, "sibsp": 1, "parch": 1, "fare": 25.0, "embarked": "C"},
 ]
 
 # Create DataFrame
@@ -113,14 +98,14 @@ survival_probs = predict_survival(passenger_df)
 
 # Display results
 results = passenger_df.copy()
-results['survival_probability'] = survival_probs
-results['predicted_survival'] = (survival_probs > 0.5).astype(int)
+results["survival_probability"] = survival_probs
+results["predicted_survival"] = (survival_probs > 0.5).astype(int)
 
 print("\nPrediction results:")
-print(results[['pclass', 'sex', 'age', 'survival_probability', 'predicted_survival']])
+print(results[["pclass", "sex", "age", "survival_probability", "predicted_survival"]])
 
 # Single passenger example
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("Single passenger prediction:")
 
 single_passenger = {
@@ -130,7 +115,7 @@ single_passenger = {
     "sibsp": 1,
     "parch": 0,
     "fare": 120.0,
-    "embarked": "S"
+    "embarked": "S",
 }
 
 survival_prob = predict_survival(single_passenger)[0]
@@ -139,7 +124,7 @@ print(f"Survival probability: {survival_prob:.3f}")
 print(f"Predicted outcome: {'Survived' if survival_prob > 0.5 else 'Did not survive'}")
 
 # Model information
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("Model Information:")
 print(f"Model type: {type(model).__name__}")
 print(f"Feature count: {model.feature_count_}")
@@ -148,7 +133,9 @@ print(f"Tree count: {model.tree_count_}")
 print("\nPreprocessor Information:")
 print(f"Preprocessor type: {type(preprocessor).__name__}")
 print(f"Feature names in: {feature_order}")
-print(f"Transformed feature count: {preprocessor.transform(pd.DataFrame([single_passenger])).shape[1]}")
+print(
+    f"Transformed feature count: {preprocessor.transform(pd.DataFrame([single_passenger])).shape[1]}"
+)
 
 
 # This is the pattern to wrap into a predictor class for MLServer
@@ -166,11 +153,14 @@ class TitanicPredictor:
     def _engineer_features(self, df):
         """Apply feature engineering."""
         df = df.copy()
-        df["alone"] = (df["sibsp"].fillna(0) + df["parch"].fillna(0) == 0)
-        df["adult_male"] = (df["sex"].astype(str).str.lower().eq("male")) & (df["age"].fillna(99) >= 16)
+        df["alone"] = df["sibsp"].fillna(0) + df["parch"].fillna(0) == 0
+        df["adult_male"] = (df["sex"].astype(str).str.lower().eq("male")) & (
+            df["age"].fillna(99) >= 16
+        )
         df["who"] = np.where(
-            df["age"].fillna(99) < 16, "child",
-            np.where(df["sex"].astype(str).str.lower().eq("male"), "man", "woman")
+            df["age"].fillna(99) < 16,
+            "child",
+            np.where(df["sex"].astype(str).str.lower().eq("male"), "man", "woman"),
         )
         return df[self.feature_order]
 
@@ -205,13 +195,13 @@ class TitanicPredictor:
 
 
 # Demo the predictor class
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("Testing Predictor Class:")
 
 predictor = TitanicPredictor(
     model_path=str(model_path),
     preprocessor_path=str(preprocessor_path),
-    feature_order_path=str(feature_order_path)
+    feature_order_path=str(feature_order_path),
 )
 
 test_result = predictor.predict(single_passenger)
@@ -219,4 +209,4 @@ print(f"Predictor class result: {test_result[0]:.3f}")
 
 print("\n🚀 This script demonstrates the predictor patterns MLServer wraps!")
 print("See examples/example_titanic_manual_setup/ for the served version,")
-print("or run 'mlserver init' to scaffold a new project.")
+print("or run 'merve init' to scaffold a new project.")

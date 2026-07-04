@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MLServer FastAPI Wrapper will be documented in this file.
+All notable changes to Merve (formerly "MLServer FastAPI Wrapper") will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -9,38 +9,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-RFC 0001 (Waves 0–2): stabilization, then the v1 roadmap. **Upgrade steps:
-[docs/migration-0.5.md](docs/migration-0.5.md).**
+Agent-facing surface (RFC 0002): make merve-built classifier repositories
+legible and operable for coding agents and scripts.
 
-### Breaking (Wave 2)
-- Renamed the distribution and command to **`merve`**; `mlserver` is a deprecated alias for one release. The `mlserver` module/import path and `mlserver.yaml` are unchanged.
-- CLI short flags: `-p` is `--port` only (use `-C`/`--path` for the project path); `run`'s volume is `--volume` (long-only); `-v` is `--verbose`.
-- Version tags now use the canonical `<classifier>/vX.Y.Z` format. Legacy `<classifier>-vX.Y.Z-mlserver-<hash>` tags are still read.
-- Multi-classifier `merve build` produces one commit image; `merve push --classifier X` applies registry tag aliases on the same image (no rebuild). `--per-classifier-image` restores the old behavior.
-- Removed the `GlobalSettings` singleton and `global_config.yaml`.
-
-### Deprecated (Wave 1)
-- The request `{"payload": {...}}` wrapper — send `records`/`instances`/`ndarray`/`inputs`/`features` at the top level.
-- `response_format: custom` and `api.extract_values`.
-- `classifier.version` in `mlserver.yaml` and `push --version-source` (git tags are canonical).
-
-### Added (Wave 1)
-- Dual request shapes (top-level keys alongside the deprecated wrapper).
-- A `Predictor` Protocol, a `"module:ClassName"` predictor spec, and import isolation (user modules load without mutating `sys.path`/`sys.modules`).
-- `api.retry_after_seconds`, `--json` output on read commands, OCI-standard image labels, and two-stage (multi-stage) Dockerfiles.
-- CI workflow, docs-drift gate, ruff/mypy config, and a tracked CHANGELOG (Wave 0).
+### Added
+- **AGENTS.md scaffolding** (RFC 0002 A1/A2): `merve init` now also generates a version-stamped `AGENTS.md` operating guide (single/multi-classifier aware) into new projects; the new `merve init-agents [--force]` command (re)generates it for existing repos; `merve doctor` reports a missing or stale AGENTS.md (advisory — never a failure).
+- **`merve doctor --json`** (RFC 0002 A3): machine-readable diagnosis — per-check `status`/`message`/`suggestion`/`details`, recommendations, and a pass/warn/fail/skip summary; JSON on stdout, exit codes identical to human mode.
+- **Agent discovery docs** (RFC 0002 A4): `llms.txt` at the repo root and `docs/agent-guide.md` ("Driving Merve from an Agent") documenting the CLI-as-tool-interface contract: one JSON document on stdout, diagnostics on stderr, stable exit codes (0/1/2), and errors that carry the fix.
 
 ---
 
-Stabilization sprint (2026-07-03): a bug-fix and cleanup pass across the server, CLI, and build tooling (see RFC 0001).
+## [0.5.0] - 2026-07-04
+
+RFC 0001 Wave 2: the breaking batch — rename, tag format, image strategy, and
+flag cleanup — plus the post-audit fixes that make the documented behavior real.
+**Upgrade steps: [docs/migration-0.5.md](docs/migration-0.5.md).**
+
+### Breaking
+- Renamed the distribution and command to **`merve`**; `mlserver` is a deprecated alias for one transition release (it prints a stderr notice). The `mlserver` module/import path, `mlserver.yaml`, and the `MLSERVER_*` environment variables are unchanged.
+- CLI short flags: `-p` is `--port` only; `--path`/`-C` is the project directory on every path-taking command; `run`'s volume flag is `--volume` (long-only); `-v` is `--verbose` only. Removed spellings (`-p` as path on `version`/`init`/`init-github`/`doctor`, `-v` as volume on `run`) exit with code 2 **and a pointer to the replacement** — never a bare "No such option".
+- `merve tag` now writes the canonical `<classifier>/vX.Y.Z` tag format. Legacy `<classifier>-vX.Y.Z[-mlserver-<hash>]` tags remain readable forever. Generated CI workflows (v3) trigger on `*/v*`.
+- Build-once/deploy-many is the default for multi-classifier repos: `merve build` (no `--classifier`) produces one commit image (`<repo>:<git-sha>` + `<repo>:latest`, no baked classifier); `merve push --classifier X` applies registry tag aliases (`<repo>:X-vN.N.N`, `<repo>:X-latest`) on that same image after validating the git tag — no rebuild. `--per-classifier-image` (requires `--classifier`) restores one baked image per classifier.
+- Removed `push --version-source`: passing it exits with code 2 and a pointer — the pushed version always comes from git tags (the tag at HEAD, or with `--force` the classifier's latest release tag).
+- Removed the `GlobalSettings` singleton and `global_config.yaml`.
 
 ### Added
+- `MLSERVER_CLASSIFIER` is now honored by `merve serve` and the uvicorn app factory (deploy-time classifier selection on commit images). Precedence: `--classifier` flag > `MLSERVER_CLASSIFIER` env > config `default_classifier`. An invalid env value fails loudly, listing the available classifiers.
+- `/healthz` returns HTTP 503 `{"status": "loading", "model": null}` until the predictor is loaded, then 200 `{"status": "ok", "model": ...}` — readiness probes no longer read "ok" for a model that cannot serve.
+- The served OpenAPI spec now carries request-body examples on the prediction endpoints (top-level shape first, deprecated wrapper last) and the `ProbaResponse` schema for `/predict_proba`.
+- `clean --classifier`/`-c` restricts image removal to one classifier's per-classifier/alias images.
+- `build --platform` (single target platform) and `build --per-classifier-image`.
+- Generated Dockerfiles pin clean release versions via `pip install merve==X.Y.Z` and skip the wheel build (D16). Only strict `X.Y.Z` versions count as releases — dev/rc/alpha/beta/post/local versions use the wheel path with a loud non-reproducibility warning.
+
+### Changed
+- Image labels: standard OCI annotations `org.opencontainers.image.{title,description,source,revision,version,created}` plus `dev.merve.{classifier,mlserver_version,mlserver_commit}`; the legacy `com.mlserver.*`/`com.classifier.*` labels are kept for one release. Commit images set `org.opencontainers.image.version` to the short git commit (they bundle all classifiers, so no single release version applies) and `title` to the plain classifier/repo name.
+- `classifier.version` in `mlserver.yaml` now logs its deprecation warning at config load (once per process); the field is display-only and never feeds builds, tags, or pushes.
+- `doctor` runs its predictor-import check through the production import path (same isolation as the server).
+- Remaining `mlserver` command spellings in generated CI workflows and CLI output renamed to `merve`.
+
+---
+
+## [0.4.0] - 2026-07-04
+
+RFC 0001 Waves 0–1: stabilization, guardrails, and backward-compatible
+additions. Everything deprecated here keeps working through 0.5 with a warning.
+
+### Deprecated
+
+| Deprecated | Replacement | Removal target |
+|------------|-------------|----------------|
+| Request `{"payload": {...}}` wrapper (warns once per process) | Top-level keys: `records` / `instances` / `ndarray` / `inputs` / `features` | 1.0 |
+| `api.response_format: custom` and `api.extract_values` (load-time warnings) | `standard` or `passthrough`; return the desired structure from the predictor | 1.0 |
+| `classifier.version` in `mlserver.yaml` (display-only; load-time warning since 0.5.0) | Git tags via `merve tag <major\|minor\|patch>` | None scheduled — stays display-only |
+| `mlserver` command alias (effective with the 0.5.0 rename; stderr notice) | `merve` | 0.6.0 (one transition release) |
+
+### Added
+- Dual request shapes (top-level keys alongside the deprecated wrapper).
+- A `Predictor` Protocol and a `"module:ClassName"` predictor spec. Import isolation: user modules load under the `merve._user.*` namespace without deleting foreign `sys.modules` entries; the project directory is appended (never front-inserted) to `sys.path` for sibling imports.
+- `api.retry_after_seconds`, `--json` output on read commands, OCI-standard image labels, and two-stage (multi-stage) Dockerfiles.
+- CI workflow, docs-drift gate, ruff/mypy config, and a tracked CHANGELOG (Wave 0).
+
+### Stabilization sprint (2026-07-03)
+
+A bug-fix and cleanup pass across the server, CLI, and build tooling (see RFC 0001).
+
+#### Added
 - `observability.log_payloads` is now actually implemented — request/response payloads are logged when enabled.
 - Warnings for unknown top-level configuration keys, catching typos in `mlserver.yaml`.
 - `max_concurrent_predictions: 0` disables concurrency limiting entirely.
 - OCI-relevant build metadata fixes: generated Dockerfiles now emit port-aware `EXPOSE` and `HEALTHCHECK` instructions.
 
-### Changed
+#### Changed
 - Coverage gate moved from pytest `addopts` to `make ci-test`, so plain `pytest` runs no longer fail on the coverage threshold.
 - Removed the `nbformat` dependency.
 - `catboost` and `scikit-learn` moved out of the core dependencies into the `[ml]` extra.
@@ -48,7 +87,7 @@ Stabilization sprint (2026-07-03): a bug-fix and cleanup pass across the server,
 - Documentation overhauled to match the actual implementation.
 - Historical planning documents archived under `docs/archive/`.
 
-### Fixed
+#### Fixed
 - Request metrics were never recorded (middleware initialization-order bug).
 - Model warmup never ran (missing `numpy` import).
 - Structured logging crashed when log calls passed `exc_info`.
@@ -340,29 +379,13 @@ All existing functionality continues to work. The hierarchical versioning system
 
 ---
 
-## Future Roadmap
-
-### Version 0.4.0 (Planned)
-- Fix Issue #1: Multi-classifier support in `mlserver version` command
-- Fix Issue #2: Multi-classifier support in `mlserver images` command
-- Add `--all` flag to tag all classifiers at once
-- Enhanced error messages for multi-classifier scenarios
-- Additional multi-classifier examples in documentation
-
-### Version 0.5.0 (Planned)
-- Performance improvements for large repositories
-- Batch operations for multi-classifier repos
-- Enhanced status reporting with commit diffs
-- Integration with container registries
-
----
-
 ## Support
 
-- **Issues**: https://github.com/alxhrzg/merve/issues
-- **Documentation**: https://github.com/alxhrzg/merve/tree/main/docs
-- **Examples**: https://github.com/alxhrzg/merve/tree/main/examples
+- **Issues**: https://github.com/core64-lab/merve/issues
+- **Documentation**: https://github.com/core64-lab/merve/tree/main/docs
+- **Examples**: https://github.com/core64-lab/merve/tree/main/examples
 
 ---
 
-**Note**: This is a development version (0.3.0). Production release pending final validation.
+**Note**: 0.4.0 and 0.5.0 are cut in this changelog; their git tags (and the
+corresponding package releases) are pending.

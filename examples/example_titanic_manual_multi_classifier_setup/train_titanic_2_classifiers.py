@@ -270,8 +270,8 @@ def main():
     print("\nNext steps:")
     print("1. Create predictor classes for each model")
     print("2. Configure mlserver_multi_classifier.yaml")
-    print("3. Deploy with: mlserver serve --classifier catboost-survival")
-    print("   or: mlserver serve --classifier randomforest-survival")
+    print("3. Deploy with: merve serve --classifier catboost-survival")
+    print("   or: merve serve --classifier randomforest-survival")
 
 
 if __name__ == "__main__":

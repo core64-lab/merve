@@ -13,9 +13,9 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install mlserver-fastapi-wrapper
-COPY mlserver_fastapi_wrapper*.whl /tmp/
-RUN pip install --no-cache-dir /tmp/mlserver_fastapi_wrapper*.whl && rm /tmp/mlserver_fastapi_wrapper*.whl
+# Install merve (locally built wheel)
+COPY merve*.whl /tmp/
+RUN pip install --no-cache-dir /tmp/merve*.whl && rm /tmp/merve*.whl
 
 # Copy project files (intelligently selected)
 COPY artifacts/ ./artifacts/
@@ -48,4 +48,4 @@ LABEL ml.classifier.version="1.0.0"
 LABEL ml.created="2025-09-15T18:36:43.230163"
 
 # Command to run the server
-CMD ["mlserver", "serve", "mlserver.yaml"]
+CMD ["merve", "serve", "mlserver.yaml"]

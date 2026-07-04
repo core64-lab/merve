@@ -94,7 +94,6 @@ default_classifier: "catboost-survival"
 
 deployment:
   container_naming: "{repository}-{classifier}:{version}"
-  git_tag_format: "{classifier}-v{version}"
   parallel_builds: true
   registry:
     url: "my-registry.example.com:5000"

@@ -26,7 +26,7 @@ This directory contains organized examples demonstrating different approaches to
 **Quick Start:**
 ```bash
 cd example_titanic_manual_setup/
-mlserver serve mlserver.yaml
+merve serve mlserver.yaml
 ```
 
 ### 📁 `example_titanic_manual_multi_classifier_setup/`
@@ -46,10 +46,10 @@ mlserver serve mlserver.yaml
 **Quick Start:**
 ```bash
 cd example_titanic_manual_multi_classifier_setup/
-mlserver serve mlserver_multi_classifier.yaml --classifier catboost-survival
+merve serve mlserver_multi_classifier.yaml --classifier catboost-survival
 
 # List what is available
-mlserver list-classifiers
+merve list-classifiers
 ```
 
 ### 📁 `example_titanic_raw/`
@@ -62,7 +62,7 @@ mlserver list-classifiers
 **Use Case:**
 - Shows the typical starting state: a trained model and ad-hoc inference code
 - Follow `example_titanic_manual_setup/` to see what the same project looks like after being wrapped for MLServer
-- Use `mlserver init` to scaffold a new project skeleton (mlserver.yaml, predictor stub) as a starting point
+- Use `merve init` to scaffold a new project skeleton (mlserver.yaml, predictor stub) as a starting point
 
 ### 📁 Root Level Files
 - `mlserver_complete.yaml` - Reference configuration demonstrating all available options
@@ -76,21 +76,21 @@ mlserver list-classifiers
 ### Manual Setup (single classifier)
 ```bash
 cd examples/example_titanic_manual_setup/
-mlserver serve
+merve serve
 ```
 
 ### Multi-Classifier Setup
 ```bash
 cd examples/example_titanic_manual_multi_classifier_setup/
-mlserver serve mlserver_multi_classifier.yaml --classifier catboost-survival
+merve serve mlserver_multi_classifier.yaml --classifier catboost-survival
 ```
 
 ### Scaffolding a New Project
 ```bash
 mkdir my-classifier && cd my-classifier
-mlserver init          # generates mlserver.yaml and a predictor stub
-mlserver validate      # check the configuration
-mlserver serve
+merve init          # generates mlserver.yaml and a predictor stub
+merve validate      # check the configuration
+merve serve
 ```
 
 See individual README files in each subdirectory for detailed instructions.

@@ -3,7 +3,7 @@
 ## Overview
 This guide explains how to set up, develop, and deploy multiple ML classifiers from a single repository using the merve framework.
 
-**Deployment model**: each classifier runs as its own server process / container serving flat endpoints (`/predict`, `/predict_proba`, ...). The classifier is selected at startup with `merve serve --classifier <name>` (or the `MLSERVER_CLASSIFIER` environment variable inside containers) — classifier names never appear in URLs.
+**Deployment model**: each classifier runs as its own server process / container serving flat endpoints (`/predict`, `/predict_proba`, ...). The classifier is selected at startup with `merve serve --classifier <name>` or the `MLSERVER_CLASSIFIER` environment variable (the deploy-time selector for commit images) — classifier names never appear in URLs. Precedence: the `--classifier` flag beats `MLSERVER_CLASSIFIER`, which beats the config's `default_classifier`. An invalid `MLSERVER_CLASSIFIER` value is a hard startup error listing the available classifiers.
 
 ## Workflow Summary
 
@@ -156,43 +156,42 @@ git push --tags
 merve tag
 ```
 
-### Step 6: Container Build Strategy
+### Step 6: Container Build Strategy (build once, deploy many)
 
-#### Build Single Classifier:
+#### Build the Commit Image (default):
 ```bash
-# Build CatBoost classifier container
-merve build --classifier catboost-survival
-
-# Build an exact tagged version (validates code matches the tag)
-merve build --classifier catboost-survival/v1.0.1
+# ONE commit image bundling ALL classifiers - built once per git commit
+merve build
+# → titanic-multi-classifier:<git-sha7> and titanic-multi-classifier:latest
+# (no baked classifier; selected at deploy/run time via MLSERVER_CLASSIFIER)
 ```
 
-#### Container Naming Convention:
+`merve build --classifier <name>` on a multi-classifier repo still validates a
+full version tag when you pass one, but the `--classifier` selection is ignored
+for the image content — the commit image always bundles every classifier.
+
+#### Image Naming:
 ```
-{repository}-{classifier}:{version}
+Commit image (built by `merve build`):
+- titanic-multi-classifier:<git-sha7>
+- titanic-multi-classifier:latest
 
-Examples:
-- titanic-multi-classifier-catboost-survival:1.0.1
-- titanic-multi-classifier-catboost-survival:latest
-- titanic-multi-classifier-randomforest-survival:1.1.0
+Registry tag aliases (applied by `merve push --classifier <name>`, same digest):
+- titanic-multi-classifier:catboost-survival-v1.0.1
+- titanic-multi-classifier:catboost-survival-latest
 ```
 
-(Configurable via `deployment.container_naming`.)
-
-#### Build All Classifiers:
+#### Escape hatch — one baked image per classifier:
 ```bash
-# Script to build all classifiers
-#!/bin/bash
-for classifier in catboost-survival randomforest-survival; do
-  merve build --classifier $classifier
-done
+# ONLY for classifiers whose conflicting dependencies cannot share one image
+merve build --per-classifier-image --classifier catboost-survival
+# → titanic-multi-classifier-catboost-survival:<version> (per-classifier naming,
+#   configurable via deployment.container_naming; bakes ENV MLSERVER_CLASSIFIER)
 ```
 
 ### Step 7: CI/CD Integration
 
-Use `merve init-github` to generate a workflow triggered by tag pushes, or write your own.
-
-> **CI trigger note:** the generated workflow (and the example below) currently trigger on the legacy pattern `'*-v*-mlserver-*'`. Since `merve tag` now writes canonical `<classifier>/vX.Y.Z` tags, use a `'*/v*'` trigger (and matching parsing) to fire on them — aligning the generated workflow with the canonical format is part of the ongoing tag migration.
+Use `merve init-github` to generate a workflow triggered by tag pushes, or write your own. The generated workflow (version 3) triggers on the canonical `'*/v*'` pattern, builds the commit image once, and applies the per-classifier release alias on the same digest.
 
 ```yaml
 name: Build and Deploy Classifier
@@ -200,39 +199,48 @@ name: Build and Deploy Classifier
 on:
   push:
     tags:
-      - '*/v*'            # Canonical tag format (e.g. sentiment/v1.0.0)
-      - '*-v*-mlserver-*'  # Legacy tag format (still read)
+      - '*/v*'  # Canonical tag format (e.g. catboost-survival/v1.0.1)
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install mlserver
+      - name: Install merve
         run: pip install merve
 
-      - name: Build Container
+      - name: Parse Canonical Tag
+        id: parse
         run: |
-          merve build \
-            --classifier ${{ github.ref_name }} \
-            --registry ${{ secrets.REGISTRY_URL }}
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "classifier=${TAG_NAME%%/v*}" >> $GITHUB_OUTPUT
 
-      - name: Push Container
+      - name: Build Commit Image (once, all classifiers)
         run: |
+          merve build
+
+      - name: Push Release Aliases on the Commit Image (no rebuild)
+        run: |
+          # Validates the <classifier>/vX.Y.Z tag at HEAD, then pushes
+          # <repo>:<classifier>-vX.Y.Z and <repo>:<classifier>-latest
           merve push \
-            --classifier ${{ github.ref_name }} \
+            --classifier ${{ steps.parse.outputs.classifier }} \
             --registry ${{ secrets.REGISTRY_URL }}
 ```
 
 ### Step 8: Kubernetes Deployment
+
+The classifier is selected at deploy time by setting `MLSERVER_CLASSIFIER` on the shared commit image — this works out of the box (`merve serve`, the container entrypoint, reads it). An invalid value crashes the pod at startup with a clear error listing the available classifiers (fail-fast by design: a typo becomes a visible crash-loop, never a silently wrong model).
 
 #### Deployment per Classifier Version:
 ```yaml
@@ -246,9 +254,10 @@ spec:
     spec:
       containers:
       - name: classifier
-        image: registry.example.com/titanic-multi-classifier-catboost-survival:1.0.1
+        # Release alias on the commit image (bundles all classifiers)
+        image: registry.example.com/titanic-multi-classifier:catboost-survival-v1.0.1
         env:
-        - name: MLSERVER_CLASSIFIER
+        - name: MLSERVER_CLASSIFIER   # deploy-time classifier selection
           value: "catboost-survival"
 ---
 apiVersion: v1
@@ -293,9 +302,9 @@ Every prediction response includes metadata:
 ### Step 10: Production Workflow
 
 1. **Development**: Train model, create predictor, test locally
-2. **Tag**: `merve tag --classifier <name> <patch|minor|major>` creates the hierarchical git tag
+2. **Tag**: `merve tag --classifier <name> <patch|minor|major>` creates the canonical `<name>/vX.Y.Z` git tag
 3. **Push**: `git push --tags` triggers CI/CD
-4. **Build**: CI/CD builds container from tag
+4. **Build**: CI/CD builds the commit image once and applies the release alias
 5. **Deploy**: Deploy to dev environment
 6. **Test**: Validate predictions and performance
 7. **Promote**: Deploy to production
@@ -305,8 +314,8 @@ Every prediction response includes metadata:
 
 ### 1. Naming Conventions
 - Classifiers: `{model-type}-{purpose}` (e.g. catboost-survival)
-- Git tags: canonical `{classifier}/v{semver}` (both this and the legacy `{classifier}-v{semver}-mlserver-{hash}` form are read; `merve tag` currently writes the legacy form)
-- Containers: `{repo}-{classifier}:{version}`
+- Git tags: canonical `{classifier}/v{semver}` — this is what `merve tag` writes; the legacy `{classifier}-v{semver}-mlserver-{hash}` form remains readable
+- Containers: commit image `{repo}:{git-sha7}` with release aliases `{repo}:{classifier}-v{semver}` (per-classifier `{repo}-{classifier}:{version}` naming applies only to `--per-classifier-image` builds)
 
 ### 2. Version Management
 - Each classifier has independent versioning
@@ -331,7 +340,7 @@ Every prediction response includes metadata:
 ### For Existing Projects:
 1. Keep existing `mlserver.yaml` for backward compatibility
 2. Move the per-classifier sections (`predictor`, `classifier`, `api`) under a named entry in `classifiers:`
-3. Update CI/CD to pass `--classifier` to build/push
+3. Update CI/CD: `merve build` runs once per commit (no `--classifier`); `merve push --classifier <name>` publishes each release
 4. Gradually migrate to multi-classifier structure
 
 ### Detection Logic:
@@ -371,11 +380,11 @@ merve list-classifiers mlserver.yaml
 # Tag a release (canonical <classifier>/vX.Y.Z tag)
 merve tag --classifier catboost-survival patch
 
-# Build specific version
+# Build the commit image for a specific release
 git checkout catboost-survival/v1.2.3
-merve build --classifier catboost-survival
+merve build   # one image bundling all classifiers
 
-# Push to registry
+# Push the release aliases onto that image
 merve push --classifier catboost-survival --registry gcr.io/myproject
 
 # Check version info

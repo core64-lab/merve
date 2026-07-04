@@ -2,7 +2,7 @@
 
 ## Overview
 
-MLServer ships a single command-line interface, `mlserver`, built on Typer with rich, colorful output. It covers the full lifecycle: serving, validation, versioning, container builds, and deployment helpers.
+Merve ships a single command-line interface, `merve`, built on Typer with rich, colorful output. It covers the full lifecycle: serving, validation, versioning, container builds, and deployment helpers.
 
 ## Installation
 
@@ -11,13 +11,13 @@ The CLI is installed with the package:
 ```bash
 pip install merve
 
-mlserver --help
+merve --help
 ```
 
 ## Commands Overview
 
 ```bash
-mlserver --help  # Show all commands with rich formatting
+merve --help  # Show all commands with rich formatting
 ```
 
 ```
@@ -31,7 +31,7 @@ mlserver --help  # Show all commands with rich formatting
 │ clean              🧹 Remove Docker images                       │
 │ run                🚀 Run Docker container for the classifier    │
 │ list-classifiers   📋 List classifiers in multi-classifier config│
-│ status             📊 Show ML Server status and system info      │
+│ status             📊 Show Merve status and system info          │
 │ init               🎬 Initialize a new classifier project        │
 │ init-github        🔧 Initialize GitHub Actions CI/CD workflow   │
 │ validate           Validate configuration without starting       │
@@ -41,7 +41,17 @@ mlserver --help  # Show all commands with rich formatting
 ╰──────────────────────────────────────────────────────────────────╯
 ```
 
-> Note: There is no shell completion support (`--install-completion` is disabled), and `mlserver` is the only CLI entry point — no separate legacy binary exists.
+> Note: There is no shell completion support (`--install-completion` is disabled). `merve` is the primary entry point; the old `mlserver` command still exists as a **deprecated alias** that prints a deprecation notice to stderr and will be removed in a future release (the tool was renamed to avoid a collision with Seldon's `mlserver`). The importable Python module (`mlserver`), the `mlserver.yaml` config file, and the `MLSERVER_*` environment variables are unchanged.
+
+### Removed flags (0.5.0)
+
+Removed flag spellings are rejected with **exit code 2 and a pointer to the replacement** — never a bare "No such option" and never a silent reinterpretation:
+
+| Removed spelling | Where | Use instead |
+|------------------|-------|-------------|
+| `-p` as `--path` | `version`, `init`, `init-github`, `doctor` | `-C` / `--path` (`-p` means `--port` only) |
+| `-v` as `--volume` | `run` | `--volume` (long-only; `-v` means `--verbose` only) |
+| `--version-source` | `push` | Nothing — the pushed version always comes from git tags |
 
 ---
 
@@ -56,6 +66,7 @@ The read/inspection commands support a `--json` flag that prints a single JSON d
 | `status` | Docker / config / Python / venv / GitHub-Actions status |
 | `list-classifiers` | Classifiers and `default_classifier` |
 | `validate` | `valid` flag plus per-check results |
+| `doctor` | Full diagnosis: per-check status/message/suggestion, recommendations, pass/warn/fail/skip summary |
 | `tag --status` | Per-classifier tag status (status mode only) |
 
 ```bash
@@ -89,14 +100,17 @@ merve serve [CONFIG] [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `CONFIG` | Path to config file | `mlserver.yaml` |
-| `--classifier`, `-c` | Classifier to serve (for multi-classifier configs) | Default from config |
+| `--path`, `-C` | Project directory (`mlserver.yaml` auto-detected inside) | `.` |
+| `--classifier`, `-c` | Classifier to serve (for multi-classifier configs) | See selection note |
 | `--host` | Override host address | From config |
 | `--port`, `-p` | Override port number | From config |
 | `--workers`, `-w` | Number of worker processes | From config |
 | `--reload` | Enable auto-reload for development | `false` |
-| `--log-level`, `-l` | Set log level (`DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL`) | `INFO` |
+| `--log-level`, `-l` | Set log level (`DEBUG\|INFO\|WARNING\|ERROR\|CRITICAL`) | From config |
 
 > `--log-level` only overrides the YAML `server.log_level` when it is explicitly passed on the command line.
+
+> **Classifier selection** (multi-classifier configs): the `--classifier` flag wins, then the `MLSERVER_CLASSIFIER` environment variable (deploy-time selection on commit images), then the config's `default_classifier`. An invalid `MLSERVER_CLASSIFIER` value is a hard startup error that lists the available classifiers (also enforced in the uvicorn app factory used by multi-worker mode).
 
 #### Examples
 ```bash
@@ -130,7 +144,7 @@ merve version [options]
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--path`, `-p` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--classifier`, `-c` | Classifier name (for multi-classifier configs) | None |
 | `--json` | Output as JSON | `false` |
 | `--detailed` | Show detailed MLServer tool information | `false` |
@@ -171,7 +185,7 @@ Manage semantic version tags for each classifier. Git tags are the canonical ver
 
 The **legacy** `<classifier>-vX.Y.Z-mlserver-<hash>` form (e.g. `sentiment-v1.0.3-mlserver-b5dff2a`) is still **read** everywhere — status, `build`/`push` validation, and version listing all parse both forms — so tags created before this change keep working indefinitely.
 
-> **CI note:** the workflow generated by `merve init-github` currently still triggers on the legacy tag pattern (`'*-v*-mlserver-*'`); adjusting the trigger to canonical `'*/v*'` tags is part of the ongoing tag migration.
+> **CI note:** the workflow generated by `merve init-github` (workflow version 3) triggers on the canonical tag pattern `'*/v*'` and parses `<classifier>/vX.Y.Z` tags. Regenerate older workflows with `merve init-github --force`.
 
 #### Syntax
 ```bash
@@ -189,7 +203,7 @@ merve tag --classifier <name> <major|minor|patch>
 | `--classifier`, `-c` | Classifier name to tag (required for tagging) | None |
 | `--config` | Config file path | `mlserver.yaml` |
 | `--message`, `-m` | Tag message | `Release <classifier> vX.Y.Z` |
-| `--path` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--allow-missing-mlserver` | Allow tagging even if the MLServer commit cannot be determined (dev/testing only) | `false` |
 | `--status` | Show tag status for all classifiers (default when no bump type given) | `false` |
 | `--json` | Output tag status as JSON (status mode only) | `false` |
@@ -276,6 +290,8 @@ merve tag
 
 Build a Docker container for the classifier project with full reproducibility tracking.
 
+**Build-once / deploy-many (default for multi-classifier repos):** `merve build` without `--classifier` builds **one commit image** tagged `<repo>:<git-sha>` and `<repo>:latest` that bundles every classifier — the classifier is chosen at deploy/run time via `MLSERVER_CLASSIFIER`. Passing `--classifier` on a multi-classifier repo still validates a full version tag, but the selection is ignored for the image content (the commit image always bundles all classifiers). Use `--per-classifier-image` (requires `--classifier`) as the escape hatch to bake one image per classifier when conflicting dependencies cannot share an image. Single-classifier repos always build a single image.
+
 The `--classifier` parameter accepts a simple name or a full version tag (canonical or legacy):
 - Simple: `--classifier sentiment`
 - Canonical tag: `--classifier sentiment/v1.0.0`
@@ -292,24 +308,27 @@ merve build [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--classifier`, `-c` | Classifier to build (simple name, or full tag `name/vX.Y.Z` / legacy `name-vX.Y.Z-mlserver-hash`) | Auto-detect |
-| `--path` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--config` | Config file to use | Auto-detected |
 | `--registry` | Container registry URL | None |
 | `--tag-prefix` | Tag prefix for container names | None |
 | `--build-arg` | Build arguments (`key=value`, repeatable) | None |
 | `--no-cache` | Do not use cache when building | `false` |
+| `--platform` | Target platform for the image, e.g. `linux/amd64` (single platform only; cross-architecture builds need BuildKit with binfmt/QEMU or `docker buildx`) | Host platform |
 | `--verbose`, `-v` | Verbose output | `false` |
 | `--force` | Skip validation prompts and continue with build | `false` |
+| `--per-classifier-image` | Escape hatch: build one baked image per classifier instead of the single commit image (requires `--classifier`) | `false` |
 
 #### Examples
 
 **Simple Build:**
 ```bash
-# Auto-build with version tag
+# Single-classifier repo: build the classifier image
+# Multi-classifier repo: build ONE commit image bundling all classifiers
 merve build
 
-# Build specific classifier
-merve build --classifier sentiment
+# Escape hatch: bake a single classifier into its own image
+merve build --per-classifier-image --classifier sentiment
 ```
 
 **Build with a Full Version Tag:**
@@ -351,24 +370,33 @@ merve build --registry gcr.io/project --build-arg PIP_INDEX_URL=https://pypi.int
 
 #### Container Labels
 
-Built containers include comprehensive labels for full traceability:
+Built containers include comprehensive labels for full traceability (RFC 0001 D5):
+
 ```dockerfile
-# Classifier information
+# Standard OCI labels
+LABEL org.opencontainers.image.title="sentiment"            # plain classifier name
+LABEL org.opencontainers.image.description="ML classifier: sentiment"
+LABEL org.opencontainers.image.source="https://github.com/org/repo"
+LABEL org.opencontainers.image.revision="c5f99978a3b2..."   # full project git commit
+LABEL org.opencontainers.image.version="1.0.3"
+LABEL org.opencontainers.image.created="2026-07-04T10:30:00Z"
+
+# Custom merve labels
+LABEL dev.merve.classifier="sentiment"
+LABEL dev.merve.mlserver_version="0.5.0"
+LABEL dev.merve.mlserver_commit="b5dff2a"
+
+# Legacy labels (kept for one release for dashboard continuity)
 LABEL com.classifier.name="sentiment"
 LABEL com.classifier.version="1.0.3"
 LABEL com.classifier.git_tag="sentiment/v1.0.3"
 LABEL com.classifier.git_commit="c5f9997"
 LABEL com.classifier.git_branch="main"
-
-# MLServer tool information
-LABEL com.mlserver.version="0.3.2"
+LABEL com.mlserver.version="0.5.0"
 LABEL com.mlserver.commit="b5dff2a"
-
-# OCI standard labels
-LABEL org.opencontainers.image.version="1.0.3"
-LABEL org.opencontainers.image.created="2025-10-27T10:30:00Z"
-LABEL org.opencontainers.image.title="sentiment ML Server"
 ```
+
+> **Commit images** (multi-classifier build-once default) bundle every classifier, so no single release version applies: their `org.opencontainers.image.version` is the **short git commit**; release versions are applied later as registry tag aliases by `merve push`.
 
 #### Reproducibility
 
@@ -390,6 +418,8 @@ merve build --classifier sentiment
 
 Push a built container to a registry. Requires a tagged commit for the specific classifier (or `--force`).
 
+**Multi-classifier repos (build-once/deploy-many):** `push --classifier X` does **not** rebuild anything. It validates that HEAD carries the canonical git tag `X/vN.N.N` (with `--force`, it falls back to the classifier's latest release tag), then applies the release as **registry tag aliases on the already-built commit image** — `<repo>:X-vN.N.N` and `<repo>:X-latest`, both resolving to the same image digest. Single-classifier repos keep the classic per-image push.
+
 #### Syntax
 ```bash
 merve push [options]
@@ -400,19 +430,18 @@ merve push [options]
 |--------|-------------|---------|
 | `--registry`, `-r` | Container registry URL | **Required** |
 | `--classifier`, `-c` | Classifier to push (required for multi-classifier configs) | None |
-| `--path` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--tag-prefix` | Tag prefix for container names | None |
 | `--force`, `-f` | Force push even if not on tagged commit or tag exists | `false` |
-| `--version-source` | **Deprecated** — `git-tag`, `config`, or `auto`. Git tags are canonical; flag will be removed next release | `auto` |
 
-> **`--version-source` is deprecated (RFC 0001 D3).** Git tags are the canonical version source; passing this flag logs a deprecation warning and it will be removed in the next release.
+> **`--version-source` was removed (RFC 0001 D3).** Git tags are the canonical version source, so the pushed version always comes from the classifier's release tag. Passing the flag exits with code 2 and a message pointing at this change.
 
 #### Examples
 ```bash
-# Push classifier image
+# Multi-classifier repo: apply the release aliases on the commit image (no rebuild)
 merve push --registry gcr.io/project --classifier sentiment
 
-# Force push from an untagged commit
+# Force push (uses the classifier's latest release tag if HEAD is untagged)
 merve push --registry gcr.io/project --classifier sentiment --force
 ```
 
@@ -430,7 +459,7 @@ merve images [options]
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--path` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--classifier`, `-c` | Classifier name (for multi-classifier configs) | None |
 | `--json` | Output as JSON (machine-readable) | `false` |
 
@@ -448,7 +477,7 @@ merve images [options]
 
 ### `clean` - Remove Docker Images
 
-Remove Docker images for the classifier project.
+Remove Docker images for the classifier project. For multi-classifier repos, `--classifier` restricts removal to that classifier's per-classifier/alias images.
 
 #### Syntax
 ```bash
@@ -458,7 +487,8 @@ merve clean [options]
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--path` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
+| `--classifier`, `-c` | Only remove images for this classifier | None |
 | `--force`, `-f` | Force removal without confirmation | `false` |
 
 #### Examples
@@ -468,13 +498,16 @@ merve clean
 
 # Remove without confirmation
 merve clean --force
+
+# Only remove one classifier's images
+merve clean --classifier sentiment
 ```
 
 ---
 
 ### `run` - Run Docker Container
 
-Run a built Docker container for the classifier locally.
+Run a built Docker container for the classifier locally. On a multi-classifier repo, `run --classifier X` runs the commit image and passes `-e MLSERVER_CLASSIFIER=X` so the container serves the selected classifier.
 
 #### Syntax
 ```bash
@@ -485,13 +518,13 @@ merve run [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--classifier`, `-c` | Classifier to run (required for multi-classifier configs) | None |
-| `--path` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--port`, `-p` | Port to expose the container on | `8000` |
 | `--version` | Specific version to run | latest |
 | `--detach`, `-d` | Run container in background | `false` |
 | `--name` | Container name | Auto-generated |
 | `--env`, `-e` | Environment variables (`KEY=value`, repeatable) | None |
-| `--volume`, `-v` | Volume mounts (`host:container`, repeatable) | None |
+| `--volume` | Volume mounts (`host:container`, repeatable; **long-only** — `-v` means `--verbose` elsewhere and is rejected here with a pointer) | None |
 
 #### Examples
 ```bash
@@ -502,7 +535,7 @@ merve run --classifier sentiment
 merve run --classifier sentiment --version 1.0.2 --detach
 
 # Custom port, env vars, and mounts
-merve run -c sentiment -p 9000 -e LOG_LEVEL=DEBUG -v ./models:/app/models
+merve run -c sentiment -p 9000 -e LOG_LEVEL=DEBUG --volume ./models:/app/models
 ```
 
 ---
@@ -520,6 +553,7 @@ merve list-classifiers [CONFIG] [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `CONFIG` | Path to multi-classifier config file | Auto-detect (`mlserver.yaml`) |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--json` | Output as JSON (machine-readable) | `false` |
 
 #### Output
@@ -536,7 +570,7 @@ merve list-classifiers [CONFIG] [options]
 
 ### `status` - System Status
 
-Show ML Server status and system info (local environment overview, Docker availability, config detection).
+Show Merve status and system info (local environment overview, Docker availability, config detection).
 
 #### Syntax
 ```bash
@@ -546,6 +580,7 @@ merve status [options]
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--json` | Output as JSON (machine-readable) | `false` |
 
 #### Examples
@@ -565,6 +600,7 @@ Initialize a new MLServer classifier project. Creates all necessary files:
 - `<predictor>.py` (skeleton predictor class)
 - `.github/workflows/ml-classifier-container-build.yml` (CI/CD workflow)
 - `.gitignore` (Python/ML project gitignore)
+- `AGENTS.md` (operating guide for coding agents and humans)
 
 Existing files are never overwritten unless `--force` is used.
 
@@ -576,7 +612,7 @@ merve init [options]
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--path`, `-p` | Path to initialize project in | `.` |
+| `--path`, `-C` | Path to initialize project in | `.` |
 | `--classifier`, `-c` | Classifier name | Directory name |
 | `--predictor-file` | Name of predictor Python file (without `.py`) | Derived from classifier |
 | `--predictor-class` | Name of predictor class | Derived from classifier |
@@ -594,7 +630,7 @@ merve init --no-github
 
 ### `init-github` - Initialize CI/CD Workflow
 
-Initialize a GitHub Actions workflow for automated container builds. Sets up automated building and publishing of containers to a container registry when hierarchical version tags (created with `merve tag`) are pushed.
+Initialize a GitHub Actions workflow for automated container builds. Sets up automated building and publishing of containers to a container registry when canonical `<classifier>/vX.Y.Z` version tags (created with `merve tag`) are pushed.
 
 This command:
 - Creates `.github/workflows/ml-classifier-container-build.yml`
@@ -612,7 +648,7 @@ merve init-github [options]
 #### Options
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--path`, `-p` | Path to classifier project | `.` |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--python-version` | Python version for CI/CD workflow | `3.11` |
 | `--registry` | Container registry | `ghcr.io` |
 | `--force`, `-f` | Overwrite existing workflow files | `false` |
@@ -621,6 +657,32 @@ merve init-github [options]
 ```bash
 merve init-github
 merve init-github --python-version 3.12 --registry ghcr.io
+```
+
+---
+
+### `init-agents` - Generate/Refresh AGENTS.md
+
+Generate or refresh `AGENTS.md` — the operating guide for coding agents and humans working in a classifier repo. The content is generated from a template shipped with the installed merve version (never hand-written) and carries a template-version stamp, so it can be regenerated after upgrades instead of drifting. It auto-detects single vs multi-classifier config and lists the classifiers, and `merve doctor` checks the stamp for staleness.
+
+Note: `merve init` already creates `AGENTS.md` for new projects; run `init-agents` separately to refresh an existing repo (use `--force` after upgrading merve to pick up template changes).
+
+#### Syntax
+```bash
+merve init-agents [options]
+```
+
+#### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--path`, `-C` | Path to classifier project | `.` |
+| `--force`, `-f` | Overwrite existing AGENTS.md | `false` |
+
+#### Examples
+```bash
+merve init-agents
+merve init-agents --force
+merve init-agents -C ./my-project
 ```
 
 ---
@@ -647,6 +709,7 @@ merve validate [CONFIG] [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `CONFIG` | Path to config file | Auto-detect (`mlserver.yaml`) |
+| `--path`, `-C` | Path to classifier project | `.` |
 | `--strict`, `-s` | Fail on warnings | `false` |
 | `--check-imports/--no-check-imports` | Check predictor imports | `check-imports` |
 | `--verbose`, `-v` | Show detailed output | `false` |
@@ -695,13 +758,17 @@ merve doctor [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--verbose`, `-v` | Show detailed diagnostics | `false` |
-| `--path`, `-p` | Project path to diagnose | `.` |
+| `--path`, `-C` | Project path to diagnose | `.` |
+| `--json` | Output as JSON (machine-readable) | `false` |
+
+`--json` emits a single JSON document — `success`, the full `checks` list (each with `name`, `status`, `message`, `suggestion`, `details`), `recommendations`, and a `summary` of pass/warn/fail/skip counts — and keeps the same exit code as human mode (`1` when a check fails, else `0`).
 
 #### Examples
 ```bash
 merve doctor
 merve doctor -v
 merve doctor --path ./my-project
+merve doctor --json
 ```
 
 #### Output
@@ -818,7 +885,7 @@ These are the environment variables MLServer actually reads:
 | `MLSERVER_DEFAULT_PORT` | Default port when the config does not set one |
 | `MLSERVER_LOG_LEVEL` | Default log level |
 | `MLSERVER_CONFIG_PATH` | Config file path used by the server factory (set by `serve` for worker processes) |
-| `MLSERVER_CLASSIFIER` | Classifier to serve from a multi-classifier config (set by `serve --classifier`; baked into containers) |
+| `MLSERVER_CLASSIFIER` | Classifier to serve from a multi-classifier config — the **deploy-time selector** for build-once commit images. Honored by `merve serve` and the uvicorn app factory; `merve run --classifier X` passes it to the container; baked in only by `--per-classifier-image` builds. Precedence: `--classifier` flag > env var > `default_classifier`. An invalid value is a hard startup error listing the available classifiers |
 | `MLSERVER_CONFIG_FILE` | Config file name recorded in response metadata (set in built containers) |
 | `MLSERVER_GIT_COMMIT` / `MLSERVER_GIT_TAG` / `MLSERVER_GIT_BRANCH` / `MLSERVER_GIT_URL` | Classifier git metadata overrides (baked into containers at build time) |
 | `MLSERVER_API_COMMIT` / `MLSERVER_API_TAG` / `MLSERVER_API_BRANCH` | MLServer tool git metadata overrides (baked into containers at build time) |
@@ -875,13 +942,13 @@ merve test --data '{"feature1": 1.5, "feature2": 2.0}'
 # Tag a release
 merve tag --classifier sentiment patch
 
-# Build container from the tag
-merve build --classifier sentiment
+# Build the container (multi-classifier repos: ONE commit image for all classifiers)
+merve build
 
-# Push to registry
+# Push to registry (multi-classifier repos: applies the release aliases, no rebuild)
 merve push --registry gcr.io/project --classifier sentiment
 
-# Deploy to Kubernetes
+# Deploy to Kubernetes (commit images: set MLSERVER_CLASSIFIER in the pod spec)
 kubectl apply -f deployment.yaml
 ```
 
@@ -972,10 +1039,10 @@ alias mlv='merve validate'
 ### Docker Integration
 
 ```bash
-# Build and run locally
-merve build --classifier sentiment
+# Build and run locally (run passes -e MLSERVER_CLASSIFIER=sentiment on commit images)
+merve build
 merve run --classifier sentiment --port 8000
 
-# Or run the image directly
-docker run -p 8000:8000 sentiment:latest
+# Or run the image directly (commit images need the classifier selector)
+docker run -p 8000:8000 -e MLSERVER_CLASSIFIER=sentiment my-repo:latest
 ```

@@ -48,7 +48,7 @@ Never develop this package against another project's virtual environment (or aga
 merve/  (package: merve)
 ├── mlserver/               # Core package
 │   ├── __init__.py
-│   ├── cli.py             # Typer CLI (the `mlserver` command)
+│   ├── cli/               # Typer CLI package (the `merve` command; command modules)
 │   ├── server.py          # FastAPI application
 │   ├── config.py          # Configuration management (AppConfig)
 │   ├── schemas.py         # Request/response models
@@ -61,7 +61,7 @@ merve/  (package: merve)
 │   ├── auto_detect.py     # Git/project metadata auto-detection
 │   ├── multi_classifier.py # Multi-model support
 │   ├── container.py       # Docker building
-│   ├── version_control.py # Hierarchical tagging
+│   ├── version_control.py # Git tagging (canonical + legacy tag parsing)
 │   ├── github_actions.py  # CI/CD workflow generation
 │   ├── init_project.py    # `merve init` scaffolding
 │   ├── validation.py      # `merve validate` checks
@@ -141,7 +141,7 @@ predictor:
 predictor: "predictor:MyPredictor"
 ```
 
-File-based predictor modules are imported in isolation (under the internal `merve._user.*` namespace) — a predictor file may safely be named `types.py`, `json.py`, etc. without shadowing the stdlib, and `sys.path` is never mutated.
+File-based predictor modules are imported in isolation (under the internal `merve._user.*` namespace) — a predictor file may safely be named `types.py`, `json.py`, etc. without shadowing the stdlib, and no foreign `sys.modules` entries are ever deleted. The project directory is **appended** (never front-inserted) to `sys.path` so predictor modules can import their sibling modules without a user directory shadowing stdlib or installed packages.
 
 ### Advanced Predictor Features
 
@@ -399,7 +399,7 @@ git checkout -b feature/your-feature-name
 # Update documentation
 ```
 
-4. **Run Tests**
+4. **Run Tests and Static Checks**
 ```bash
 # All tests
 pytest
@@ -409,6 +409,11 @@ pytest --cov=mlserver --cov-report=html
 
 # Specific tests
 pytest tests/unit/test_config.py
+
+# Lint / format / type-check
+make lint        # ruff check
+make format      # ruff format
+make typecheck   # mypy on mlserver/ (advisory — not a CI gate)
 ```
 
 5. **Commit Changes**
@@ -613,7 +618,7 @@ Releases of the `merve` package itself are cut from git tags — tags are the ca
 
 Consumers pin the released version rather than tracking `main`.
 
-The next planned release is **v0.4.0**, scheduled for the end of sprint Wave 1 (see [RFC 0001](rfcs/0001-design-decisions-and-sprint-plan.md)).
+Both **v0.4.0** (Waves 0–1, compatible) and **v0.5.0** (Wave 2, breaking) are cut in `CHANGELOG.md`; their git tags are pending (see [RFC 0001](rfcs/0001-design-decisions-and-sprint-plan.md)).
 
 ## Performance Optimization
 

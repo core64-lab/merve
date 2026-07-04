@@ -12,11 +12,7 @@ def test_standard_format():
     print("\n=== Testing Standard Format ===")
 
     # This would use default config with response_format: "standard"
-    payload = {
-        "payload": {
-            "records": [{"feature1": 1.5, "feature2": 2.3}, {"feature1": 2.1, "feature2": 1.7}]
-        }
-    }
+    payload = {"records": [{"feature1": 1.5, "feature2": 2.3}, {"feature1": 2.1, "feature2": 1.7}]}
 
     response = httpx.post("http://localhost:8000/predict", json=payload)
     print(f"Status: {response.status_code}")
@@ -35,11 +31,7 @@ def test_custom_format():
 
     # This assumes server is running with examples/mlserver_complete.yaml
     # (with api.response_format set to "custom")
-    payload = {
-        "payload": {
-            "records": [{"feature1": 1.5, "feature2": 2.3}, {"feature1": 2.1, "feature2": 1.7}]
-        }
-    }
+    payload = {"records": [{"feature1": 1.5, "feature2": 2.3}, {"feature1": 2.1, "feature2": 1.7}]}
 
     response = httpx.post("http://localhost:8000/predict", json=payload)
     print(f"Status: {response.status_code}")
@@ -81,7 +73,7 @@ def test_passthrough_format():
     print("\n=== Testing Passthrough Format ===")
 
     # This assumes a server with api.response_format: "passthrough" on port 8001
-    payload = {"payload": {"records": [{"feature1": 1.5, "feature2": 2.3}]}}
+    payload = {"records": [{"feature1": 1.5, "feature2": 2.3}]}
 
     try:
         response = httpx.post("http://localhost:8001/predict", json=payload)
@@ -122,7 +114,7 @@ def main():
     except httpx.ConnectError:
         print("\n! Error: Could not connect to server")
         print("  Make sure the server is running:")
-        print("  mlserver serve examples/mlserver_complete.yaml")
+        print("  merve serve examples/mlserver_complete.yaml")
         sys.exit(1)
     except Exception as e:
         print(f"\n! Test failed: {e}")

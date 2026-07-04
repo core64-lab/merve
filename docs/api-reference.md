@@ -159,7 +159,7 @@ Complete model and API metadata.
 #### `GET /healthz`
 Basic health check endpoint for liveness (and readiness) probes.
 
-**Response**:
+**Response** (200, predictor loaded):
 ```json
 {
   "status": "ok",
@@ -167,7 +167,15 @@ Basic health check endpoint for liveness (and readiness) probes.
 }
 ```
 
-`model` is the predictor class name, or `null` before the predictor is loaded.
+**Response** (503, predictor not yet loaded — not-ready semantics):
+```json
+{
+  "status": "loading",
+  "model": null
+}
+```
+
+`model` is the predictor class name. Until the predictor has finished loading, the endpoint answers **HTTP 503** with `status: "loading"` so readiness probes never report "ok" for a model that cannot serve; once loading completes it answers 200 with `status: "ok"`.
 
 ---
 
@@ -225,6 +233,8 @@ Alternative API documentation (ReDoc format).
 
 #### `GET /openapi.json`
 OpenAPI schema in JSON format.
+
+The served spec carries request-body **examples** on `/predict` and `/predict_proba` (the canonical top-level shapes first, the deprecated `payload` wrapper last) and the full response schemas — `PredictResponse` for `/predict` and `ProbaResponse` for `/predict_proba` (omitted only with `response_format: passthrough`).
 
 ---
 

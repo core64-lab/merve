@@ -351,10 +351,10 @@ class TracedPredictor:
 
 MLServer exposes two built-in endpoints for health monitoring:
 
-- **`GET /healthz`** — returns `{"status": "ok", "model": "<PredictorClass>"}`. Use this for liveness **and** readiness probes; `model` is `null` until the predictor is loaded, and the endpoint only responds once the app has started.
+- **`GET /healthz`** — returns `200 {"status": "ok", "model": "<PredictorClass>"}` once the predictor is loaded. **Until then it returns `503 {"status": "loading", "model": null}`** (not-ready semantics), so readiness probes never read "ok" for a model that cannot serve. Use it for liveness **and** readiness probes.
 - **`GET /status`** — returns concurrency-limiter state: `{"prediction_slots_available": ..., "active_predictions": ..., "max_concurrent_predictions": ..., "concurrency_control_enabled": ...}`. Useful for observing prediction slot saturation (e.g. before routing traffic).
 
-These are the only health endpoints — there are no separate readiness or startup probe paths, so point all Kubernetes probes at `/healthz`.
+These are the only health endpoints — there are no separate readiness or startup probe paths, so point all Kubernetes probes at `/healthz`; the 503-while-loading answer makes that safe for readiness and startup probes.
 
 ### Kubernetes Configuration
 

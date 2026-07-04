@@ -107,9 +107,9 @@ def to_ndarray(payload: dict, adapter: str, feature_order: Optional[List[str]]) 
 ```
 
 **Adapter Modes** (`api.adapter`):
-- **records** (default): JSON objects with named features (`payload.records` / `payload.instances` / `payload.features`)
-- **ndarray**: Nested arrays (`payload.ndarray` / `payload.inputs`)
-- **auto**: Format inferred from the payload structure (`_infer_adapter_type`)
+- **records** (default): JSON objects with named features (top-level `records` / `instances` / `features` keys)
+- **ndarray**: Nested arrays (top-level `ndarray` / `inputs` keys)
+- **auto**: Format inferred from the request body structure (`_infer_adapter_type`)
 
 Feature ordering for records is cached per feature-name set (`_get_cached_feature_order`).
 
@@ -136,8 +136,11 @@ Client → nginx/LB → FastAPI → Middleware Stack
 
 ### 2. Preprocessing
 ```python
-# Request validation (Pydantic) — body uses the payload wrapper
-req = PredictRequest(payload={"records": [...]})
+# The request body carries the input keys at the top level (canonical shape):
+#   {"records": [...]}   or   {"ndarray": [[...]]}
+# The legacy {"payload": {...}} wrapper is still accepted but deprecated
+# (one warning per process; removal targeted for 1.0).
+body = {"records": [...]}
 
 # Correlation ID generation (ObservabilityMiddleware)
 correlation_id = set_correlation_id()
@@ -148,9 +151,9 @@ log_request(method="POST", path="/predict", correlation_id=correlation_id)
 
 ### 3. Adaptation
 ```python
-# Convert input format
+# Convert input format (top-level keys; the deprecated wrapper is unwrapped first)
 input_array = to_ndarray(
-    req.payload,
+    body,
     adapter=config.api.adapter,
     feature_order=feature_order,
 )
@@ -333,12 +336,13 @@ upstream mlserver {
 ### Request Validation
 
 ```python
-# mlserver/schemas.py — requests use the payload wrapper
+# mlserver/schemas.py — the canonical request shape puts the input keys at the
+# top level of the body: {"records": [...]}, {"instances": [...]},
+# {"ndarray": [[...]]}, {"inputs": [[...]]}, or {"features": {...}}.
+# The legacy wrapped shape {"payload": {...}} is deprecated (warns once per
+# process; removal targeted for 1.0) but still validated when present.
 class PredictRequest(BaseModel):
-    payload: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Prediction input data: 'records' (list of dicts) or 'ndarray' (2D array)"
-    )
+    payload: dict[str, Any]  # legacy wrapper only; top-level bodies skip it
 ```
 
 ### CORS Configuration
@@ -387,8 +391,13 @@ See [Observability Features](./observability.md#available-metrics) for the full 
 ```python
 @app.get("/healthz")
 def health():
-    # Liveness/readiness probe — reports the loaded predictor class
-    return HealthResponse(status="ok", model=predictor.name if predictor else None)
+    # Liveness/readiness probe. Before the predictor finishes loading it
+    # answers 503 {"status": "loading", "model": null}; once loaded it
+    # answers 200 with the predictor class name.
+    if predictor is None:
+        return JSONResponse(status_code=503,
+                            content={"status": "loading", "model": None})
+    return HealthResponse(status="ok", model=predictor.name)
 
 @app.get("/status")
 def prediction_status():
@@ -469,40 +478,6 @@ spec:
     targetPort: 8000
 ```
 
-## Performance Benchmarks
+## Performance
 
-> **Note**: the numbers below are illustrative, meant to show the shape of the latency/throughput profile — they are not measured benchmarks of this codebase. Actual figures depend entirely on your model and hardware.
-
-### Latency Profile
-
-| Component | P50 | P95 | P99 |
-|-----------|-----|-----|-----|
-| Request Parse | 1ms | 2ms | 5ms |
-| Adaptation | 2ms | 5ms | 10ms |
-| Prediction | 20ms | 50ms | 100ms |
-| Response | 1ms | 2ms | 5ms |
-| **Total** | **24ms** | **59ms** | **120ms** |
-
-### Throughput
-
-| Workers | RPS | CPU | Memory |
-|---------|-----|-----|--------|
-| 1 | 100 | 25% | 200MB |
-| 4 | 400 | 90% | 800MB |
-| 8 | 750 | 95% | 1.6GB |
-| 16 | 1200 | 95% | 3.2GB |
-
-### Scalability
-
-```
-Throughput vs Workers
-1500 RPS │     ╱─────
-         │    ╱
-1000 RPS │   ╱
-         │  ╱
-500 RPS  │ ╱
-         │╱
-0 RPS    └────────────
-         0  4  8  12  16
-            Workers
-```
+Latency and throughput depend entirely on your model and hardware, so this documentation does not maintain benchmark numbers — measure on your own setup with the Locust suite in `tests/load/` (see [Development Guide → Load Testing](./development.md#load-testing)).

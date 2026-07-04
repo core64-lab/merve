@@ -32,7 +32,8 @@ prints a warning. Update scripts and CI to `merve`. Generated Dockerfiles now us
   `--volume`, not `-v`.
 - `--classifier` / `-c` is unchanged.
 
-Removed short flags are rejected (`No such option`), never silently reinterpreted.
+Removed short flags are rejected with **exit code 2 and a pointer to the
+replacement** (never a bare "No such option", never a silent reinterpretation).
 
 ### 3. Version tags are `<classifier>/vX.Y.Z`
 
@@ -59,7 +60,14 @@ the commit image after validating the `X/vX.Y.Z` tag at HEAD. To keep the old
 one-image-per-classifier behavior (for classifiers with conflicting
 dependencies), pass `--per-classifier-image`.
 
-### 5. Removed `global_config.yaml`
+### 5. Removed `push --version-source`
+
+Git tags are the canonical version source, so the pushed version always comes
+from the classifier's release tag (the tag at HEAD, or with `--force` the
+classifier's latest release tag). Passing `--version-source` exits with code 2
+and a pointer to this change. Drop the flag; nothing replaces it.
+
+### 6. Removed `global_config.yaml`
 
 The `GlobalSettings` singleton and `global_config.yaml` were removed. Defaults now
 live in code and are overridable via `mlserver.yaml` or the documented `MLSERVER_*`
@@ -72,9 +80,10 @@ environment variables. A leftover `global_config.yaml` is ignored with a warning
   0.5; the wrapper warns once per process.
 - **`response_format: custom` and `api.extract_values`.** Use `standard` (the
   validated envelope) or `passthrough` (raw predictor output).
-- **`classifier.version` in `mlserver.yaml` and `push --version-source`.** Git tags
-  are the canonical version source; `merve tag` computes the next version from the
-  latest tag.
+- **`classifier.version` in `mlserver.yaml`.** Git tags are the canonical version
+  source; `merve tag` computes the next version from the latest tag. The field is
+  display-only and logs a deprecation warning at config load. (`push
+  --version-source` is *removed*, not deprecated — see breaking change 5.)
 
 ## Quick checklist
 
