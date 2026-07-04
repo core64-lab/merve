@@ -205,6 +205,12 @@ build/copy entirely. Standing caveat, recorded: the pinned
 `pip install merve==X.Y.Z` assumes the build environment's index can serve
 that version — PyPI publishing is still deferred, so first releases must
 either publish or rely on the dev/wheel path.
+*Resolved post-v0.5.0:* releases running from a git install now pin the
+**release tag on the same git source** (`git+<url>@vX.Y.Z` — immutable and
+installable today, no index required); `merve==X.Y.Z` remains for installs
+that actually came from an index. Verified against PyPI: the `merve` name is
+unclaimed, so the failure mode was a clean build error, not a foreign-package
+hijack — publishing remains open (and would claim the name).
 
 **A9 — D5 nit.** Commit images set `org.opencontainers.image.version` to the
 short git commit (they bundle all classifiers; a single classifier's config

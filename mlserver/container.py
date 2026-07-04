@@ -901,6 +901,19 @@ def generate_dockerfile(
 
     copy_section = "\n".join(copy_commands) if copy_commands else "COPY . ."
 
+    # Framework install strategy (RFC 0001, D16 / W2.6), resolved before the
+    # builder deps so the git requirement matches the install line below.
+    # A clean RELEASE version is pinned reproducibly: via its release tag on
+    # the SAME git source merve was installed from (merve is not published on
+    # PyPI — RFC 0001 §8 A8), or via ``merve==X.Y.Z`` for index installs.
+    # Development builds fall back to the wheel-copy (or git) path and emit a
+    # build-time WARNING, because the resulting image cannot be reproduced.
+    installed_mlserver_version = _get_installed_mlserver_version()
+    release_build = _is_release_version(installed_mlserver_version)
+    release_git_url = _get_mlserver_git_url() if release_build else None
+    if release_git_url:
+        needs_git = True  # the pinned install clones the framework
+
     # Builder-stage system dependencies: compilers for source builds, plus
     # git when pip must clone the framework. None of these reach the runtime
     # stage, which only needs curl for the healthcheck.
@@ -910,12 +923,21 @@ def generate_dockerfile(
 
     builder_deps_line = " \\\n    ".join(builder_system_deps)
 
-    # Framework install section (RFC 0001, D16 / W2.6).
-    # A clean RELEASE version of mlserver is pinned reproducibly from PyPI.
-    # Development builds fall back to the wheel-copy (or git) path and emit a
-    # build-time WARNING, because the resulting image cannot be reproduced.
-    installed_mlserver_version = _get_installed_mlserver_version()
-    if _is_release_version(installed_mlserver_version):
+    if release_build and release_git_url:
+        # Pin the release tag on the git source: installable today and exactly
+        # reproducible (release tags are immutable). Strip any branch/commit
+        # ref the detector appended — but never an '@' that belongs to an ssh
+        # user (git@host) rather than a ref suffix.
+        base_url, _, ref = release_git_url.rpartition("@")
+        if not base_url or "/" in ref or ":" in ref:
+            base_url = release_git_url
+        tagged_url = f"{base_url}@v{installed_mlserver_version}"
+        wheel_install_section = (
+            f"# Release build: pin the exact framework release tag (RFC 0001, D16)\n"
+            f"RUN pip install --no-cache-dir "
+            f'"{tagged_url}"'
+        )
+    elif release_build:
         wheel_install_section = (
             f"# Release build: pin the exact framework version (RFC 0001, D16)\n"
             f"RUN pip install --no-cache-dir "
@@ -1673,8 +1695,10 @@ def _build_commit_container(
         required_files_list = sorted(required_files)
 
         # Wheel preparation (identical to the single-image path). Release
-        # builds pin merve==X.Y.Z in the Dockerfile (RFC 0001 D16), so no
-        # wheel is built or copied for them.
+        # builds pin the framework in the Dockerfile (release tag on the git
+        # source, or merve==X.Y.Z for index installs; RFC 0001 D16), so no
+        # wheel is built or copied for them - generate_dockerfile sets
+        # needs_git itself for the tag-pinned install.
         if _is_release_version(_get_installed_mlserver_version()):
             wheel_file, needs_git = None, False
         else:
@@ -1841,8 +1865,10 @@ def build_container(
         # Load configuration
         config = _load_container_config(project_path, config_file, classifier_name)
 
-        # Release builds pin merve==X.Y.Z in the Dockerfile (RFC 0001 D16),
-        # so no wheel is built or copied for them.
+        # Release builds pin the framework in the Dockerfile (release tag on
+        # the git source, or merve==X.Y.Z for index installs; RFC 0001 D16),
+        # so no wheel is built or copied for them - generate_dockerfile sets
+        # needs_git itself for the tag-pinned install.
         if _is_release_version(_get_installed_mlserver_version()):
             wheel_file, needs_git = None, False
         else:

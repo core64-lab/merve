@@ -491,12 +491,18 @@ class TestDockerfileGeneration:
         assert 'LABEL com.classifier.name="test-classifier"' in result
 
     def test_generate_dockerfile_wheel_install_section(self, temp_project_dir, mock_config):
-        """has_wheel=True copies the wheel in, installs it, then removes it."""
+        """has_wheel=True copies the wheel in, installs it, then removes it.
+
+        Pins a dev version: the wheel path only exists for non-release builds
+        (a release would pin the framework instead), so the test must not
+        depend on whatever version happens to be installed in the venv.
+        """
         from mlserver.defaults import CONTAINER_TEMP_DIR as temp_dir
 
-        result = generate_dockerfile(
-            str(temp_project_dir), mock_config, ["predictor.py"], has_wheel=True
-        )
+        with patch("mlserver.container._get_installed_mlserver_version", return_value="0.5.1.dev1"):
+            result = generate_dockerfile(
+                str(temp_project_dir), mock_config, ["predictor.py"], has_wheel=True
+            )
 
         assert f"COPY merve*.whl {temp_dir}/" in result
         assert (
@@ -1023,12 +1029,13 @@ class TestGenerateDockerfileUpdated:
         assert "pip install" in result
 
     def test_generate_dockerfile_with_wheel(self, temp_project_dir, mock_config):
-        """Test Dockerfile with wheel file."""
+        """Test Dockerfile with wheel file (dev build - releases pin instead)."""
         required_files = ["predictor.py", "mlserver.yaml"]
 
-        result = generate_dockerfile(
-            str(temp_project_dir), mock_config, required_files, has_wheel=True
-        )
+        with patch("mlserver.container._get_installed_mlserver_version", return_value="0.5.1.dev1"):
+            result = generate_dockerfile(
+                str(temp_project_dir), mock_config, required_files, has_wheel=True
+            )
 
         # The generated Dockerfile installs the framework wheel (renamed merve).
         assert "merve*.whl" in result
@@ -2183,6 +2190,11 @@ class TestBuildContainerWheelHandling:
         mock_process = _mock_build_process(returncode=0)
 
         with (
+            # Dev version pin: releases skip the wheel path entirely
+            patch(
+                "mlserver.container._get_installed_mlserver_version",
+                return_value="0.5.1.dev1",
+            ),
             patch("mlserver.container._get_mlserver_git_url", return_value=None),
             patch("mlserver.container._find_mlserver_source", return_value="/fake/source"),
             patch("mlserver.container._build_mlserver_wheel", side_effect=fake_build_wheel),
@@ -2587,8 +2599,35 @@ class TestReleasePinnedInstall:
         assert _is_release_version("") is False
         assert _is_release_version(None) is False
 
+    def test_release_pins_git_tag_when_installed_from_git(self, temp_project_dir, mock_config):
+        # merve is not on PyPI (RFC 0001 §8 A8): a release running from a git
+        # install pins the SAME git source at the immutable release tag.
+        with (
+            patch("mlserver.container._get_installed_mlserver_version", return_value="0.5.0"),
+            patch(
+                "mlserver.container._get_mlserver_git_url",
+                return_value="git+https://github.com/acme/merve.git@main",
+            ),
+        ):
+            result = generate_dockerfile(str(temp_project_dir), mock_config, ["predictor.py"])
+
+        # Branch ref stripped, release tag pinned
+        assert (
+            'RUN pip install --no-cache-dir "git+https://github.com/acme/merve.git@v0.5.0"'
+            in result
+        )
+        assert "merve==" not in result
+        assert "COPY merve*.whl" not in result
+        # The builder stage must carry git for the clone (builder deps render
+        # as "git \" + newline continuation before build-essential)
+        assert "git \\" in result
+
     def test_release_version_pins_framework(self, temp_project_dir, mock_config):
-        with patch("mlserver.container._get_installed_mlserver_version", return_value="0.5.0"):
+        # Index installs (no git source detected) pin the index version.
+        with (
+            patch("mlserver.container._get_installed_mlserver_version", return_value="0.5.0"),
+            patch("mlserver.container._get_mlserver_git_url", return_value=None),
+        ):
             result = generate_dockerfile(str(temp_project_dir), mock_config, ["predictor.py"])
 
         assert 'RUN pip install --no-cache-dir "merve==0.5.0"' in result
