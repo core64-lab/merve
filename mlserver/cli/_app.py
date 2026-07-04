@@ -17,8 +17,8 @@ from rich.console import Console
 
 # Create the main app
 app = typer.Typer(
-    name="mlserver",
-    help="🚀 ML Server - FastAPI-based ML model serving",
+    name="merve",
+    help="🚀 Merve - wrap Python predictors into FastAPI inference APIs",
     add_completion=False,
     rich_markup_mode="rich",
     pretty_exceptions_enable=False,
@@ -102,6 +102,24 @@ def detect_config_file(config_path: Optional[Path], base_dir: Optional[Path] = N
     raise typer.BadParameter(
         "No config file found. Please specify with --config or create mlserver.yaml"
     )
+
+
+def removed_flag_callback(pointer: str):
+    """Build a parse-time callback for a removed flag (RFC 0001 D8).
+
+    Removed flags are declared as hidden options so that using one fails
+    with exit code 2 AND a pointer to the replacement — never a bare
+    "No such option" and never a silent reinterpretation.
+    (typer.BadParameter is the only exception type Typer converts to a
+    usage error with exit code 2 from inside a parameter callback.)
+    """
+
+    def _callback(value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            raise typer.BadParameter(pointer)
+        return value
+
+    return _callback
 
 
 def _display_check_result(check, verbose: bool = False):

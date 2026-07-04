@@ -1,4 +1,4 @@
-"""``mlserver serve`` — launch the FastAPI inference server from a YAML config."""
+"""``merve serve`` — launch the FastAPI inference server from a YAML config."""
 
 import os
 from pathlib import Path
@@ -29,6 +29,9 @@ def serve(
         help="Path to config file (defaults to mlserver.yaml)",
         exists=False,  # We'll check existence ourselves
     ),
+    path: Optional[Path] = typer.Option(
+        None, "--path", "-C", help="Project directory (mlserver.yaml auto-detected inside)"
+    ),
     classifier: Optional[str] = typer.Option(
         None, "--classifier", "-c", help="Classifier to serve (for multi-classifier configs)"
     ),
@@ -44,8 +47,8 @@ def serve(
 ):
     """🚀 Launch ML FastAPI server from YAML config."""
     try:
-        # Detect config file
-        config_file = detect_config_file(config)
+        # Detect config file (explicit CONFIG argument wins over --path)
+        config_file = detect_config_file(config, base_dir=path)
         console.print(f"[green]✓[/green] Using configuration: [cyan]{config_file}[/cyan]")
 
         # Get config directory for path resolution
@@ -59,8 +62,27 @@ def serve(
             # Load multi-classifier config
             multi_config = load_multi_classifier_config(str(config_file))
 
-            # Determine which classifier to use
-            if not classifier:
+            # Determine which classifier to use: --classifier flag, then the
+            # MLSERVER_CLASSIFIER env var (deploy-time selection on commit
+            # images, RFC 0001 D4), then the config's default_classifier.
+            env_classifier = os.environ.get("MLSERVER_CLASSIFIER")
+            if not classifier and env_classifier:
+                available = list_available_classifiers(str(config_file))
+                if env_classifier not in available:
+                    # A typo must not silently serve a different model
+                    console.print(
+                        f"[red]✗[/red] MLSERVER_CLASSIFIER={env_classifier!r} does not "
+                        f"match any configured classifier",
+                        style="bold red",
+                    )
+                    console.print(f"Available classifiers: {', '.join(available)}")
+                    raise typer.Exit(1)
+                classifier = env_classifier
+                console.print(
+                    f"[green]→[/green] Using classifier from MLSERVER_CLASSIFIER: "
+                    f"[cyan]{classifier}[/cyan]"
+                )
+            elif not classifier:
                 classifier = get_default_classifier(str(config_file))
                 if not classifier:
                     available = list_available_classifiers(str(config_file))

@@ -1,4 +1,4 @@
-"""``mlserver test`` — send a request against a running server to smoke-test it."""
+"""``merve test`` — send a request against a running server to smoke-test it."""
 
 from pathlib import Path
 from typing import Optional
@@ -21,9 +21,9 @@ def test(
     Send a test request to verify the server is working correctly.
 
     Examples:
-        mlserver test --data '{"feature1": 1.5, "feature2": 2.0}'
-        mlserver test --file sample_request.json
-        mlserver test --url http://localhost:8080 --endpoint /predict
+        merve test --data '{"feature1": 1.5, "feature2": 2.0}'
+        merve test --file sample_request.json
+        merve test --url http://localhost:8080 --endpoint /predict
     """
     import json
     import time
@@ -50,19 +50,17 @@ def test(
     else:
         console.print("[red]✗[/red] Either --data or --file is required")
         console.print("\n[dim]Examples:")
-        console.print("  mlserver test --data '{\"feature1\": 1.5}'")
-        console.print("  mlserver test --file request.json[/dim]")
+        console.print("  merve test --data '{\"feature1\": 1.5}'")
+        console.print("  merve test --file request.json[/dim]")
         raise typer.Exit(1)
 
-    # Wrap in payload format if needed
-    if "payload" not in payload_data and "instances" not in payload_data:
-        # Auto-wrap as records
-        if isinstance(payload_data, dict) and not any(
-            k in payload_data for k in ["records", "ndarray"]
-        ):
-            payload_data = {"payload": {"records": [payload_data]}}
-        elif isinstance(payload_data, list):
-            payload_data = {"payload": {"records": payload_data}}
+    # Wrap bare feature dicts/lists in the canonical top-level records shape
+    # (RFC 0001 D10). Already-shaped bodies pass through untouched.
+    input_keys = ("payload", "records", "instances", "ndarray", "inputs", "features")
+    if isinstance(payload_data, dict) and not any(k in payload_data for k in input_keys):
+        payload_data = {"records": [payload_data]}
+    elif isinstance(payload_data, list):
+        payload_data = {"records": payload_data}
 
     # Build URL
     full_url = f"{url.rstrip('/')}{endpoint}"
@@ -100,7 +98,7 @@ def test(
 
     except httpx.ConnectError:
         console.print(f"[red]✗[/red] Cannot connect to {url}")
-        console.print("  [dim]→ Is the server running? Try: mlserver serve[/dim]")
+        console.print("  [dim]→ Is the server running? Try: merve serve[/dim]")
         raise typer.Exit(1) from None
     except httpx.TimeoutException:
         console.print("[red]✗[/red] Request timed out")

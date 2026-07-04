@@ -10,7 +10,7 @@ from rich.table import Table
 
 from ..version import get_version_info
 from ..version_control import GitVersionManager, VersionControlError
-from ._app import app, console, detect_config_file
+from ._app import app, console, detect_config_file, removed_flag_callback
 
 
 class BumpType(str, Enum):
@@ -30,6 +30,16 @@ def version(
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
     detailed: bool = typer.Option(
         False, "--detailed", help="Show detailed MLServer tool information"
+    ),
+    legacy_path_short: Optional[str] = typer.Option(
+        None,
+        "-p",
+        hidden=True,
+        callback=removed_flag_callback(
+            "-p no longer means --path here (it is reserved for --port across "
+            "the CLI, RFC 0001 D8): use -C or --path for the project directory. "
+            "See docs/migration-0.5.md."
+        ),
     ),
 ):
     """📦 Display version information for the classifier project.
@@ -234,7 +244,7 @@ def tag(
     message: Optional[str] = typer.Option(
         None, "--message", "-m", help="Tag message (defaults to 'Release <classifier> vX.Y.Z')"
     ),
-    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     allow_missing_mlserver: bool = typer.Option(
         False,
         "--allow-missing-mlserver",
@@ -440,7 +450,7 @@ def tag(
                 console.print(
                     "[bold red]⚠️  IMPORTANT: Regenerate workflow before pushing tags![/bold red]"
                 )
-                console.print("  Run: [cyan]mlserver init-github --force[/cyan]")
+                console.print("  Run: [cyan]merve init-github --force[/cyan]")
                 console.print(
                     "  Then: [cyan]git add .github && "
                     "git commit -m 'Update workflow' && git push[/cyan]"
@@ -455,14 +465,14 @@ def tag(
             )
             console.print()
             console.print("[dim]💡 Or build manually:[/dim]")
-            console.print(f"  - Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
+            console.print(f"  - Build: [cyan]merve build --classifier {classifier}[/cyan]")
             console.print(
-                f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]"
+                f"  - Push: [cyan]merve push --classifier {classifier} --registry <url>[/cyan]"
             )
         elif github_actions_configured and not workflow_valid:
             # Workflow exists but is outdated/invalid
             console.print(
-                "  [bold]1. Regenerate workflow:[/bold] [cyan]mlserver init-github --force[/cyan]"
+                "  [bold]1. Regenerate workflow:[/bold] [cyan]merve init-github --force[/cyan]"
             )
             console.print(
                 "  2. Commit and push: [cyan]git add .github && "
@@ -471,9 +481,9 @@ def tag(
             console.print("  3. Push tags: [cyan]git push --tags[/cyan]")
             console.print()
             console.print("[dim]💡 Or build manually:[/dim]")
-            console.print(f"  - Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
+            console.print(f"  - Build: [cyan]merve build --classifier {classifier}[/cyan]")
             console.print(
-                f"  - Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]"
+                f"  - Push: [cyan]merve push --classifier {classifier} --registry <url>[/cyan]"
             )
         else:
             # No workflow at all
@@ -484,7 +494,7 @@ def tag(
             )
             console.print()
             console.print("  [dim]Option 1: Add CI/CD workflow (recommended)[/dim]")
-            console.print("  1. Add workflow: [cyan]mlserver init-github[/cyan]")
+            console.print("  1. Add workflow: [cyan]merve init-github[/cyan]")
             console.print(
                 "  2. Commit and push: [cyan]git add .github && "
                 "git commit -m 'Add CI/CD' && git push[/cyan]"
@@ -493,9 +503,9 @@ def tag(
             console.print()
             console.print("  [dim]Option 2: Build and push manually[/dim]")
             console.print("  1. Push tags: [cyan]git push --tags[/cyan]")
-            console.print(f"  2. Build: [cyan]mlserver build --classifier {classifier}[/cyan]")
+            console.print(f"  2. Build: [cyan]merve build --classifier {classifier}[/cyan]")
             console.print(
-                f"  3. Push: [cyan]mlserver push --classifier {classifier} --registry <url>[/cyan]"
+                f"  3. Push: [cyan]merve push --classifier {classifier} --registry <url>[/cyan]"
             )
 
     except VersionControlError as e:

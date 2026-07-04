@@ -11,7 +11,7 @@ from rich.table import Table
 from ..container import build_container, check_docker_availability, list_images, remove_images
 from ..multi_classifier import detect_multi_classifier_config, list_available_classifiers
 from ..version_control import GitVersionManager, safe_push_container
-from ._app import app, console, detect_config_file, err_console
+from ._app import app, console, detect_config_file, removed_flag_callback
 
 
 @app.command()
@@ -20,9 +20,12 @@ def build(
         None,
         "--classifier",
         "-c",
-        help="Classifier to build (can be simple name or full tag: name-vX.Y.Z-mlserver-hash)",
+        help=(
+            "Classifier to build (simple name, canonical tag name/vX.Y.Z, "
+            "or legacy tag name-vX.Y.Z-mlserver-hash)"
+        ),
     ),
-    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     config: Optional[Path] = typer.Option(
         None, "--config", help="Config file to use (auto-detected if not specified)"
     ),
@@ -200,7 +203,7 @@ def build(
                     style="bold red",
                 )
                 console.print(f"Available classifiers: {', '.join(available)}")
-                console.print("Usage: mlserver build --per-classifier-image --classifier <name>")
+                console.print("Usage: merve build --per-classifier-image --classifier <name>")
                 raise typer.Exit(1)
             if classifier not in available:
                 console.print(
@@ -290,7 +293,7 @@ def _push_classifier_alias_cli(
             style="bold red",
         )
         console.print(f"Available classifiers: {', '.join(available)}")
-        console.print("Usage: mlserver push --classifier <name> --registry <url>")
+        console.print("Usage: merve push --classifier <name> --registry <url>")
         raise typer.Exit(1)
 
     if available and classifier not in available:
@@ -314,7 +317,7 @@ def _push_classifier_alias_cli(
             style="bold red",
         )
         console.print(
-            f"Create one first: [cyan]mlserver tag <major|minor|patch> "
+            f"Create one first: [cyan]merve tag <major|minor|patch> "
             f"--classifier {classifier}[/cyan]"
         )
         raise typer.Exit(1)
@@ -354,7 +357,7 @@ def push(
         "-c",
         help="Classifier to push (required for multi-classifier configs)",
     ),
-    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     tag_prefix: Optional[str] = typer.Option(
         None, "--tag-prefix", help="Tag prefix for container names"
     ),
@@ -364,36 +367,17 @@ def push(
     version_source: Optional[str] = typer.Option(
         None,
         "--version-source",
-        help=(
-            "[DEPRECATED] Version source: 'git-tag', 'config', or 'auto'. "
-            "Git tags are the canonical version source (RFC 0001 D3); "
-            "this flag will be removed in v0.5.0."
+        hidden=True,
+        callback=removed_flag_callback(
+            "--version-source was removed in v0.5.0: git tags are the canonical "
+            "version source (RFC 0001 D3), so the pushed version always comes "
+            "from the classifier's release tag. See docs/migration-0.5.md."
         ),
     ),
 ):
     """📤 Push container to registry (requires tagged commit for specific classifier)."""
     if not check_docker_availability():
         console.print("[red]✗[/red] Docker is not available or not running", style="bold red")
-        raise typer.Exit(1)
-
-    # --version-source is deprecated (RFC 0001 D3): warn when passed explicitly
-    if version_source is not None:
-        err_console.print(
-            "[yellow]⚠ DeprecationWarning:[/yellow] --version-source is deprecated; "
-            "git tags are the canonical version source — RFC 0001 D3. "
-            "The flag will be removed in v0.5.0."
-        )
-    else:
-        version_source = "auto"
-
-    # Validate --version-source (see version_control.get_version_for_push)
-    allowed_version_sources = ("git-tag", "config", "auto")
-    if version_source not in allowed_version_sources:
-        console.print(
-            f"[red]✗[/red] Invalid --version-source '{version_source}'. "
-            f"Allowed values: {', '.join(allowed_version_sources)}",
-            style="bold red",
-        )
         raise typer.Exit(1)
 
     # Choose the push strategy from the config shape. Multi-classifier repos
@@ -428,7 +412,6 @@ def push(
         classifier_name=classifier,
         tag_prefix=tag_prefix,
         force=force,
-        version_source=version_source,
     )
 
     if result["success"]:
@@ -464,7 +447,7 @@ def push(
 
 @app.command()
 def images(
-    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     classifier: Optional[str] = typer.Option(
         None, "--classifier", "-c", help="Classifier name (for multi-classifier configs)"
     ),
@@ -507,16 +490,23 @@ def images(
 
 @app.command()
 def clean(
-    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
+    classifier: Optional[str] = typer.Option(
+        None, "--classifier", "-c", help="Only remove images for this classifier"
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Force removal without confirmation"),
 ):
-    """🧹 Remove Docker images for the classifier project."""
+    """🧹 Remove Docker images for the classifier project.
+
+    For multi-classifier repos, --classifier restricts removal to that
+    classifier's per-classifier/alias images.
+    """
     if not check_docker_availability():
         console.print("[red]✗[/red] Docker is not available or not running", style="bold red")
         raise typer.Exit(1)
 
     # Get images to be removed
-    image_list = list_images(str(path))
+    image_list = list_images(str(path), classifier_name=classifier)
     if not image_list:
         console.print("[yellow]No images to remove[/yellow]")
         return
@@ -531,7 +521,7 @@ def clean(
 
     console.print("[cyan]🧹 Cleaning images...[/cyan]")
 
-    result = remove_images(str(path), force=True)
+    result = remove_images(str(path), force=True, classifier_name=classifier)
 
     if result["success"]:
         if result.get("removed_images"):
@@ -555,7 +545,7 @@ def run(
     classifier: Optional[str] = typer.Option(
         None, "--classifier", "-c", help="Classifier to run (required for multi-classifier configs)"
     ),
-    path: str = typer.Option(".", "--path", help="Path to classifier project"),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     port: int = typer.Option(8000, "--port", "-p", help="Port to expose the container on"),
     version: Optional[str] = typer.Option(
         None, "--version", help="Specific version to run (default: latest)"
@@ -567,6 +557,16 @@ def run(
     ),
     volume: Optional[list[str]] = typer.Option(
         None, "--volume", help="Volume mounts (host:container)"
+    ),
+    legacy_volume_short: Optional[str] = typer.Option(
+        None,
+        "-v",
+        hidden=True,
+        callback=removed_flag_callback(
+            "-v no longer means --volume (it is reserved for --verbose across "
+            "the CLI, RFC 0001 D8): use the long form --volume host:container. "
+            "See docs/migration-0.5.md."
+        ),
     ),
 ):
     """🚀 Run Docker container for the classifier."""
@@ -589,7 +589,7 @@ def run(
                 style="bold red",
             )
             console.print(f"Available classifiers: {', '.join(available)}")
-            console.print("Usage: mlserver run --classifier <name>")
+            console.print("Usage: merve run --classifier <name>")
             raise typer.Exit(1)
 
         if classifier not in available:

@@ -19,17 +19,25 @@ from ..multi_classifier import (
     get_default_classifier,
     list_available_classifiers,
 )
-from ._app import _display_check_result, app, console, detect_config_file
+from ._app import _display_check_result, app, console, detect_config_file, removed_flag_callback
+
+# Shared parse-time rejection for the pre-0.5 `-p <path>` spelling (RFC 0001 D8)
+_LEGACY_P_AS_PATH = removed_flag_callback(
+    "-p no longer means --path here (it is reserved for --port across the CLI, "
+    "RFC 0001 D8): use -C or --path for the project directory. "
+    "See docs/migration-0.5.md."
+)
 
 
 @app.command()
 def list_classifiers(
     config: Optional[Path] = typer.Argument(None, help="Path to multi-classifier config file"),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON (machine-readable)"),
 ):
     """📋 List available classifiers in multi-classifier config."""
     try:
-        config_file = detect_config_file(config)
+        config_file = detect_config_file(config, base_dir=Path(path))
 
         if not detect_multi_classifier_config(str(config_file)):
             if json_output:
@@ -90,18 +98,19 @@ def list_classifiers(
 
 @app.command()
 def status(
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON (machine-readable)"),
 ):
-    """📊 Show ML Server status and system info."""
+    """📊 Show Merve status and system info."""
     from ..github_actions import check_github_actions_setup
 
     # Gather status information
     docker_available = check_docker_availability()
-    mlserver_yaml = Path("mlserver.yaml")
+    mlserver_yaml = Path(path) / "mlserver.yaml"
     config_file = "mlserver.yaml" if mlserver_yaml.exists() else None
     python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     venv = os.environ.get("VIRTUAL_ENV")
-    github_actions_setup = check_github_actions_setup(".")
+    github_actions_setup = check_github_actions_setup(path)
 
     if json_output:
         print(
@@ -118,7 +127,7 @@ def status(
         )
         return
 
-    table = Table(title="📊 ML Server Status", title_style="bold cyan")
+    table = Table(title="📊 Merve Status", title_style="bold cyan")
     table.add_column("Component", style="yellow")
     table.add_column("Status", style="cyan")
 
@@ -167,8 +176,11 @@ def init(
         False, "--no-github", help="Skip GitHub Actions workflow creation"
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing files"),
+    legacy_path_short: Optional[str] = typer.Option(
+        None, "-p", hidden=True, callback=_LEGACY_P_AS_PATH
+    ),
 ):
-    """🎬 Initialize a new MLServer classifier project.
+    """🎬 Initialize a new Merve classifier project.
 
     Creates all necessary files for a classifier project:
     - mlserver.yaml (configuration file)
@@ -179,12 +191,12 @@ def init(
     This command will NOT overwrite existing files unless --force is used.
 
     Example:
-        mlserver init --classifier sentiment-analyzer
-        mlserver init --classifier my-model --predictor-file custom_predictor
+        merve init --classifier sentiment-analyzer
+        merve init --classifier my-model --predictor-file custom_predictor
     """
     from ..init_project import init_mlserver_project
 
-    console.print("[cyan]🎬 Initializing MLServer project...[/cyan]")
+    console.print("[cyan]🎬 Initializing Merve project...[/cyan]")
     console.print()
 
     success, message, files = init_mlserver_project(
@@ -216,13 +228,11 @@ def init(
         console.print("[bold cyan]Next steps:[/bold cyan]")
         console.print("  1. Implement your predictor: Edit the generated Python file")
         console.print("  2. Configure settings: Review and update [cyan]mlserver.yaml[/cyan]")
-        console.print("  3. Test locally: [cyan]mlserver serve[/cyan]")
+        console.print("  3. Test locally: [cyan]merve serve[/cyan]")
         console.print(
             "  4. Commit changes: [cyan]git add . && git commit -m 'Initial setup'[/cyan]"
         )
-        console.print(
-            "  5. Create version tag: [cyan]mlserver tag patch --classifier <name>[/cyan]"
-        )
+        console.print("  5. Create version tag: [cyan]merve tag patch --classifier <name>[/cyan]")
         console.print("  6. Push to trigger CI/CD: [cyan]git push --tags[/cyan]")
     else:
         console.print(f"[red]✗[/red] {message}", style="bold red")
@@ -241,12 +251,15 @@ def init_github(
         help="Container registry (default: ghcr.io for GitHub Container Registry)",
     ),
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing workflow files"),
+    legacy_path_short: Optional[str] = typer.Option(
+        None, "-p", hidden=True, callback=_LEGACY_P_AS_PATH
+    ),
 ):
     """🔧 Initialize GitHub Actions CI/CD workflow for automated container builds.
 
     Sets up automated building and publishing of containers to GitHub Container Registry
-    when version tags are pushed. The workflow is triggered by hierarchical tags created
-    with the 'mlserver tag' command.
+    when version tags are pushed. The workflow is triggered by the canonical
+    <classifier>/vX.Y.Z tags created with the 'merve tag' command.
 
     This command:
     - Creates .github/workflows/ml-classifier-container-build.yml
@@ -254,10 +267,10 @@ def init_github(
     - Sets up container publishing to GitHub Container Registry
     - Auto-detects your GitHub repository information
 
-    Note: This is automatically created by 'mlserver init', so you typically don't need
+    Note: This is automatically created by 'merve init', so you typically don't need
     to run this separately unless you want to add CI/CD to an existing project.
 
-    After running this command, commit the files and use 'mlserver tag' to create version tags.
+    After running this command, commit the files and use 'merve tag' to create version tags.
     """
     from ..github_actions import init_github_actions
 
@@ -289,9 +302,7 @@ def init_github(
             "[cyan]git add .github && git commit -m 'Add CI/CD workflow'[/cyan]"
         )
         console.print("  3. Push to GitHub: [cyan]git push[/cyan]")
-        console.print(
-            "  4. Create version tag: [cyan]mlserver tag patch --classifier <name>[/cyan]"
-        )
+        console.print("  4. Create version tag: [cyan]merve tag patch --classifier <name>[/cyan]")
         console.print("  5. Push tag: [cyan]git push --tags[/cyan]")
         console.print()
         console.print(
@@ -307,6 +318,7 @@ def validate(
     config: Optional[Path] = typer.Argument(
         None, help="Path to config file (default: auto-detect)"
     ),
+    path: str = typer.Option(".", "--path", "-C", help="Path to classifier project"),
     strict: bool = typer.Option(False, "--strict", "-s", help="Fail on warnings"),
     check_imports: bool = typer.Option(
         True, "--check-imports/--no-check-imports", help="Check predictor imports"
@@ -324,15 +336,15 @@ def validate(
     - Feature order file exists (if configured)
 
     Examples:
-        mlserver validate
-        mlserver validate --strict
-        mlserver validate mlserver.yaml --no-check-imports
-        mlserver validate --json
+        merve validate
+        merve validate --strict
+        merve validate mlserver.yaml --no-check-imports
+        merve validate --json
     """
     from ..doctor import CheckStatus, run_validation_checks
 
     try:
-        config_file = detect_config_file(config)
+        config_file = detect_config_file(config, base_dir=Path(path))
         project_path = str(config_file.parent)
     except typer.BadParameter as e:
         if json_output:
@@ -417,6 +429,9 @@ def validate(
 def doctor(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show detailed diagnostics"),
     project_path: Path = typer.Option(".", "--path", "-C", help="Project path to diagnose"),
+    legacy_path_short: Optional[str] = typer.Option(
+        None, "-p", hidden=True, callback=_LEGACY_P_AS_PATH
+    ),
 ):
     """Diagnose common issues and environment problems.
 
@@ -424,13 +439,13 @@ def doctor(
     and provides recommendations for fixing issues.
 
     Examples:
-        mlserver doctor
-        mlserver doctor --verbose
-        mlserver doctor --path ./my-project
+        merve doctor
+        merve doctor --verbose
+        merve doctor --path ./my-project
     """
     from ..doctor import run_all_checks
 
-    console.print("\n[bold]MLServer Doctor[/bold] - Diagnosing your environment...\n")
+    console.print("\n[bold]Merve Doctor[/bold] - Diagnosing your environment...\n")
 
     report = run_all_checks(str(project_path), verbose=verbose)
 
@@ -493,16 +508,16 @@ def schema(
 
     Examples:
         # Print schema to stdout
-        mlserver schema
+        merve schema
 
         # Save to default location with setup instructions
-        mlserver schema -o .mlserver/schema.json --setup
+        merve schema -o .mlserver/schema.json --setup
 
         # Generate for multi-classifier configs only
-        mlserver schema --type multi -o schema.json
+        merve schema --type multi -o schema.json
 
         # Full VSCode setup
-        mlserver schema -o .mlserver/schema.json --vscode --setup
+        merve schema -o .mlserver/schema.json --vscode --setup
     """
     import json
 
