@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.5.1] - 2026-07-04
+
 ### Fixed
 - Release builds from a git-installed merve now pin the framework via its immutable release tag on the same git source (`pip install "git+<url>@vX.Y.Z"`) instead of `merve==X.Y.Z` — merve is not published on PyPI, so the index pin produced Dockerfiles that could not build (RFC 0001 §8 A8). Index installs still pin `merve==X.Y.Z`.
 
