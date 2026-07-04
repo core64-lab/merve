@@ -10,8 +10,9 @@ breaking change:
     is long-only (its old ``-v`` short flag is dropped).
   * ``--classifier`` / ``-c`` is unchanged everywhere.
 
-Removed short flags are NOT silently reinterpreted: Typer/Click rejects them with
-"No such option" and exit code 2, which is the intended migration signal.
+Removed flags are NOT silently reinterpreted: they are declared as hidden
+options whose parse-time callback fails with exit code 2 AND a pointer to the
+replacement flag (D8's "error with a pointer", see ``removed_flag_callback``).
 
 The registration test guards the W2.1 package split: the command handlers live in
 separate modules under ``mlserver/cli/`` and are wired onto the shared ``app`` via
@@ -129,11 +130,14 @@ class TestPathFlag:
     """`--path`/`-C` replaces the old `--path -p` on version/init/init-github/doctor."""
 
     @pytest.mark.parametrize("command", list(PATH_COMMANDS))
-    def test_p_rejected_as_path(self, command, tmp_path):
-        # -p is no longer a path alias on these commands: hard error, no reinterpret.
+    def test_p_rejected_as_path_with_pointer(self, command, tmp_path):
+        # -p is no longer a path alias on these commands: hard error WITH a
+        # pointer to the replacement (RFC 0001 D8), never a reinterpretation.
         result = runner.invoke(app, [command, "-p", str(tmp_path)])
         assert result.exit_code == 2
-        assert "No such option" in result.output
+        assert "--path" in result.output  # points at the replacement
+        assert "-C" in result.output
+        assert "migration-0.5" in result.output
 
     def test_version_C_is_path(self, tmp_path):
         result = runner.invoke(app, ["version", "-C", str(tmp_path), "--json"])
@@ -197,9 +201,21 @@ class TestRunVolumeFlag:
         assert "No such option" not in result.output
 
     def test_v_no_longer_maps_to_volume(self):
+        # Hard error WITH a pointer to --volume (RFC 0001 D8).
         result = runner.invoke(app, ["run", "-v", "/host:/cont"])
         assert result.exit_code == 2
-        assert "No such option" in result.output
+        assert "--volume" in result.output  # points at the replacement
+        assert "migration-0.5" in result.output
+
+
+class TestRemovedVersionSourceFlag:
+    """`push --version-source` was removed (RFC 0001 D3): exit 2 + pointer."""
+
+    def test_version_source_rejected_with_pointer(self):
+        result = runner.invoke(app, ["push", "--registry", "r.io", "--version-source", "config"])
+        assert result.exit_code == 2
+        assert "git tags" in result.output  # explains the canonical source
+        assert "migration-0.5" in result.output
 
 
 class TestClassifierFlag:

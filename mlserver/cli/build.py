@@ -538,6 +538,9 @@ def clean(
         console.print("\n[yellow]⚠️  Removal errors:[/yellow]")
         for error in result["errors"]:
             console.print(f"  [red]✗[/red] {error}")
+        # Exit-code contract (RFC 0001 D7): any failure - including partial
+        # removal failures - must exit nonzero (same rule as push).
+        raise typer.Exit(1)
 
 
 @app.command()

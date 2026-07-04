@@ -161,3 +161,121 @@ class TestTestCommand:
         # A refused connection must exit non-zero with a readable message, not a traceback.
         assert result.exit_code != 0
         assert "Traceback" not in result.stdout
+
+
+def _write_multi_project(tmp_path):
+    """A minimal, importable multi-classifier project (alpha=default, beta)."""
+    (tmp_path / "mypred.py").write_text(
+        "class P:\n"
+        "    def predict(self, X):\n        return [0] * len(X)\n"
+        "class Q:\n"
+        "    def predict(self, X):\n        return [1] * len(X)\n"
+    )
+    (tmp_path / "mlserver.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "server": {"host": "127.0.0.1", "port": 9123},
+                "default_classifier": "alpha",
+                "classifiers": {
+                    "alpha": {
+                        "predictor": {"module": "mypred", "class_name": "P"},
+                        "classifier": {"name": "alpha", "version": "1.0.0"},
+                        "observability": {"metrics": False, "structured_logging": False},
+                    },
+                    "beta": {
+                        "predictor": {"module": "mypred", "class_name": "Q"},
+                        "classifier": {"name": "beta", "version": "1.0.0"},
+                        "observability": {"metrics": False, "structured_logging": False},
+                    },
+                },
+            }
+        )
+    )
+    return tmp_path
+
+
+class TestServeClassifierSelection:
+    """RFC 0001 D4: deploy-time classifier selection on commit images.
+
+    Regression suite for the audit-confirmed break: `docker run -e
+    MLSERVER_CLASSIFIER=X <commit-image>` (whose CMD is a bare `merve serve
+    mlserver.yaml`) silently served the DEFAULT classifier because serve never
+    consulted the env var. Resolution precedence: --classifier flag >
+    MLSERVER_CLASSIFIER env > config default_classifier.
+    """
+
+    def test_env_var_selects_classifier(self, tmp_path, monkeypatch):
+        _write_multi_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MLSERVER_CLASSIFIER", "beta")
+        with patch("mlserver.cli.serve.uvicorn.run") as mock_run:
+            result = runner.invoke(app, ["serve"])
+        assert result.exit_code == 0, result.stdout
+        assert mock_run.called
+        assert "MLSERVER_CLASSIFIER" in result.stdout
+        assert "beta" in result.stdout
+        # The single-worker path builds the app for the env-selected classifier
+        assert "Q" in result.stdout  # Model: Q in the startup panel
+
+    def test_flag_beats_env_var(self, tmp_path, monkeypatch):
+        _write_multi_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MLSERVER_CLASSIFIER", "beta")
+        with patch("mlserver.cli.serve.uvicorn.run"):
+            result = runner.invoke(app, ["serve", "--classifier", "alpha"])
+        assert result.exit_code == 0, result.stdout
+        assert "Using classifier: alpha" in result.stdout
+
+    def test_invalid_env_var_fails_loudly(self, tmp_path, monkeypatch):
+        # A typo must NOT silently serve the default model.
+        _write_multi_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MLSERVER_CLASSIFIER", "no-such-model")
+        with patch("mlserver.cli.serve.uvicorn.run") as mock_run:
+            result = runner.invoke(app, ["serve"])
+        assert result.exit_code == 1
+        assert not mock_run.called
+        assert "no-such-model" in result.stdout
+        assert "alpha" in result.stdout  # lists the available classifiers
+
+    def test_no_flag_no_env_uses_default(self, tmp_path, monkeypatch):
+        _write_multi_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.delenv("MLSERVER_CLASSIFIER", raising=False)
+        with patch("mlserver.cli.serve.uvicorn.run"):
+            result = runner.invoke(app, ["serve"])
+        assert result.exit_code == 0, result.stdout
+        assert "default classifier" in result.stdout
+        assert "alpha" in result.stdout
+
+    def test_workers_path_propagates_env_selection(self, tmp_path, monkeypatch):
+        # The factory (workers>1) reads MLSERVER_CLASSIFIER; serve must leave
+        # the env-selected value in place, not clobber it with the default.
+        import os
+
+        _write_multi_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("MLSERVER_CLASSIFIER", "beta")
+        with patch("mlserver.cli.serve.uvicorn.run") as mock_run:
+            result = runner.invoke(app, ["serve", "--workers", "2"])
+        assert result.exit_code == 0, result.stdout
+        args, kwargs = mock_run.call_args
+        assert kwargs.get("factory") is True
+        assert os.environ.get("MLSERVER_CLASSIFIER") == "beta"
+
+
+class TestServePathFlag:
+    """W2.2/D8: serve accepts --path/-C for the project directory."""
+
+    def test_serve_with_C_from_outside_project(self, tmp_path, monkeypatch):
+        project = tmp_path / "proj"
+        project.mkdir()
+        _write_project(project)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        with patch("mlserver.cli.serve.uvicorn.run") as mock_run:
+            result = runner.invoke(app, ["serve", "-C", str(project)])
+        assert result.exit_code == 0, result.stdout
+        assert mock_run.called
+        assert mock_run.call_args.kwargs.get("host") == "127.0.0.1"
