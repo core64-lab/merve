@@ -1,6 +1,6 @@
 # RFC 0001 — v1 Roadmap: Design Decisions D1–D22 and Implementation Sprint Plan
 
-- **Status:** Implemented (2026-07-04) — all of D1–D22 landed across Waves 0–2; suite at 1135 passing / 76% coverage. Release tags v0.4.0 / v0.5.0 are the user's to push.
+- **Status:** Implemented & audited (2026-07-04) — D1–D22 landed across Waves 0–2; a six-agent post-implementation audit then verified every decision against the code, tests, and docs, and its findings were fixed the same day (see §8 Amendments — including one functional break in D4's deploy-time selection). Release tags v0.4.0 / v0.5.0 are the user's to push; CHANGELOG sections are cut.
 - **Decision owner:** Alexander Herzog
 - **Scope:** All 22 design decisions from the 2026-07-03 design review, accepted as recommended. This document is the decision register and the execution plan.
 - **Baseline:** post-stabilization-sprint state — 897 tests passing / 0 failing, 64% coverage, all previously confirmed bugs fixed.
@@ -133,3 +133,115 @@ Each wave: parallel subagents with strict disjoint file ownership → orchestrat
 - Same model as the stabilization sprint: parallel subagents with disjoint file ownership per wave, orchestrator runs the verification battery between waves, review checkpoint before commits. Nothing is pushed anywhere without explicit go-ahead; tag pushes (v0.4.0/v0.5.0) are user-executed.
 - **Risks:** rename fallout in user projects (mitigated: alias entry point + migration guide); legacy tag parsing edge cases (mitigated: parametrized matrix + shim kept forever); single-image rollout surprising existing deployments (mitigated: `--per-classifier-image` escape hatch + template v2 only emitted by `init-github`, existing workflows untouched until regenerated); mass-format merge pain (mitigated: formatting is the last commit of Wave 2).
 - **Out of scope (recorded, deferred):** Python module rename `mlserver`→`merve`; prometheus multiprocess mode; PyPI publishing; auth on endpoints.
+
+---
+
+## 8. Amendments — post-implementation audit (2026-07-04)
+
+A six-agent adversarial audit verified each decision against implementation,
+tests, and docs after the waves closed. Everything below was found and fixed
+the same day. Where reality deliberately deviates from the original decision
+text, the deviation is recorded here and supersedes the text above.
+
+**A1 — D4 was functionally broken (critical).** `MLSERVER_CLASSIFIER` — the
+deploy-time selector the build-once design hangs on — was never read by
+`merve serve` (workers=1), and the workers>1 path overwrote an externally-set
+value with the config default before the uvicorn factory could read it. A
+commit image run with `-e MLSERVER_CLASSIFIER=X` silently served the default
+classifier. Fixed: resolution is `--classifier` flag > `MLSERVER_CLASSIFIER`
+env > `default_classifier`, an unknown env value aborts loudly (CLI exit 1;
+factory RuntimeError) listing available classifiers, and the daemon-gated
+integration test now proves the full loop (build once → run with the env var →
+`/healthz` serves the selected model).
+
+**A2 — D13 sys.path amendment.** The decision text said "no more
+`sys.path.insert`" / W1.7 said "no sys.path mutation". A live-smoke regression
+(predictors importing their own sibling packages, e.g. `import src.features`)
+forced a refinement: the project directory is **appended** — never
+front-inserted — to `sys.path`, so sibling imports resolve while stdlib and
+installed packages keep precedence and cannot be shadowed. This supersedes the
+D13/W1.7 wording. `merve doctor` was aligned to the same import path (it
+front-inserted before, so doctor could pass/fail differently from serve).
+
+**A3 — W1.7 `/healthz` readiness delivered.** The promised loaded/not-loaded
+distinction had never landed (handler unchanged since the initial commit).
+`/healthz` now returns `503 {"status": "loading"}` until the predictor is
+loaded, `200 {"status": "ok", "model": ...}` after.
+
+**A4 — D3 completed.** `push --version-source` is removed (was
+deprecated-only; now exits 2 with a pointer), the once-per-process
+`classifier.version` deprecation warning exists at config load, and the push
+version resolves from git tags only (tag at HEAD, else — under `--force` —
+the classifier's latest release tag; never the config).
+
+**A5 — D10 OpenAPI examples wired.** The top-level request examples lived in
+an unwired Pydantic model, so the served spec had none. The prediction routes
+now inject them via `openapi_extra` (top-level shapes first, deprecated
+wrapper last) and `/predict_proba` carries `response_model=ProbaResponse`, so
+both appear in the served OpenAPI document (asserted by tests).
+
+**A6 — D8 deviations resolved and recorded.** `--path`/`-C` now exists on
+every path-taking command (it was on 4 of 10); `--config`/positional config
+covers the rest of the resolution surface. Removed flag spellings (`-p` as
+path on version/init/init-github/doctor, `-v` as volume on run,
+`--version-source`) fail at parse time with exit 2 **and a pointer to the
+replacement**, per the decision text. Recorded deviation: project/config
+resolution stays per-command via the shared `detect_config_file` helper
+(`_app.py`) rather than a centralized Typer callback context (`_context.py`
+was never built); the callback approach added indirection without user-visible
+benefit. W2.1's named artifact `build_pipeline.py` likewise never existed —
+the pipeline logic lives in `container.py`.
+
+**A7 — D9 string sweep finished.** The generated GitHub workflow ran
+`mlserver version` and `python -m mlserver.cli build`; generated project
+READMEs and ~37 in-CLI hint strings still said `mlserver`; `merve --help`
+branded itself "ML Server". All now emit `merve`. The workflow-header version
+no longer reads the stale build-time `_version_info` snapshot (it reported
+"0.2.0") but the installed distribution version.
+
+**A8 — D16 tightened.** Pre-releases (`rc`/`a`/`b`) no longer count as
+pinnable releases (strictly `X.Y.Z`); release-pin builds skip the wheel
+build/copy entirely. Standing caveat, recorded: the pinned
+`pip install merve==X.Y.Z` assumes the build environment's index can serve
+that version — PyPI publishing is still deferred, so first releases must
+either publish or rely on the dev/wheel path.
+
+**A9 — D5 nit.** Commit images set `org.opencontainers.image.version` to the
+short git commit (they bundle all classifiers; a single classifier's config
+version was misleading). Per-classifier images keep the release version.
+
+**A10 — D15/D21 hygiene.** The dead single-stage
+`generate_dockerfile_for_classifier` + `build_all_classifiers` stub in
+`multi_classifier.py` (compilers in the runtime layer, baked env, unreachable
+from the CLI, pinned only by its own tests) were deleted with their tests.
+The four `skipif` guards in `test_schema_generator.py` with a false reason
+("module not yet implemented" — it exists) were removed;
+`test_cli_v2_workflow.py` was renamed `test_cli_workflow.py` (banned token in
+the filename); docker-gated skips now carry a date. The mock classifier repo
+gained a `requirements.txt` so daemon-gated container tests can actually
+serve the pickled model.
+
+**A11 — D19 status, precisely.** mypy was config-only (not installed, never
+run). Now: in the `dev` extra, runnable via `make typecheck` (advisory), with
+a measured baseline of 107 lenient-mode errors. Burn-down and CI gating are
+deferred and tracked here. The ruff badge was re-added to the README now that
+formatting is enforced.
+
+**A12 — D18/D20 closed by the docs pass.** CHANGELOG gained real `[0.4.0]`
+and `[0.5.0]` sections (the release procedure was unexecutable with
+everything under `[Unreleased]`); hand-maintained statistics (README test
+badges/counts, fabricated latency tables in architecture.md, stale counts in
+tests/INDEX.md) were deleted or replaced with CI-enforced invariants; the
+split-brain docs that still taught the legacy tag scheme, per-classifier
+builds, or the payload wrapper as current (README, deployment.md,
+multi-classifier.md, cli-reference.md flag rows that exited 2 if followed)
+were rewritten against the actual CLI.
+
+**A13 — W2.4 optional item consciously omitted.** `merve tag migrate
+--dry-run` (a legacy→canonical listing helper) was not built: legacy tags
+remain readable forever, so the helper adds CLI surface without a migration
+need. Recorded as intentionally dropped, not forgotten.
+
+**A14 — D12 warning coverage widened.** The legacy `global_config.yaml`
+"no longer read" warning also fires for a file in the project directory
+(`-C`-style invocations), not only the CWD.
