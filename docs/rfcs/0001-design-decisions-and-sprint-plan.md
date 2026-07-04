@@ -1,6 +1,6 @@
 # RFC 0001 — v1 Roadmap: Design Decisions D1–D22 and Implementation Sprint Plan
 
-- **Status:** Accepted (2026-07-03)
+- **Status:** Implemented (2026-07-04) — all of D1–D22 landed across Waves 0–2; suite at 1135 passing / 76% coverage. Release tags v0.4.0 / v0.5.0 are the user's to push.
 - **Decision owner:** Alexander Herzog
 - **Scope:** All 22 design decisions from the 2026-07-03 design review, accepted as recommended. This document is the decision register and the execution plan.
 - **Baseline:** post-stabilization-sprint state — 897 tests passing / 0 failing, 64% coverage, all previously confirmed bugs fixed.
