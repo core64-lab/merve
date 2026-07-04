@@ -162,10 +162,32 @@ def load_module_from_file(module_file: Path, module_name: str) -> types.ModuleTy
     return module
 
 
+def _ensure_config_dir_importable(config_dir: Optional[str]) -> None:
+    """Make the project directory importable for the predictor's own imports.
+
+    The predictor entry file is loaded in isolation (``spec_from_file_location``
+    under ``merve._user.*``) so its own module name can never shadow stdlib.
+    But the predictor still needs to import its sibling packages/modules
+    (e.g. ``import src.features``), which live in the project directory. We
+    *append* that directory to ``sys.path`` — never insert it at the front — so
+    stdlib and installed packages keep precedence and a stray local ``types.py``
+    or ``json.py`` cannot shadow them.
+    """
+    if not config_dir:
+        return
+    resolved = str(Path(config_dir).resolve())
+    if resolved not in sys.path:
+        sys.path.append(resolved)
+        logger.debug(f"Appended '{resolved}' to sys.path for predictor imports")
+
+
 def _import_predictor_module(module: str, config_dir: Optional[str]) -> types.ModuleType:
     """Import the predictor module for a spec, file-based or installed."""
     module_file = _find_local_module_file(module, config_dir)
     if module_file is not None:
+        # The predictor's transitive imports (sibling packages) resolve against
+        # the project directory.
+        _ensure_config_dir_importable(config_dir)
         try:
             return load_module_from_file(module_file, module_file.stem)
         except PredictorError:

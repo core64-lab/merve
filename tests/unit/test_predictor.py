@@ -152,17 +152,48 @@ class TestImportIsolation:
         assert hasattr(sys.modules["types"], "ModuleType")
         assert type(predictor).__module__ == f"{USER_MODULE_NAMESPACE}.types"
 
-    def test_no_sys_path_mutation(self, tmp_path):
+    def test_config_dir_appended_not_front_inserted(self, tmp_path):
+        # The project dir is made importable (so predictors can import their
+        # sibling packages) but APPENDED, never front-inserted, so stdlib and
+        # installed packages keep precedence and cannot be shadowed.
         (tmp_path / "clean_predictor.py").write_text(
             "class CleanPredictor:\n    def predict(self, X):\n        return X\n"
         )
-        path_before = list(sys.path)
 
         load_predictor("clean_predictor", "CleanPredictor", {}, config_dir=str(tmp_path))
 
-        assert sys.path == path_before
-        assert str(tmp_path) not in sys.path
-        assert str(tmp_path.resolve()) not in sys.path
+        resolved = str(tmp_path.resolve())
+        assert resolved in sys.path
+        # Must not be at the front (that is the shadowing bug we avoid).
+        assert sys.path[0] != resolved
+        # Cleanup so the temp dir doesn't linger on sys.path across tests.
+        sys.path[:] = [p for p in sys.path if p != resolved]
+
+    def test_predictor_can_import_sibling_package(self, tmp_path):
+        # Regression (found by live smoke): a real predictor imports its own
+        # sibling package (e.g. `import src.features`). That must resolve from
+        # the project directory even though the predictor file itself is loaded
+        # in isolation.
+        pkg = tmp_path / "helpers"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("SCALE = 10\n")
+        (pkg / "featureproc.py").write_text("def scale(xs):\n    return [x * 10 for x in xs]\n")
+        (tmp_path / "sibling_predictor.py").write_text(
+            "from helpers.featureproc import scale\n"
+            "from helpers import SCALE\n"
+            "\n"
+            "class SiblingPredictor:\n"
+            "    def predict(self, X):\n"
+            "        return scale(X) if SCALE else X\n"
+        )
+
+        predictor = load_predictor(
+            "sibling_predictor", "SiblingPredictor", {}, config_dir=str(tmp_path)
+        )
+        assert predictor.predict([1, 2, 3]) == [10, 20, 30]
+        # Cleanup the appended path.
+        resolved = str(tmp_path.resolve())
+        sys.path[:] = [p for p in sys.path if p != resolved]
 
     def test_import_error_in_user_file_cleans_namespace(self, tmp_path):
         (tmp_path / "broken_predictor.py").write_text("raise RuntimeError('boom at import')\n")

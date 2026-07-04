@@ -185,11 +185,16 @@ class LocalPredictor:
             assert predictor.value == 100
             assert predictor.predict([1, 2, 3]) == [100, 100, 100]
 
-            # RFC 0001 D13 isolation: no sys.path mutation, no top-level
-            # sys.modules entry - the module lives under merve._user.*
-            assert str(Path(tmpdir).resolve()) not in sys.path
+            # RFC 0001 D13 isolation: the predictor module itself lives under
+            # merve._user.* (no top-level sys.modules entry). The project dir is
+            # appended to sys.path (not front-inserted) so sibling imports work
+            # without shadowing stdlib.
+            resolved = str(Path(tmpdir).resolve())
+            assert resolved in sys.path
+            assert sys.path[0] != resolved
             assert "local_predictor" not in sys.modules
             assert "merve._user.local_predictor" in sys.modules
+            sys.path[:] = [p for p in sys.path if p != resolved]
             assert type(predictor).__module__ == "merve._user.local_predictor"
 
     def test_load_with_model_file_validation(self):
@@ -278,6 +283,10 @@ class TestPredictor:
             assert predictor.model_path == str(model_file)
             assert predictor.predict([1, 2]) == [1, 1]
 
-            # RFC 0001 D13 isolation: no sys.path/sys.modules pollution
-            assert str(Path(tmpdir).resolve()) not in sys.path
+            # RFC 0001 D13 isolation: the predictor lives under merve._user.*;
+            # the project dir is appended to sys.path (not front-inserted).
+            resolved = str(Path(tmpdir).resolve())
+            assert resolved in sys.path
+            assert sys.path[0] != resolved
             assert "predictor" not in sys.modules
+            sys.path[:] = [p for p in sys.path if p != resolved]
