@@ -33,7 +33,9 @@ jobs:
       - name: Install package with test dependencies
         run: pip install -e ".[test]"
       - name: Run test suite with coverage floor
-        run: python -m pytest tests/ --cov-fail-under=75
+        # Ratchet history (only ever raised): 60 (W0) -> 70 (W1) -> 75 (W2)
+        # -> 82 (post-audit CLI-coverage push; suite at ~88%)
+        run: python -m pytest tests/ --cov-fail-under=82
 
   lint:
     runs-on: ubuntu-latest
