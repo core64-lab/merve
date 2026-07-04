@@ -1,7 +1,6 @@
 """Unit tests for multi_classifier module."""
 
 import tempfile
-from pathlib import Path
 
 import pytest
 import yaml
@@ -9,10 +8,8 @@ import yaml
 from mlserver.config import AppConfig
 from mlserver.multi_classifier import (
     MultiClassifierConfig,
-    build_all_classifiers,
     detect_multi_classifier_config,
     extract_single_classifier_config,
-    generate_dockerfile_for_classifier,
     get_default_classifier,
     list_available_classifiers,
     load_multi_classifier_config,
@@ -262,93 +259,6 @@ server:
         """Test getting default from invalid file."""
         default = get_default_classifier("/nonexistent/path.yaml")
         assert default is None
-
-
-class TestGenerateDockerfile:
-    """Test generate_dockerfile_for_classifier function."""
-
-    def test_generate_dockerfile(self, multi_config_file):
-        """Test generating Dockerfile for classifier."""
-        multi_config = load_multi_classifier_config(multi_config_file)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            dockerfile_path = generate_dockerfile_for_classifier(multi_config, "sentiment", tmpdir)
-
-            assert Path(dockerfile_path).exists()
-            content = Path(dockerfile_path).read_text()
-            assert "sentiment" in content
-            assert "CMD" in content
-
-    def test_generate_dockerfile_nonexistent_classifier(self, multi_config_file):
-        """Test error when classifier doesn't exist."""
-        multi_config = load_multi_classifier_config(multi_config_file)
-
-        with pytest.raises(ValueError):
-            generate_dockerfile_for_classifier(multi_config, "nonexistent")
-
-    def test_generate_dockerfile_with_custom_template(self):
-        """Test generating Dockerfile with custom template."""
-        yaml_content = """
-classifiers:
-  custom:
-    predictor:
-      module: mod
-      class_name: Class
-    build:
-      dockerfile_template: |
-        FROM custom-image:latest
-        RUN echo "custom"
-"""
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write(yaml_content)
-            config_file = f.name
-
-        multi_config = load_multi_classifier_config(config_file)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            dockerfile_path = generate_dockerfile_for_classifier(multi_config, "custom", tmpdir)
-
-            content = Path(dockerfile_path).read_text()
-            assert "custom-image:latest" in content
-
-
-class TestBuildAllClassifiers:
-    """Test build_all_classifiers function.
-
-    build_all_classifiers writes generated Dockerfiles to the current working
-    directory, so these tests chdir into tmp_path to avoid polluting the repo
-    root with Dockerfile.sentiment / Dockerfile.fraud (deleted from git and
-    gitignored).
-    """
-
-    def test_build_all(self, multi_config_file, capsys, tmp_path, monkeypatch):
-        """Test building all classifiers."""
-        monkeypatch.chdir(tmp_path)
-
-        results = build_all_classifiers(multi_config_file)
-
-        assert "sentiment" in results
-        assert "fraud" in results
-        assert results["sentiment"]["status"] == "pending"
-        assert results["fraud"]["status"] == "pending"
-
-        # Dockerfiles are generated in the (temporary) working directory
-        assert (tmp_path / "Dockerfile.sentiment").exists()
-        assert (tmp_path / "Dockerfile.fraud").exists()
-
-        # Check output
-        captured = capsys.readouterr()
-        assert "sentiment" in captured.out
-        assert "fraud" in captured.out
-
-    def test_build_all_with_registry(self, multi_config_file, tmp_path, monkeypatch):
-        """Test building all with registry option."""
-        monkeypatch.chdir(tmp_path)
-
-        results = build_all_classifiers(multi_config_file, registry="ghcr.io/org")
-
-        assert results["sentiment"]["registry"] == "ghcr.io/org"
-        assert results["fraud"]["registry"] == "ghcr.io/org"
 
 
 class TestMultiClassifierEdgeCases:

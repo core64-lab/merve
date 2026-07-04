@@ -504,8 +504,11 @@ class TestWorkflowV3BuildOnce:
 
         steps = parsed["jobs"]["build-and-push"]["steps"]
         run_blocks = "\n".join(s.get("run", "") for s in steps)
-        # Build-once: exactly one `mlserver build` invocation
-        assert run_blocks.count("mlserver.cli build") == 1
+        # Build-once: exactly one `merve build` invocation (D9: the generated
+        # workflow uses the merve command, not the deprecated mlserver alias)
+        assert run_blocks.count("merve build") == 1
+        assert "mlserver.cli build" not in run_blocks
+        assert "mlserver version" not in run_blocks
 
     def test_per_classifier_alias_step_present(self):
         parsed = self._parse(self._wf())

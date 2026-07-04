@@ -2,11 +2,14 @@
 
 File-based predictor modules (a ``.py`` file next to the config) are imported
 with :func:`importlib.util.spec_from_file_location` and registered in
-``sys.modules`` under the ``merve._user.<name>`` namespace. This never mutates
-``sys.path`` and never deletes foreign ``sys.modules`` entries, so a predictor
-file named ``json.py`` or ``types.py`` loads correctly without shadowing the
-stdlib. Dotted module specs (installed packages) are imported normally via
-:func:`importlib.import_module`.
+``sys.modules`` under the ``merve._user.<name>`` namespace, and never delete
+foreign ``sys.modules`` entries — so a predictor file named ``json.py`` or
+``types.py`` loads correctly without shadowing the stdlib. The project
+directory is APPENDED to ``sys.path`` (never front-inserted; D13 amendment
+after a live-smoke regression) so the predictor's own sibling imports
+(``import src.features``) resolve while stdlib/installed packages keep
+precedence. Dotted module specs (installed packages) are imported normally
+via :func:`importlib.import_module`.
 """
 
 import importlib.util

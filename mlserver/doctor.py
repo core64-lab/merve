@@ -374,20 +374,15 @@ def check_predictor_import(
                 suggestion="Add predictor configuration to mlserver.yaml",
             )
 
-        # Try to resolve and import the module
-        import importlib
-
-        from .predictor_loader import resolve_module_path
-
-        resolved_module = resolve_module_path(module_name, project_path)
-
-        # Add project path to sys.path temporarily
-        original_path = sys.path.copy()
-        if project_path not in sys.path:
-            sys.path.insert(0, str(Path(project_path).resolve()))
+        # Import exactly the way the server does (RFC 0001 D13): file-based
+        # modules load isolated under merve._user.*, and the project dir is
+        # appended (never front-inserted) to sys.path for sibling imports —
+        # so doctor cannot pass/fail differently from `merve serve`.
+        from .errors import PredictorError
+        from .predictor_loader import _import_predictor_module
 
         try:
-            mod = importlib.import_module(resolved_module)
+            mod = _import_predictor_module(module_name, project_path)
             cls = getattr(mod, class_name)
 
             # Check for predict method
@@ -396,7 +391,7 @@ def check_predictor_import(
                     name="Predictor import",
                     status=CheckStatus.PASSED,
                     message=f"{class_name} from {module_name} importable",
-                    details={"module": resolved_module, "class": class_name, "has_predict": True},
+                    details={"module": module_name, "class": class_name, "has_predict": True},
                 )
             else:
                 return CheckResult(
@@ -405,8 +400,14 @@ def check_predictor_import(
                     message=f"{class_name} imported but has no predict() method",
                     suggestion="Ensure your predictor class has a predict(self, X) method",
                 )
-        finally:
-            sys.path = original_path
+        except PredictorError as e:
+            return CheckResult(
+                name="Predictor import",
+                status=CheckStatus.FAILED,
+                message=f"Cannot import predictor module: {e.message}",
+                suggestion=e.suggestion
+                or "Check module path and ensure all dependencies are installed",
+            )
 
     except ImportError as e:
         return CheckResult(

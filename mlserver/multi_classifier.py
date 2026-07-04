@@ -5,7 +5,6 @@ This module handles loading and managing configurations for repositories
 that contain multiple classifiers.
 """
 
-import os
 from typing import Any, Optional
 
 import yaml
@@ -267,94 +266,3 @@ def get_default_classifier(config_file: str) -> Optional[str]:
         return None
     except Exception:
         return None
-
-
-def generate_dockerfile_for_classifier(
-    multi_config: MultiClassifierConfig, classifier_name: str, output_dir: str = "."
-) -> str:
-    """Generate a Dockerfile for a specific classifier.
-
-    Args:
-        multi_config: The multi-classifier configuration
-        classifier_name: Name of the classifier
-        output_dir: Directory to write Dockerfile
-
-    Returns:
-        Path to the generated Dockerfile
-    """
-    if classifier_name not in multi_config.classifiers:
-        raise ValueError(f"Classifier '{classifier_name}' not found")
-
-    classifier_config = multi_config.classifiers[classifier_name]
-
-    # Use custom template if provided
-    if "build" in classifier_config and "dockerfile_template" in classifier_config["build"]:
-        dockerfile_content = classifier_config["build"]["dockerfile_template"]
-    else:
-        # Generate default Dockerfile
-        dockerfile_content = f"""FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    build-essential \\
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY . .
-
-# Set environment variables
-ENV MLSERVER_CLASSIFIER={classifier_name}
-
-# Run the server with specific classifier
-CMD ["merve", "serve", "--classifier", "{classifier_name}"]
-"""
-
-    # Write Dockerfile
-    dockerfile_path = os.path.join(output_dir, f"Dockerfile.{classifier_name}")
-    with open(dockerfile_path, "w") as f:
-        f.write(dockerfile_content)
-
-    return dockerfile_path
-
-
-def build_all_classifiers(
-    config_file: str, registry: Optional[str] = None, parallel: bool = False
-) -> dict[str, Any]:
-    """Build containers for all classifiers in a multi-classifier config.
-
-    Args:
-        config_file: Path to the configuration file
-        registry: Container registry URL
-        parallel: Whether to build in parallel
-
-    Returns:
-        Build results for each classifier
-    """
-    multi_config = load_multi_classifier_config(config_file)
-    results = {}
-
-    for classifier_name in multi_config.classifiers:
-        print(f"\n=== Building classifier: {classifier_name} ===")
-
-        # Generate Dockerfile
-        dockerfile_path = generate_dockerfile_for_classifier(multi_config, classifier_name)
-
-        # Build container (would integrate with existing container.py)
-        # For now, just record the intent
-        results[classifier_name] = {
-            "dockerfile": dockerfile_path,
-            "status": "pending",
-            "registry": registry,
-        }
-
-        if not parallel:
-            # In real implementation, would call build_container here
-            print(f"Would build {classifier_name} with {dockerfile_path}")
-
-    return results

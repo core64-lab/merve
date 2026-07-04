@@ -2580,6 +2580,10 @@ class TestReleasePinnedInstall:
         assert _is_release_version("0.5.0.dev19") is False
         assert _is_release_version("0.5.0+local.abc") is False
         assert _is_release_version("0.5.0.post1") is False
+        # Pre-releases cannot be pinned as reproducible releases either
+        assert _is_release_version("0.5.0rc1") is False
+        assert _is_release_version("0.5.0a1") is False
+        assert _is_release_version("0.5.0b2") is False
         assert _is_release_version("") is False
         assert _is_release_version(None) is False
 

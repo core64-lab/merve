@@ -54,7 +54,10 @@ def _normalize_git_url_to_https(url: str) -> str:
 
 
 def generate_container_labels(
-    project_path: str, classifier_name: Optional[str] = None, config: Optional["AppConfig"] = None
+    project_path: str,
+    classifier_name: Optional[str] = None,
+    config: Optional["AppConfig"] = None,
+    commit_image: bool = False,
 ) -> dict[str, str]:
     """Generate Docker labels for full container traceability.
 
@@ -162,8 +165,10 @@ def generate_container_labels(
                 if parsed["mlserver_commit"]:
                     labels["com.classifier.tag.mlserver_commit"] = parsed["mlserver_commit"]
 
-    # Fall back to the config's (display-only) version when git has no tag yet
-    if "com.classifier.version" not in labels and config is not None:
+    # Fall back to the config's (display-only) version when git has no tag
+    # yet. Never for commit images: they bundle ALL classifiers, so a single
+    # classifier's config version would be misleading.
+    if not commit_image and "com.classifier.version" not in labels and config is not None:
         config_version = None
         if getattr(config, "classifier", None):
             if isinstance(config.classifier, dict):
@@ -186,8 +191,13 @@ def generate_container_labels(
         labels["org.opencontainers.image.title"] = classifier_name
         labels["org.opencontainers.image.description"] = f"ML classifier: {classifier_name}"
 
-    # Version from classifier
-    if "com.classifier.version" in labels:
+    # Version: the classifier release version for per-classifier images. A
+    # commit image bundles every classifier, so its version IS the git commit
+    # (release versions are applied later as registry tag aliases, RFC 0001 D4)
+    if commit_image:
+        if "com.classifier.git_commit" in labels:
+            labels["org.opencontainers.image.version"] = labels["com.classifier.git_commit"][:7]
+    elif "com.classifier.version" in labels:
         labels["org.opencontainers.image.version"] = labels["com.classifier.version"]
 
     # Build timestamp
@@ -744,16 +754,17 @@ def _get_installed_mlserver_version() -> Optional[str]:
 
 
 def _is_release_version(version: Optional[str]) -> bool:
-    """True when ``version`` is a clean release (RFC 0001, D16 / W2.6).
+    """True when ``version`` is a clean final release (RFC 0001, D16 / W2.6).
 
-    A clean release carries no development/local/post markers: none of
-    ``.dev``, ``+`` (PEP 440 local version) or ``.post``. Only such versions
-    can be pinned reproducibly via ``pip install mlserver-fastapi-wrapper==X``.
-    Everything else (dev builds, local builds) is treated as non-reproducible.
+    A clean release is strictly dotted numbers (e.g. ``0.5.0``): no dev
+    (``.dev``), local (``+``), post (``.post``), or pre-release (``rc``/``a``/
+    ``b``) markers. Only such versions can be pinned reproducibly via
+    ``pip install merve==X.Y.Z``; everything else falls back to the wheel-copy
+    path with a build-time warning.
     """
     if not version:
         return False
-    return not any(marker in version for marker in (".dev", "+", ".post"))
+    return re.fullmatch(r"\d+(\.\d+)*", version) is not None
 
 
 def generate_dockerfile(
@@ -1064,7 +1075,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \\
 EXPOSE {server_port}
 
 # Set labels for metadata (comprehensive traceability)
-{_generate_label_directives(project_path, label_classifier_name, config)}
+{_generate_label_directives(project_path, label_classifier_name, config, commit_image=commit_image)}
 
 # Command to run the server
 CMD ["merve", "serve", "{config_file}"]
@@ -1074,7 +1085,10 @@ CMD ["merve", "serve", "{config_file}"]
 
 
 def _generate_label_directives(
-    project_path: str, classifier_name: Optional[str], config: Optional["AppConfig"] = None
+    project_path: str,
+    classifier_name: Optional[str],
+    config: Optional["AppConfig"] = None,
+    commit_image: bool = False,
 ) -> str:
     """Generate LABEL directives for Dockerfile from container labels.
 
@@ -1082,11 +1096,13 @@ def _generate_label_directives(
         project_path: Path to project
         classifier_name: Name of classifier
         config: AppConfig instance
+        commit_image: True for build-once commit images (bundling all
+            classifiers); affects the OCI version label
 
     Returns:
         String containing all LABEL directives, one per line
     """
-    labels = generate_container_labels(project_path, classifier_name, config)
+    labels = generate_container_labels(project_path, classifier_name, config, commit_image)
 
     label_lines = []
     for key, value in sorted(labels.items()):
@@ -1308,7 +1324,7 @@ def _prepare_container_metadata(config: "AppConfig", project_path: str) -> "Clas
     raise ConfigurationError(
         message=f"mlserver.yaml in {project_path} missing required 'classifier' section",
         suggestion=(
-            "Run 'mlserver init' to create a proper configuration, "
+            "Run 'merve init' to create a proper configuration, "
             "or add a 'classifier:' section with 'name:' and 'version:' fields"
         ),
     )
@@ -1340,8 +1356,8 @@ def _generate_container_tags(
             metadata.classifier.version = "missing-git-tag"
             print(f"⚠️  Warning: No git tag found for classifier '{classifier_name}'")
             print(
-                f"   Run 'mlserver tag --classifier {classifier_name} "
-                f"<major|minor|patch>' to create a version tag"
+                f"   Run 'merve tag <major|minor|patch> --classifier "
+                f"{classifier_name}' to create a version tag"
             )
 
     predictor_class = config.predictor.class_name if config.predictor else None
@@ -1656,11 +1672,16 @@ def _build_commit_container(
             required_files.add("requirements.txt")
         required_files_list = sorted(required_files)
 
-        # Wheel preparation (identical to the single-image path)
-        git_url = _get_mlserver_git_url()
-        wheel_file, needs_git = _handle_wheel_preparation(
-            project_path, mlserver_source_path, git_url
-        )
+        # Wheel preparation (identical to the single-image path). Release
+        # builds pin merve==X.Y.Z in the Dockerfile (RFC 0001 D16), so no
+        # wheel is built or copied for them.
+        if _is_release_version(_get_installed_mlserver_version()):
+            wheel_file, needs_git = None, False
+        else:
+            git_url = _get_mlserver_git_url()
+            wheel_file, needs_git = _handle_wheel_preparation(
+                project_path, mlserver_source_path, git_url
+            )
         existing_wheels = list(Path(project_path).glob("merve-*.whl"))
         has_wheel = bool(existing_wheels) or wheel_file is not None
 
@@ -1820,13 +1841,16 @@ def build_container(
         # Load configuration
         config = _load_container_config(project_path, config_file, classifier_name)
 
-        # Detect if installed from git
-        git_url = _get_mlserver_git_url()
-
-        # Handle wheel preparation with git URL awareness
-        wheel_file, needs_git = _handle_wheel_preparation(
-            project_path, mlserver_source_path, git_url
-        )
+        # Release builds pin merve==X.Y.Z in the Dockerfile (RFC 0001 D16),
+        # so no wheel is built or copied for them.
+        if _is_release_version(_get_installed_mlserver_version()):
+            wheel_file, needs_git = None, False
+        else:
+            # Detect if installed from git; wheel preparation is git-URL aware
+            git_url = _get_mlserver_git_url()
+            wheel_file, needs_git = _handle_wheel_preparation(
+                project_path, mlserver_source_path, git_url
+            )
         existing_wheels = list(Path(project_path).glob("merve-*.whl"))
         has_wheel = bool(existing_wheels) or wheel_file is not None
 
@@ -2187,10 +2211,19 @@ def list_images(
         return []
 
 
-def remove_images(project_path: str = ".", force: bool = False) -> dict[str, Any]:
-    """Remove Docker images for the classifier project."""
+def remove_images(
+    project_path: str = ".", force: bool = False, classifier_name: Optional[str] = None
+) -> dict[str, Any]:
+    """Remove Docker images for the classifier project.
+
+    Args:
+        project_path: Path to the project
+        force: Pass ``-f`` to ``docker rmi``
+        classifier_name: Only remove images for this classifier (same filter
+            as :func:`list_images`)
+    """
     try:
-        images = list_images(project_path)
+        images = list_images(project_path, classifier_name=classifier_name)
 
         if not images:
             return {"success": True, "message": "No images found to remove"}
