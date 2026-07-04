@@ -1,22 +1,83 @@
 # Merve
 
+[![CI](https://github.com/core64-lab/merve/actions/workflows/ci.yml/badge.svg)](https://github.com/core64-lab/merve/actions/workflows/ci.yml)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Tests](https://img.shields.io/badge/tests-1134%20passing-brightgreen.svg)](#testing)
-[![Coverage](https://img.shields.io/badge/coverage-76%25-yellowgreen.svg)](#testing)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-009688.svg)](https://fastapi.tiangolo.com/)
+[![Coverage floor](https://img.shields.io/badge/coverage-%E2%89%A575%25%20enforced%20in%20CI-brightgreen.svg)](.github/workflows/ci.yml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
 
-> **M**odel s**erve**r - Wrap any Python predictor class into a production-ready FastAPI inference API using a simple YAML configuration file.
+> **M**odel s**erve**r — wrap any Python predictor class into a production-ready
+> FastAPI inference API with one YAML file. No base classes, no model registry,
+> no platform. Your code stays yours.
 
-## What This Does
+```python
+# my_predictor.py — this is ALL merve asks of your code
+class MyPredictor:
+    def predict(self, X): ...
+    def predict_proba(self, X): ...   # optional
+```
 
-You have a Python class with `predict()` and/or `predict_proba()` methods. This tool:
+```yaml
+# mlserver.yaml
+predictor:
+  module: my_predictor
+  class_name: MyPredictor
 
-1. Wraps it in a FastAPI server with `/predict` and `/predict_proba` endpoints
-2. Adds Prometheus metrics, structured logging, and health checks
-3. Handles input validation and format conversion automatically
-4. Provides Docker containerization with version tracking
-5. Generates GitHub Actions workflows for automated CI/CD builds
+classifier:
+  name: my-classifier
+```
+
+```bash
+merve serve      # → POST /predict on :8000, with metrics, logs, and health checks
+```
+
+## Why merve instead of …?
+
+Most serving stacks make you adopt *their* world: a base class, a packaging
+format, a registry, an operator, or a whole platform. Merve inverts that — it
+adapts to a plain Python class and stays out of the way.
+
+|  | **merve** | MLflow Models | BentoML | Seldon MLServer | KServe / Seldon Core | FastAPI by hand |
+|---|---|---|---|---|---|---|
+| Predictor contract | any class with `predict()` | pyfunc flavor / logged model | `bentoml.Service` + runners | subclass their runtime | wrap in an InferenceService CRD | you write everything |
+| Config | one `mlserver.yaml` | MLmodel + env files | `bentofile.yaml` + build step | model-settings.json | Kubernetes YAML + operator | n/a |
+| Packaging | plain Docker image, auto-generated two-stage Dockerfile | `mlflow models build-docker` | bento archive → image | their image | container + CRDs | yours |
+| Multi-model monorepo with per-model release tags | **built in** (`<classifier>/vX.Y.Z` git tags, build-once/deploy-many) | registry versions, separate from your git history | one bento per service | one model-settings each | one CRD per model | yours to invent |
+| Infra required | any place a container runs | any | any (more for Yatai) | any | **Kubernetes + operator** | any |
+| Metrics, structured logs, correlation IDs, health/readiness | **on by default** | partial | partial | partial | via platform | yours to build |
+| Concurrency/backpressure semantics | explicit: bounded predictions, `503` + `Retry-After` | opaque | configurable runners | configurable | platform-level | yours |
+| Lock-in if you leave | delete one YAML | re-export models | rewrite services | rewrite runtime class | unwind CRDs/operator | none |
+
+**Where merve wins:**
+
+- **Zero-adoption predictor contract.** No inheritance, no decorators, no
+  artifact format. If it has `predict()`, it serves. Leaving merve costs you
+  one YAML file.
+- **A release trail your auditors can read.** Every deployment maps to a
+  canonical git tag `<classifier>/vX.Y.Z` in *your* repo — not to an entry in
+  a registry database. `merve tag patch --classifier fraud` is the whole
+  release ceremony.
+- **Build once, deploy many.** One image per git commit bundles every
+  classifier in the repo; the model is chosen at deploy time via
+  `MLSERVER_CLASSIFIER`. Releases are registry tag aliases on the *same
+  digest* — no rebuilds, no image sprawl, byte-identical rollbacks.
+- **Boring containers.** Two-stage Dockerfiles (compilers never reach the
+  runtime layer), OCI provenance labels, release-pinned framework installs.
+  They run on Kubernetes, ECS, Compose, or a lone VM — no operator, no CRDs,
+  no control plane.
+- **Observability without wiring.** Prometheus `/metrics`, structured JSON
+  logs with correlation IDs, health/readiness, model warmup — from the same
+  one YAML file.
+- **An honest scaling story.** Predictions are bounded
+  (`max_concurrent_predictions: 1` by default); overload returns `503` with a
+  configurable `Retry-After` so orchestrators can react. Scale with replicas,
+  not with hidden thread pools.
+
+**Where merve does not compete (on purpose):** experiment tracking and model
+registries (use MLflow — merve happily serves artifacts you tracked there),
+inference graphs/canaries/explainers on Kubernetes (Seldon Core, KServe),
+serverless GPU autoscaling (cloud platforms), and full lakehouse lifecycles
+(Databricks). Merve is the thin, inspectable serving layer — not the platform.
 
 ## Installation
 
@@ -25,6 +86,7 @@ pip install git+https://github.com/core64-lab/merve.git
 ```
 
 For development:
+
 ```bash
 git clone https://github.com/core64-lab/merve.git
 cd merve
@@ -33,10 +95,10 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
-### 1. Create Your Predictor
+### 1. Write (or keep) your predictor
 
 ```python
-# mlserver_predictor.py
+# my_predictor.py
 import joblib
 
 class MyPredictor:
@@ -44,107 +106,101 @@ class MyPredictor:
         self.model = joblib.load(model_path)
 
     def predict(self, data):
-        # data: list of dicts or numpy array
         return self.model.predict(data)
 
     def predict_proba(self, data):
         return self.model.predict_proba(data)
 ```
 
-### 2. Create mlserver.yaml
+Optional hooks merve will use if present: `load()` (called once at startup;
+a failure aborts boot so a broken model never reports ready) and `close()`
+(called at shutdown).
+
+### 2. Describe it
 
 ```yaml
+# mlserver.yaml
 predictor:
-  module: mlserver_predictor
+  module: my_predictor
   class_name: MyPredictor
   init_kwargs:
     model_path: ./model.pkl
 
 classifier:
   name: my-classifier
-  version: 1.0.0
 ```
 
-That's the minimal configuration. Server defaults to `0.0.0.0:8000`.
+The compact spec `predictor: "my_predictor:MyPredictor"` works too.
 
-### 3. Start Server
+### 3. Serve and call it
 
 ```bash
 merve serve
 ```
 
-### 4. Make Predictions
-
 ```bash
-# Single prediction
+# Single or batch — same endpoint, top-level keys
 curl -X POST http://localhost:8000/predict \
   -H "Content-Type: application/json" \
-  -d '{"payload": {"records": [{"feature1": 1.0, "feature2": 2.0}]}}'
-
-# Batch prediction (same endpoint)
-curl -X POST http://localhost:8000/predict \
-  -H "Content-Type: application/json" \
-  -d '{"payload": {"records": [
+  -d '{"records": [
     {"feature1": 1.0, "feature2": 2.0},
     {"feature1": 3.0, "feature2": 4.0}
-  ]}}'
+  ]}'
 ```
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/predict` | POST | Model predictions (single or batch) |
-| `/predict_proba` | POST | Probability predictions |
-| `/healthz` | GET | Health check |
-| `/info` | GET | Server and model metadata |
-| `/status` | GET | Detailed status information |
+| `/predict` | POST | Predictions (single or batch) |
+| `/predict_proba` | POST | Class probabilities |
+| `/healthz` | GET | `200 ok` once the model is loaded; `503 loading` before that |
+| `/info` | GET | Model + deployment metadata (git commit, tag, versions) |
+| `/status` | GET | Detailed status |
 | `/metrics` | GET | Prometheus metrics |
+| `/docs` | GET | OpenAPI UI with request examples |
+
+### Input formats
+
+Send input keys at the **top level** of the request body:
+
+```json
+{"records":  [{"age": 25, "income": 50000}]}   // records adapter (default)
+{"ndarray":  [[25, 50000]]}                    // ndarray adapter
+{"features": {"age": 25, "income": 50000}}     // single record
+```
+
+`instances` (records) and `inputs` (ndarray) are accepted aliases. The legacy
+`{"payload": {...}}` wrapper still works but is **deprecated** (one warning
+per process; removal targeted for 1.0).
 
 ## Configuration
 
-### Minimal Configuration
-
-```yaml
-predictor:
-  module: mlserver_predictor
-  class_name: MyPredictor
-  init_kwargs:
-    model_path: ./model.pkl
-
-classifier:
-  name: my-classifier
-  version: 1.0.0
-```
-
-### Full Configuration
+Everything beyond the minimal file is optional:
 
 ```yaml
 server:
   host: 0.0.0.0
   port: 8000
-  workers: 1
-  log_level: INFO
-  cors:
-    allow_origins: []
+  workers: 1                     # scale with replicas, not workers (see below)
 
 predictor:
-  module: mlserver_predictor
+  module: my_predictor
   class_name: MyPredictor
   init_kwargs:
     model_path: ./model.pkl
 
 classifier:
   name: my-classifier
-  version: 1.0.0
   description: My ML classifier
 
 api:
-  adapter: records           # records (default) | ndarray | auto
-  feature_order: [col1, col2]  # or path to JSON file
-  thread_safe_predict: false
-  max_concurrent_predictions: 1  # 0 disables the limiter
+  adapter: records               # records (default) | ndarray | auto
+  feature_order: [col1, col2]    # or a path to a JSON file
   warmup_on_start: true
+  max_concurrent_predictions: 1  # 0 disables the limiter
+  retry_after_seconds: 5         # Retry-After header on 503
+  thread_safe_predict: false
   endpoints:
     predict: true
     predict_proba: true
@@ -153,217 +209,122 @@ observability:
   metrics: true
   structured_logging: true
   correlation_ids: true
-  log_payloads: false
+  log_payloads: false            # privacy: opt-in
 ```
 
-### Multi-Classifier Configuration
+Validate any config with `merve validate`; diagnose environments with
+`merve doctor`.
 
-Serve multiple models from one repository:
+### The concurrency stance
+
+Model inference is CPU-bound; queueing requests inside one process only hides
+overload. Merve therefore **bounds concurrent predictions** (default: 1) and
+answers excess load with `503` + `Retry-After` so load balancers and
+autoscalers can do their job. Scale by adding container replicas. If you raise
+`server.workers` instead, note that each process keeps its own metrics
+registry, so `/metrics` scrapes sample one worker (merve warns about this at
+startup).
+
+## Multi-model repositories
+
+Serve many models from one repo, each with its own release trail:
 
 ```yaml
-server:
-  host: 0.0.0.0
-  port: 8000
+# mlserver.yaml
+default_classifier: sentiment
 
 classifiers:
   sentiment:
-    predictor:
-      module: sentiment_predictor
-      class_name: SentimentPredictor
-      init_kwargs:
-        model_path: ./models/sentiment.pkl
-    classifier:
-      name: sentiment
-      version: 1.0.0
-
+    predictor: {module: sentiment_predictor, class_name: SentimentPredictor}
+    classifier: {name: sentiment}
   fraud:
-    predictor:
-      module: fraud_predictor
-      class_name: FraudPredictor
-      init_kwargs:
-        model_path: ./models/fraud.pkl
-    classifier:
-      name: fraud
-      version: 2.0.0
+    predictor: {module: fraud_predictor, class_name: FraudPredictor}
+    classifier: {name: fraud}
 ```
-
-Run a specific classifier:
-```bash
-merve serve --classifier sentiment
-merve build --classifier sentiment
-```
-
-## CLI Commands
-
-```
-merve serve [config.yaml]           Start the server
-merve build --classifier <name>     Build Docker container
-merve tag <patch|minor|major> -c <name>   Create version tag
-merve push --classifier <name>      Push to container registry
-merve run --classifier <name>       Run container locally
-merve images                        List built images
-merve clean --classifier <name>     Remove built images
-merve list-classifiers              List classifiers in config
-merve version [--json]              Show version info
-merve status                        Show system status
-merve validate                      Validate configuration
-merve doctor                        Diagnose common issues
-merve test                          Test against running server
-merve init                          Initialize new project
-merve init-github                   Generate GitHub Actions workflow
-merve schema                        Generate JSON schema for mlserver.yaml
-```
-
-## Docker Containerization
-
-### Build and Run
 
 ```bash
-# Build container
-merve build --classifier my-classifier
-
-# Run locally
-merve run --classifier my-classifier
-
-# Or manually
-docker run -p 8000:8000 my-repo/my-classifier:latest
+merve serve --classifier fraud      # pick one locally
+merve list-classifiers              # see what's defined
 ```
 
-### Version Tagging
-
-Create hierarchical tags that track both classifier and mlserver versions:
+### Build once, deploy many
 
 ```bash
-# Create patch version bump (1.0.0 -> 1.0.1)
-merve tag patch --classifier my-classifier
+merve build                          # ONE image per git commit: <repo>:<sha>, <repo>:latest
+merve tag patch --classifier fraud   # canonical git tag: fraud/v1.0.1
+merve push --classifier fraud --registry ghcr.io/acme
+#   → tags the SAME image digest as acme/<repo>:fraud-v1.0.1 (no rebuild)
 
-# Push to trigger GitHub Actions
-git push --tags
+docker run -e MLSERVER_CLASSIFIER=fraud -p 8000:8000 <repo>:latest
+#   → the env var selects the model at deploy time; unknown names fail fast
 ```
 
-Tag format: `<classifier>-v<version>-mlserver-<commit>`
+The commit image bundles every classifier; a release is a registry tag alias
+on that digest. Rollbacks are exact, storage is deduplicated, and the git tag
+`fraud/v1.0.1` pins precisely which commit serves in production. Classifiers
+with conflicting dependencies can opt out via
+`merve build --per-classifier-image --classifier <name>`.
 
-Example: `my-classifier-v1.0.1-mlserver-abc123d`
-
-## GitHub Actions CI/CD
-
-Initialize the workflow:
+### CI/CD
 
 ```bash
 merve init-github
 ```
 
-This creates `.github/workflows/ml-classifier-container-build.yml` which:
+generates a GitHub Actions workflow that triggers on `<classifier>/vX.Y.Z`
+tags, builds the commit image once, smoke-tests the released classifier, and
+pushes the release aliases to GHCR or ECR (configure under
+`deployment.registry` in `mlserver.yaml`).
 
-1. Triggers on hierarchical tags
-2. Installs the exact merve version from the tag
-3. Builds and tests the container
-4. Pushes to GHCR or ECR
+## CLI
 
-Configure registry in `mlserver.yaml`:
-
-```yaml
-deployment:
-  registry:
-    type: ghcr    # or ecr
-    namespace: your-org
+```
+merve serve [config.yaml]              Start the server (-C <dir> for project dir)
+merve validate                         Validate configuration
+merve doctor                           Diagnose environment issues
+merve test --data '{"f1": 1.5}'        Smoke-test a running server
+merve build                            Build the commit image (--per-classifier-image to opt out)
+merve run --classifier <name>          Run the image locally with the model selected
+merve push --classifier <name> -r <registry>   Apply release aliases (no rebuild)
+merve tag <patch|minor|major> -c <name>        Create canonical release tag
+merve images / merve clean             List / remove built images
+merve version [--json]                 Version info
+merve status [--json]                  System status
+merve list-classifiers [--json]        Classifiers in the config
+merve init / merve init-github         Scaffold a project / CI workflow
+merve schema                           JSON schema for mlserver.yaml (IDE support)
 ```
 
-## Input Formats
-
-All requests wrap the input in a `payload` object. The default adapter is `records`; set `api.adapter: auto` to opt in to auto-detection of the input format.
-
-**Records (list of dicts, default):**
-```json
-{"payload": {"records": [{"age": 25, "income": 50000}]}}
-```
-
-**ndarray (nested lists, requires `api.adapter: ndarray` or `auto`):**
-```json
-{"payload": {"ndarray": [[25, 50000]]}}
-```
-
-The ndarray adapter also accepts an `"inputs"` key in place of `"ndarray"`. Force a specific format with `api.adapter: records` or `api.adapter: ndarray`.
+Read commands take `--json` for machine-readable output; exit codes are
+stable (`0` ok, `1` failure, `2` usage). The old `mlserver` command still
+works as a deprecated alias for one transition release.
 
 ## Observability
 
-Built-in observability at no extra configuration:
-
-- **Prometheus metrics** at `/metrics`
-- **Structured JSON logging** with correlation IDs
-- **Health checks** at `/healthz`
-- **Correlation IDs** attached to structured logs
-
-Example Prometheus + Grafana setup in `monitoring/` directory.
+- **Prometheus** metrics at `/metrics` (request rates, latencies, sample
+  counts, batch sizes)
+- **Structured JSON logs** with per-request correlation IDs
+- **Health/readiness**: `/healthz` returns `503` until the model has loaded
+- Example Prometheus + Grafana stack in `monitoring/`
 
 ## Requirements
 
-- Python 3.9+
-- Docker (for containerization)
-- Git (for version tagging)
-
-## Architecture
-
-```
-Request -> FastAPI -> InputAdapter -> Predictor.predict() -> Response
-                           |
-                    Metrics + Logging
-```
-
-## Examples
-
-See `examples/` directory for complete working examples:
-
-- Single classifier setup
-- Multi-classifier repository
-- Custom preprocessing
-- Model ensembles
+- Python 3.9+ (CI exercises 3.11 and 3.13)
+- Docker for containerization, Git for release tagging
 
 ## Testing
 
-Run the test suite:
-
 ```bash
-# Run all tests
-pytest tests/
-
-# Run with coverage
-pytest tests/ --cov=mlserver --cov-report=term-missing
-
-# Run specific test categories
-pytest tests/unit/           # Unit tests
-pytest tests/integration/    # Integration tests
+pytest tests/                          # full suite
+pytest tests/ --cov=mlserver           # with coverage (CI enforces ≥75%)
+make typecheck                         # mypy (advisory)
 ```
 
-Current status: **1134 tests passing, 0 failing**, **76% coverage**
-
-## Troubleshooting
-
-```bash
-# Validate configuration
-merve validate
-
-# Diagnose environment issues
-merve doctor
-
-# Check server status
-merve status
-```
-
-Common issues:
-
-- **Import errors**: Ensure predictor module is in Python path
-- **Memory issues**: Reduce `server.workers` (each loads full model)
-- **Slow first request**: Enable `api.warmup_on_start: true`
+See `tests/INDEX.md` for suite organization and `docs/INDEX.md` for the full
+documentation set, including the [architecture](docs/architecture.md),
+[configuration reference](docs/configuration.md), and the
+[0.5 migration guide](docs/migration-0.5.md).
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) file.
-
-## Alternatives
-
-- MLflow Models - Full ML lifecycle platform
-- BentoML - Feature-rich model serving
-- TorchServe / TensorFlow Serving - Framework-specific
-
-This tool focuses on simplicity: wrap any Python predictor with minimal configuration, no framework lock-in.
+Apache License 2.0 — see [LICENSE](LICENSE).
