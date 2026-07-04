@@ -1,4 +1,4 @@
-"""Integration tests for CLI v2 workflow using mock classifier repo."""
+"""Integration tests for the CLI workflow using the mock classifier repo."""
 
 import subprocess
 import sys
@@ -31,8 +31,22 @@ def _docker_daemon_available() -> bool:
         return False
 
 
-class TestCLIv2WorkflowIntegration:
-    """Test the complete CLI v2 workflow with mock classifier repo."""
+def _free_port() -> int:
+    """Pick an ephemeral free port.
+
+    Hardcoded ports collide with unrelated local services - Docker Desktop,
+    for one, binds :8080 and answers /healthz with 200, which fooled the
+    readiness poll and made this suite flaky.
+    """
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+class TestCLIWorkflowIntegration:
+    """Test the complete CLI workflow with the mock classifier repo."""
 
     @pytest.fixture
     def single_classifier_repo(self):
@@ -53,20 +67,20 @@ class TestCLIv2WorkflowIntegration:
     def test_single_classifier_serve(self, single_classifier_repo):
         """Test serving a single classifier."""
         # Start server in background (waits for /healthz to respond)
-        process = single_classifier_repo.serve_in_background(port=8080)
+        port = _free_port()
+        process = single_classifier_repo.serve_in_background(port=port)
 
         try:
-            # Test health endpoint
-            response = requests.get("http://localhost:8080/healthz", timeout=5)
+            # Test health endpoint (assert on OUR schema, not just any 200)
+            response = requests.get(f"http://localhost:{port}/healthz", timeout=5)
             assert response.status_code == 200
             health = response.json()
             assert health["status"] == "ok"
+            assert health["model"] == "TestPredictor"
 
-            # Test prediction
-            payload = {
-                "payload": {"records": [{"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0}]}
-            }
-            response = requests.post("http://localhost:8080/predict", json=payload, timeout=30)
+            # Test prediction (top-level canonical shape, RFC 0001 D10)
+            payload = {"records": [{"f1": 1.0, "f2": 2.0, "f3": 3.0, "f4": 4.0, "f5": 5.0}]}
+            response = requests.post(f"http://localhost:{port}/predict", json=payload, timeout=30)
             assert response.status_code == 200
             result = response.json()
             assert "predictions" in result
@@ -80,22 +94,24 @@ class TestCLIv2WorkflowIntegration:
         process1 = None
         process2 = None
         try:
+            port1, port2 = _free_port(), _free_port()
+
             # Start sentiment classifier (waits for readiness)
             process1 = multi_classifier_repo.serve_in_background(
-                classifier_name="sentiment", port=8081
+                classifier_name="sentiment", port=port1
             )
 
             # Start intent classifier (waits for readiness)
             process2 = multi_classifier_repo.serve_in_background(
-                classifier_name="intent", port=8082
+                classifier_name="intent", port=port2
             )
 
             # Test sentiment server
-            response = requests.get("http://localhost:8081/healthz", timeout=5)
+            response = requests.get(f"http://localhost:{port1}/healthz", timeout=5)
             assert response.status_code == 200
 
             # Test intent server
-            response = requests.get("http://localhost:8082/healthz", timeout=5)
+            response = requests.get(f"http://localhost:{port2}/healthz", timeout=5)
             assert response.status_code == 200
 
         finally:

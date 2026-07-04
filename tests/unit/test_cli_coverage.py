@@ -146,6 +146,19 @@ class TestPathHeuristics:
     def test_path_like_value_with_non_path_key_ignored(self):
         assert not _is_likely_file_path("threshold", "./model.pkl")
 
+    def test_dir_key_with_explicit_relative_marker_is_path(self):
+        # Regression (live smoke): base_dir: "./artifacts" was never resolved
+        # against the config dir, so serving with -C from outside the project
+        # failed with artifacts-not-found (resolution depended on the CWD).
+        assert _is_likely_file_path("base_dir", "./artifacts")
+        assert _is_likely_file_path("artifacts_dir", "../shared/artifacts")
+
+    def test_dir_key_with_bare_name_stays_untouched(self):
+        # A directory NAME the predictor joins onto its own base must not be
+        # absolutized (join(base, absolute) would discard the base).
+        assert not _is_likely_file_path("target_dir", "bundle-a[wrapper-model]")
+        assert not _is_likely_file_path("base_dir", "artifacts")
+
     def test_non_string_values_pass_through_untouched(self, tmp_path):
         kwargs = {"model_path": "./m.pkl", "n_jobs": 4, "labels": ["a"], "extra": None}
         resolved = resolve_relative_paths(kwargs, str(tmp_path))

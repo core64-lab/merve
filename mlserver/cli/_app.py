@@ -57,7 +57,16 @@ def resolve_relative_paths(init_kwargs: dict, config_dir: str) -> dict:
 def _is_likely_file_path(key: str, value: str) -> bool:
     """Check if a key-value pair likely represents a file path."""
     path_indicators = ["path", "file", "model", "preprocessor", "feature_order"]
-    key_suggests_path = any(indicator in key.lower() for indicator in path_indicators)
+    key_lower = key.lower()
+    key_suggests_path = any(indicator in key_lower for indicator in path_indicators)
+
+    # '*dir' keys (base_dir, artifacts_dir, ...) resolve only when the value
+    # carries an explicit relative marker. A bare directory NAME (e.g.
+    # target_dir: "bundle-a", joined onto base_dir by the predictor itself)
+    # must stay untouched, but './artifacts' must not silently depend on the
+    # process CWD when serving with -C from outside the project.
+    if not key_suggests_path and key_lower.endswith("dir"):
+        return value.startswith(("./", "../"))
 
     is_relative = (
         value.startswith("./")
